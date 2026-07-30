@@ -1,0 +1,46 @@
+name: Set up build dependencies
+description: Install the pinned RGBDS toolchain used to build Pokeyellow.
+
+runs:
+  using: composite
+  steps:
+    - name: Install RGBDS runtime dependencies
+      shell: bash
+      run: sudo apt-get install -yq bison libpng-dev pkg-config
+
+    - name: Restore RGBDS
+      id: rgbds-cache
+      uses: actions/cache@v5
+      with:
+        path: ~/.local/rgbds/v1.0.1
+        key: rgbds-${{ runner.os }}-${{ runner.arch }}-v1.0.1-${{ hashFiles('.github/actions/setup-build/action.yml') }}
+
+    - name: Checkout RGBDS
+      if: steps.rgbds-cache.outputs.cache-hit != 'true'
+      uses: actions/checkout@v7
+      with:
+        path: rgbds
+        ref: v1.0.1
+        repository: gbdev/rgbds
+
+    - name: Build and install RGBDS
+      if: steps.rgbds-cache.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: rgbds
+      run: make -j"$(nproc)" install PREFIX="$HOME/.local/rgbds/v1.0.1"
+
+    - name: Remove RGBDS sources
+      if: steps.rgbds-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: rm -rf rgbds
+
+    - name: Add RGBDS to PATH
+      shell: bash
+      run: echo "$HOME/.local/rgbds/v1.0.1/bin" >> "$GITHUB_PATH"
+
+    - name: Verify RGBDS version
+      shell: bash
+      run: |
+        version="$("$HOME/.local/rgbds/v1.0.1/bin/rgbasm" --version)"
+        echo "$version"
+        grep -F "v1.0.1" <<< "$version"

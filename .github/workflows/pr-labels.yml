@@ -1,0 +1,48 @@
+name: PR Labels
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  label:
+    name: Label
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Apply label from Conventional Commit type
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          case "${PR_TITLE%%:*}" in
+            feat | feat! | feat\(*\) | feat\(*\)\!) label=enhancement ;;
+            fix | fix! | fix\(*\) | fix\(*\)\!)    label=bug ;;
+            docs | docs! | docs\(*\) | docs\(*\)\!) label=documentation ;;
+            ci | ci! | ci\(*\) | ci\(*\)\! | build | build! | build\(*\) | build\(*\)\!)
+              label=tooling
+              ;;
+            *) label= ;;
+          esac
+
+          managed_labels=(bug documentation enhancement tooling)
+          for managed_label in "${managed_labels[@]}"; do
+            gh api \
+              --method DELETE \
+              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels/${managed_label}" \
+              --silent 2>/dev/null || true
+          done
+
+          if [[ -n "$label" ]]; then
+            gh api \
+              --method POST \
+              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels" \
+              --field "labels[]=$label" \
+              --silent
+          fi
