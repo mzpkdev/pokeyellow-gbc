@@ -25,7 +25,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--job",
-        choices=("lint", "audit", "build", "test", "e2e"),
+        choices=("lint", "build", "test"),
         help="Run only the selected CI job (default: run the complete workflow).",
     )
     parser.add_argument(
