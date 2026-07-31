@@ -1,191 +1,163 @@
-# Verification plan
+# Overworld verification plan
 
-Renderer validation must check stable behavior over time and across transitions.
-A single screenshot can miss one-frame corruption, stale attributes, or a bank
-restoration failure.
+## Build and ownership checks
 
-## Build checks
-
-- Release ROM.
-- Debug ROM.
-- VC ROM.
-- RGBDS warnings as errors.
-- Link-map bank-capacity assertions.
+- Release, debug, and VC builds.
 - CGB-only header validation.
-- Deterministic ROM hashes for repeated identical builds.
+- RGBDS warnings as errors.
+- Link-map capacity assertions.
+- Reviewed allowlists for `rBGPI`, `rBGPD`, `rOBPI`, `rOBPD`, `rVBK`, and
+  `rSVBK`.
+- Runtime assertion that exactly one renderer owner is active.
+- Runtime assertion that queued jobs match the current ownership generation.
 
-There are no DMG/SGB execution, old-renderer parity, binary matching, or
-old-save migration gates.
+There are no DMG/SGB, binary matching, or old-save migration gates.
 
-## Static ownership checks
+## Bank-safety matrix
 
-CI must maintain reviewed allowlists for:
-
-```text
-rBGPI / rBGPD writers
-rOBPI / rOBPD writers
-rVBK writers
-rSVBK writers
-HDMA/GDMA attribute transfers
-```
-
-The palette-register allowlist should converge on the renderer transfer
-routine. `rVBK` and `rSVBK` necessarily have more users, but every result must
-preserve its incoming bank or have a documented whole-program precondition.
-
-## Bank-safety tests
-
-Invoke renderer entry points while:
+Trigger map rendering and handoffs while:
 
 - a non-default ROM bank is active;
 - WRAM bank 2 is active;
 - another valid WRAM bank is active;
 - VRAM bank 1 is active;
-- an interrupt occurs during a far call; and
-- a palette request is pending across soft reset.
+- an interrupt occurs during a far call;
+- a map transfer is pending; and
+- a palette upload is pending.
 
-Assert restoration of:
+Assert restoration of ROM, WRAM, VRAM, stack, interrupt state, owner, and dirty
+flags.
 
-- `hLoadedROMBank` and `rROMB`;
-- `rSVBK`;
-- `rVBK`;
-- stack pointer;
-- interrupt-enable state; and
-- renderer dirty flags.
+## Timing matrix
 
-## Timing tests
+Measure:
 
-Instrument cycle or scanline usage for:
+- LCD interrupt with scanline overrides off and on;
+- VBlank with each owner;
+- BG-only, OBJ-only, and combined overworld uploads;
+- horizontal and vertical attribute streaming;
+- connected-map streaming;
+- third-screen overlay transfer;
+- full map reconstruction; and
+- OAM construction with maximum visible overworld objects.
 
-- LCD preparation with scanline overrides disabled;
-- LCD preparation with overrides enabled;
-- VBlank with no renderer work;
-- BG-only palette upload;
-- OBJ-only palette upload;
-- both palette uploads;
-- horizontal attribute redraw;
-- vertical attribute redraw;
-- automatic third-screen transfer; and
-- OAM construction with the maximum visible objects.
+Force insufficient time and confirm whole jobs defer safely.
 
-Force insufficient time and verify work is deferred without a partial update.
-
-## Overworld matrix
+## Tileset and map matrix
 
 For every tileset:
 
-- initial entry;
-- return from a menu;
-- close dialogue;
-- horizontal walking;
-- vertical walking;
-- bicycle or movement-mode transition where supported;
-- warp within the same tileset;
-- warp to a different tileset;
-- animated tiles; and
-- text/font tile fallback.
+- first entry;
+- return from a standalone screen;
+- horizontal and vertical movement;
+- same-tileset and different-tileset warps;
+- dialogue;
+- start-menu overlay;
+- tile reload; and
+- animated tile behavior.
 
-Additional cases:
+Special coverage:
 
 - every Fly destination;
 - all four connected-map directions;
-- Route 6/Saffron roof boundary;
-- town-specific roof colors;
+- town roofs and Route 6/Saffron boundary;
 - Celadon Mart overrides;
 - Vermilion Dock/SS Anne transition;
-- caves and escape/warp transitions;
+- caves and dungeon warps;
 - Pokémon Center healing;
-- cut tree and boulder;
+- cut and boulder;
 - fishing and ledge shadow;
 - Beach House; and
-- follower Pikachu entering, leaving, hiding, and respawning.
+- follower Pikachu hide, show, move, and respawn.
 
-## Palette command matrix
+## Overlay matrix
 
-For each command:
+Under full-color overworld ownership:
 
-1. enter from the overworld;
-2. enter after a different static command;
-3. fade out and in;
-4. force black and white;
-5. update only BGP;
-6. update only OBP0;
-7. update only OBP1;
-8. return to the default command; and
-9. observe at least five frames before and after transition.
+- NPC dialogue;
+- signs;
+- yes/no prompts;
+- list menus;
+- start menu open/close;
+- field-move prompts;
+- item messages; and
+- text boxes near map edges and connection boundaries.
 
-Validate all command IDs listed in `SPEC.md`, including `$fc` and `$ff`.
+Validate terrain and overlay attributes for at least five frames before,
+during, and after each operation.
 
-## Battle matrix
+## Handoff matrix
 
-- Wild and trainer battles.
-- Player and enemy species with visibly distinct palettes.
-- Player and enemy HP: green, yellow, and red.
-- EXP gain and level-up.
-- Player and enemy switching.
-- Transform in both directions.
-- Substitute.
-- Status effects.
-- Capture with Poké, Great, Ultra, Master, and Safari Balls.
-- Ghost Marowak.
-- Old Man tutorial.
-- Link battle and link trade.
-- Every battle transition.
-- Both animation tilesets.
-- At least one move of every type.
-- Multi-turn and persistent effects such as Leech Seed.
-- Healing items and trainer AI healing.
-- Run, blackout, victory, loss, and Hall of Fame exits.
+Enter each representative Yellow-owned scene from the overworld, assert the
+owner changes before screen initialization, then return and assert a complete
+map rebuild:
 
-## Yellow-exclusive matrix
+- wild and trainer battle;
+- party and status;
+- Pokédex;
+- town map;
+- naming and PC;
+- title/intro paths reachable through reset or new game;
+- slots;
+- trade/link room;
+- printer;
+- evolution/Hall of Fame;
+- Pikachu picture/emotion screen; and
+- Surfing Pikachu.
 
-- Splash sequence.
-- Title sequence and every animated object phase.
-- Full Yellow intro.
-- Oak speech.
-- Pikachu front-picture animation.
-- Pikachu emotion viewer and all emotion classes.
-- Follower Pikachu movement in all directions and animation states.
-- Pikachu entrance battle animation.
-- Pikachu's Beach title.
-- Surfing Pikachu gameplay, pause, results, retry, and exit.
-- Yellow credits.
-- Printer success, failure, and cancel paths.
+The goal is not to recolor these scenes. The goal is to prove isolation and
+correct return.
 
-## Persistence and external systems
+Stress:
 
-- New game and continue.
-- Save/load in multiple tilesets.
-- Soft reset on overworld and static screens.
-- Serial link initialization and teardown.
-- Trade Center and Colosseum.
-- Printer serial behavior.
-- Audio continuity during long attribute/palette transfers.
-- Poison and low-HP effects during transitions.
+- rapid repeated menu open/close;
+- battle immediately after a map transition;
+- soft reset under each owner;
+- blackout and warp return;
+- serial/link initialization;
+- save/load in multiple tilesets; and
+- queued map work cancelled by a handoff.
 
-## Visual assertions
+## Overworld OAM matrix
 
-Automated captures should include:
+- Player walking, running, biking, surfing, fishing, and ledge states.
+- Follower Pikachu in all directions and animation states.
+- Maximum visible NPC population.
+- Static NPCs and item balls.
+- Cut tree and boulder movement.
+- Dust/smoke.
+- Healing machine.
+- Emotion bubbles.
+- Objects under grass/priority tiles.
 
-- raw BG map 0 and BG map 1 tile IDs;
-- corresponding VRAM bank 1 attributes;
-- all BG and OBJ palette RAM;
-- shadow OAM and hardware OAM;
-- active renderer mode and dirty flags; and
-- five-frame image sequences around transitions.
+Capture shadow OAM, hardware OAM, OBJ palettes, and multi-frame images.
 
-Compare semantic state as well as pixels. Pixel equality alone cannot identify
-whether a correct-looking frame was produced by stale attributes.
+## Visual and semantic captures
+
+Automated captures should record:
+
+- BG map tile IDs;
+- VRAM-bank-1 attributes;
+- BG and OBJ palette RAM;
+- shadow and hardware OAM;
+- owner and ownership generation;
+- dirty and queued transfer state; and
+- image sequences around overlays and handoffs.
+
+A correct-looking single frame is insufficient because it can contain stale
+attributes from the previous owner.
 
 ## Completion report
 
-The final implementation PR must include:
+The final implementation PR must report:
 
-- build results;
-- hardware-writer audit results;
-- bank and timing measurements;
-- command coverage;
-- overworld, battle, and Yellow-exclusive matrix results;
-- known visual-content differences from RGB;
+- builds and header validation;
+- hardware-writer audit;
+- bank-stress results;
+- timing measurements;
+- all tileset/map coverage;
+- overlay coverage;
+- handoff coverage;
+- overworld OAM coverage;
 - emulator versions; and
-- any tests not run on physical CGB hardware.
+- physical CGB tests not performed.

@@ -1,416 +1,358 @@
-# Full-color renderer replacement
+# Full-color overworld renderer replacement
 
 Status: proposed
 
 Target: `pokeyellow`
 
-Donor architecture: `pokemon-rgb`
-Scope: complete replacement of Yellow's CGB palette and attribute renderer
+Donor architecture: the overworld portion of `pokemon-rgb`
+
+Scope: complete replacement of Yellow's overworld renderer only
 
 ## 1. Purpose
 
-Replace Pokémon Yellow's existing four-palette, SGB-packet-derived CGB renderer
-with one authoritative renderer based on the `pokemon-rgb` architecture.
+Replace Pokémon Yellow's overworld rendering pipeline with an authoritative
+renderer based on `pokemon-rgb`.
 
-The replacement must provide:
+The replacement owns the complete overworld scene:
 
-- eight simultaneous background palettes and eight object palettes;
-- per-tile overworld palette selection;
-- coordinate-based palette maps for battles, menus, and special screens;
-- per-character overworld object palettes;
-- per-tile and per-move battle-animation object palettes;
-- species- and trainer-specific picture palettes;
-- buffered, synchronized palette updates;
-- preservation of the original `BGP`, `OBP0`, and `OBP1` fade semantics; and
-- complete coverage of Yellow-exclusive screens and Pikachu systems.
+- eight CGB background palettes;
+- per-tile BG and window attributes;
+- map loading, scrolling, connections, and tile reloads;
+- dialogue and transient menu overlays that return directly to the map;
+- eight CGB object palettes; and
+- player, follower Pikachu, NPC, and map-object OAM palette selection.
 
-This is an engine transplant. It is not an optional overworld overlay and must
-not depend on restoring attributes after Yellow's renderer overwrites them.
+Yellow's existing renderer continues to own battles and standalone screens.
+This is not the failed hybrid design: the two renderers may exist in the ROM,
+but they never own the same active scene at the same time.
 
-## 2. Background
+Supporting analysis:
 
-Yellow already has a CGB compatibility renderer:
-
-- `NUM_ACTIVE_PALS` is four;
-- SGB palette packets select four base palettes;
-- those base palettes are converted through the current DMG shade registers;
-- canned attribute maps are copied into VRAM bank 1 for special screens; and
-- most palette changes synchronously wait for accessible VRAM and write
-  directly to CGB palette registers.
-
-That design is coherent for Yellow's original whole-screen tinting but cannot
-be the co-owner of a full-color attribute map. A previous hybrid experiment
-kept the existing renderer and added per-tile overworld writes around it. That
-created two owners for VRAM bank 1 and required restoration hooks after map
-loads, scrolling, dialogue, menus, and palette commands. The replacement
-specified here eliminates that ownership conflict.
-
-See:
-
-- [Architecture](docs/architecture.md)
+- [Architecture and ownership](docs/architecture.md)
 - [Replacement inventory](docs/replacement-inventory.md)
-- [Failure analysis](docs/failed-hybrid-analysis.md)
+- [Failed hybrid analysis](docs/failed-hybrid-analysis.md)
 - [Migration plan](docs/migration-plan.md)
 - [Verification plan](docs/verification-plan.md)
 
-## 3. Architectural decision
+## 2. Scope
 
-### 3.1 Single renderer
+### 2.1 Included
 
-The new renderer is the sole authority for:
+- CGB-only startup; backward compatibility is not required.
+- A named renderer ownership state.
+- RGB-style bank-2 WRAM state needed by the overworld renderer.
+- RGB-style eight-palette BG and OBJ storage and buffered updates while the
+  overworld renderer owns the scene.
+- Tile-ID-to-attribute tables for all 25 Yellow tilesets.
+- Town roof and reviewed map-specific palette overrides.
+- Initial map draw, map reload, streamed rows and columns, connected maps,
+  animated tiles, text, dialogue, and map-backed menus.
+- Overworld OAM palettes, including follower Pikachu.
+- Clean handoff to Yellow before any non-overworld scene.
+- Complete reconstruction of RGB overworld state after returning to a map.
 
-1. base BG and OBJ RGB555 palette data;
-2. transformed palettes after applying DMG shade registers;
-3. VRAM bank 1 BG/window attributes;
-4. palette bits in all OAM entries; and
-5. dirty state and timing of palette transfers.
+### 2.2 Excluded
 
-No legacy routine may independently copy a canned attribute map or write
-`rBGPI`, `rBGPD`, `rOBPI`, or `rOBPD` after the replacement is complete.
-Exceptional direct writes must be documented, timing-safe, and owned by the
-new renderer.
+The following remain on Yellow's existing renderer:
 
-### 3.2 CGB-only target
+- battle backgrounds, HUD, Pokémon, trainers, transitions, and animations;
+- title, splash, Oak speech, Yellow intro, and credits;
+- party, status, Pokédex, town map, trainer card, naming, and PC screens;
+- evolution, Hall of Fame, and trade presentation;
+- slots, printer screens, and link-room presentation;
+- Pikachu front-picture and emotion-picture screens;
+- Pikachu's Beach title and Surfing Pikachu gameplay; and
+- all other standalone screens that replace the map scene.
 
-The completed renderer is CGB-only, matching `pokemon-rgb`:
+Follower Pikachu is included because it is part of overworld OAM.
 
-- change the cartridge flag from CGB-compatible (`rgbfix -c`) to CGB-only
-  (`rgbfix -C`);
-- reject non-CGB startup with a deterministic error path;
-- enter CGB double-speed mode during initialization; and
-- use CGB WRAM banking and VRAM attributes unconditionally after startup.
+### 2.3 No backward-compatibility requirement
 
-DMG and SGB compatibility are not part of this replacement. Retaining the old
-renderer as a fallback would preserve the dual-renderer ownership problem and
-would no longer constitute a complete swap. A future compatibility project may
-add a separately designed fallback after the new renderer is stable.
-
-### 3.3 No backward-compatibility requirement
-
-The replacement does not need to preserve:
+The project does not need to preserve:
 
 - DMG or SGB execution;
-- the old renderer as a runtime fallback;
-- old palette implementation APIs or calling conventions;
-- old CGB visual output;
-- ROM binary layout or matching ROM hashes;
-- renderer-specific RAM layout;
-- save compatibility when implementation work requires a save-format change;
-  or
-- compatibility with the failed full-color-overworld implementation.
+- the failed full-color-overworld implementation;
+- ROM binary layout or matching hashes;
+- old renderer-specific RAM layout;
+- visual parity for the overwritten overworld renderer;
+- old save compatibility if a save-format change is genuinely useful; or
+- old internal overworld-renderer APIs.
 
-Gameplay behavior unrelated to rendering remains in scope for regression
-protection, but backward compatibility must not constrain renderer ownership or
-architecture.
+Non-overworld gameplay and presentation must remain functionally intact because
+they are deliberately outside this replacement, not because of compatibility
+with the old overworld renderer.
 
-### 3.4 Transitional adapters
+## 3. Architectural decision
 
-Existing call sites may continue to invoke these public APIs while migration is
-in progress:
+### 3.1 Scene-bounded ownership
 
-- `RunPaletteCommand`
-- `UpdateCGBPal_BGP`
-- `UpdateCGBPal_OBP0`
-- `UpdateCGBPal_OBP1`
+The active owner is always exactly one of:
 
-Their implementations may temporarily become adapters to the new renderer.
-Adapters exist only to split implementation into reviewable stages; preserving
-their signatures is not a final requirement. Every transitional adapter must
-have a removal stage and must be deleted when its callers migrate.
+```text
+RENDERER_YELLOW
+RENDERER_FULL_COLOR_OVERWORLD
+```
 
-## 4. Required behavior
+When `RENDERER_FULL_COLOR_OVERWORLD` is active, the new renderer exclusively
+owns:
 
-### R1. Startup and memory
+1. all eight BG palette slots;
+2. all eight OBJ palette slots used by the map scene;
+3. BG/window VRAM-bank-1 attributes;
+4. OAM palette bits for overworld objects;
+5. palette dirty state and overworld palette transfers; and
+6. all tile/attribute transfers that can alter the visible map scene.
 
-- Detect CGB hardware before any banked-WRAM access.
-- Enter double-speed mode exactly once per hard boot.
-- Reserve a named WRAMX section in bank 2 for all renderer state.
-- Clear renderer-owned WRAM on hard boot and soft reset.
-- Preserve and restore `rSVBK` across every interrupt and every renderer entry
-  point that can be called with an unknown WRAM bank.
-- Preserve and restore `rVBK` across interrupts and public renderer calls.
-- Keep the stack in the default WRAM bank; do not place renderer state close to
-  a banked stack alias.
+Yellow's renderer must not copy canned attributes or directly refresh palette
+hardware during that ownership interval.
 
-The proposed state layout is defined in
-[architecture.md](docs/architecture.md#memory-model).
+When `RENDERER_YELLOW` is active, the new renderer performs no palette or
+attribute writes. Yellow continues to render non-overworld scenes unchanged.
 
-### R2. ROM banking
+### 3.2 What counts as the overworld scene
 
-- Do not use RGB's bank `$2c`; Yellow stores Text 7 there.
+An operation remains under full-color overworld ownership when it temporarily
+draws over the map and expects to reveal that same map without a complete scene
+load:
+
+- dialogue and text boxes;
+- the map-backed start menu;
+- yes/no and list overlays;
+- sign and NPC interactions;
+- field-move prompts; and
+- any transient window using the map as its backing scene.
+
+These overlays must use renderer-owned attribute generation. They must not ask
+Yellow to paint attributes and then restore map color afterward.
+
+A standalone screen triggers a handoff to Yellow when it rebuilds the screen
+and has its own palette command, tilemap, or presentation lifecycle. Returning
+from that screen must reconstruct the overworld palette and attribute state
+from authoritative map data, not copy back stale VRAM.
+
+### 3.3 Handoff protocol
+
+#### Entering or rebuilding the overworld
+
+1. Stop or drain pending Yellow palette/attribute transfers.
+2. Set the active owner to `RENDERER_FULL_COLOR_OVERWORLD`.
+3. Select the tileset palette set and tile attribute table.
+4. Load all eight overworld BG and OBJ base palettes.
+5. Build tile IDs and attributes through the paired transfer path.
+6. Mark palette buffers dirty.
+7. Present the complete map scene on a safe frame.
+
+#### Leaving the overworld
+
+1. Prevent new overworld transfer requests.
+2. Drain or cancel pending overworld work at a defined safe point.
+3. Set the active owner to `RENDERER_YELLOW`.
+4. Invoke the destination's ordinary Yellow palette command and screen setup.
+
+#### Returning to the overworld
+
+Run the complete entering protocol. No correctness may depend on attributes or
+palettes surviving the non-overworld scene.
+
+## 4. Requirements
+
+### R1. CGB-only foundation
+
+- Change the cartridge from CGB-compatible to CGB-only.
+- Reject non-CGB startup deterministically.
+- Enter double-speed mode once during hard boot.
+- Remove runtime DMG/SGB selection where it affects the overworld path.
+- Do not retain an old-overworld fallback or feature toggle.
+
+Yellow's non-overworld CGB renderer may retain now-constant CGB checks until
+cleanup; removing every such branch is not required by this project.
+
+### R2. WRAM and bank safety
+
+- Reserve a named WRAMX bank-2 section for overworld renderer state.
+- Clear that state on hard boot and soft reset.
+- Preserve and restore `rSVBK` across interrupts and public renderer calls.
+- Preserve and restore `rVBK` across interrupts and renderer calls.
+- Never return to Yellow code with bank 2 selected accidentally.
+- Never place renderer state where it aliases the active stack.
+
+### R3. ROM banking
+
+- Do not use RGB bank `$2c`; Yellow stores Text 7 there.
 - Do not import RGB's bank `$31` binary; Yellow stores Pikachu cries there.
-- Do not assume RGB's bank `$1c` extension has compatible free space.
-- Place the initial renderer in Yellow's empty bank `$3b`.
-- Spill into explicitly measured free space or expand the ROM only after the
-  map file proves bank `$3b` insufficient.
-- Convert MBC1-specific donor code to Yellow's MBC5 banking API (`rROMB`,
-  `hLoadedROMBank`, and `Bankswitch`/far-call conventions).
-- Interrupt-time far calls must restore the interrupted ROM bank even if the
-  interrupt occurs inside another far-call wrapper.
+- Do not assume RGB's `$1c` extension has compatible free space.
+- Use Yellow's empty bank `$3b` as the first renderer bank.
+- Convert donor MBC1 assumptions to Yellow's MBC5 far-call conventions.
+- Preserve interrupted ROM-bank state during renderer work.
 
-### R3. Palette model
+### R4. Overworld palette model
 
-- Store eight four-color RGB555 base BG palettes.
-- Store eight four-color RGB555 base OBJ palettes.
-- Maintain separate transformed 64-byte BG and OBJ buffers.
-- Treat `BGP`, `OBP0`, and `OBP1` as four-entry shade-remapping tables.
-- Rebuild transformed buffers when a base palette changes, a DMG shade register
-  changes, or a force-update flag is set.
-- Preserve the RGB convention that OBJ palettes 0-3 use `OBP0` semantics and,
-  when requested by the active scene, OBJ palettes 4-7 use `OBP1` semantics.
-- Support forced all-white and all-black states without losing base palettes.
-- Palette commands must alter base state and dirty flags, never race direct
-  hardware writes against VBlank.
+- Store eight four-color RGB555 BG palettes.
+- Store eight four-color RGB555 OBJ palettes.
+- Maintain transformed 64-byte BG and OBJ output buffers.
+- Apply `BGP`, `OBP0`, and `OBP1` shade remapping without destroying base data.
+- Support all-white, all-black, fades, flashes, and poison/transition effects
+  that occur while the overworld is visible.
+- Palette requests must update base state or dirty flags, not race unscheduled
+  direct hardware writes.
+- Yellow palette-update wrappers must dispatch by active owner: new renderer
+  while in the overworld, Yellow renderer otherwise.
 
-### R4. Background and window attributes
+### R5. Tile attribute model
 
-Support two explicit attribute modes:
+- Use a 256-byte tile-ID-to-CGB-attribute lookup while rendering maps.
+- Define tiles `$00-$5f` per tileset.
+- Default `$60-$ff` to a deliberate text/window attribute unless explicitly
+  assigned.
+- Preserve the full attribute byte: palette, tile bank, flips, and priority.
+- Generate dialogue and transient-menu attributes from explicit overlay rules,
+  not by allowing Yellow's canned screen attributes to overwrite the map.
 
-1. **Tile lookup mode:** each tile ID indexes a 256-byte attribute table.
-2. **Static screen mode:** each visible coordinate reads a 20×18 attribute
-   grid.
+The new renderer does not need RGB's general 20×18 static-screen mode because
+standalone static screens remain owned by Yellow. A small renderer-owned
+overlay grid or prepared window buffer may be used where map-backed windows
+need coordinate-specific attributes.
 
-The active mode must be set by the palette command that owns the screen.
+### R6. Paired transfer coverage
 
-Every path that writes tile IDs to a BG or window tilemap must also write the
-matching attribute bytes:
+Every tile-writing path active during overworld ownership must commit matching
+attributes through the same primitive or a serialized paired primitive:
 
-- initial map load while LCD is disabled;
-- streamed horizontal and vertical map redraws;
-- connected-map edge redraws;
-- automatic one-third window/tilemap transfers;
-- explicit `TransferBgRows` operations;
-- text and dialogue windows;
-- menu open, close, and restoration;
-- full tile reloads;
-- battle tilemap setup and transitions;
-- title/intro tilemaps;
-- trade, slots, printer, and minigame tilemaps; and
-- alternate BG map destinations (`$9800` and `$9c00`).
+- initial map load with LCD disabled;
+- full map and tileset reload;
+- horizontal and vertical streamed redraw;
+- all four connected-map edges;
+- automatic one-third tilemap/window transfers;
+- explicit `TransferBgRows`;
+- text and dialogue;
+- start-menu and map-backed window open/close;
+- animated water, flowers, and replacement tiles;
+- map transitions that use `$9800` or `$9c00`; and
+- field effects that alter BG tiles.
 
-Tile attribute values must preserve:
+No gameplay-level "restore full-color attributes" hooks are permitted.
 
-- palette index in bits 0-2;
-- VRAM tile bank in bit 3 when deliberately used;
-- horizontal/vertical flip bits when deliberately used; and
-- BG priority in bit 7.
-
-The implementation must not add scattered post-hoc restoration calls. Tile and
-attribute writes belong in the same transfer primitive or in a paired,
-serialized transfer owned by the renderer.
-
-### R5. Overworld palette data
+### R7. Tileset data
 
 - Define eight-palette sets for all 25 Yellow tilesets.
-- Port RGB assignments for the 24 structurally matching tilesets only after
-  confirming Yellow's tile graphics and IDs.
-- Create a native assignment for Yellow's `BEACH_HOUSE`; RGB's slot 24 is
-  `SAFARI` and is not compatible.
-- Assign tiles `$00-$5f` explicitly and default `$60-$ff` to the text palette
-  unless a screen declares otherwise.
-- Handle town-specific roof colors without duplicating the overworld tileset.
-- Document and test every map-specific tile override.
-- Treat animation tile replacement as a palette invariant: replacement frames
-  must keep compatible pixel indices or update their attributes/palettes.
+- Audit RGB assignments against Yellow tile graphics before reuse.
+- Create a native `BEACH_HOUSE` assignment; RGB slot 24 is `SAFARI`.
+- Assert `NUM_TILESETS` table lengths.
+- Assert exactly `$60` assignments per tileset.
+- Document town roofs and every map-specific override.
+- Verify animated replacement frames retain compatible 2bpp color indices.
 
-### R6. Static screens and palette commands
+### R8. Overworld OAM
 
-Implement a Yellow-native command for every existing command ID:
+- Insert palette bits during authoritative OAM construction.
+- Preserve priority, flips, tile VRAM bank, and control flags.
+- Assign palettes by overworld picture identity with deterministic fallback.
+- Preserve Yellow's `hPikachuSpriteVRAMOffset` tile calculation.
+- Cover the player, follower Pikachu, NPCs, item balls, cut trees, boulders,
+  dust, healing machine, fishing rod, ledge shadow, and emotion bubbles that
+  appear over the map.
+- Keep OAM work within measured frame budget and avoid sprite wobble.
 
-| ID | Command | Required treatment |
-|---:|---|---|
-| `$00` | battle black | both palette banks black; attributes remain valid |
-| `$01` | battle | player/enemy pictures, HP bars, EXP bar, textbox |
-| `$02` | town map | map regions, cursor/object palettes |
-| `$03` | status | species picture, HP bar, EXP bar, text |
-| `$04` | Pokédex | species picture and data/text regions |
-| `$05` | slots | static BG grid and object tile assignments |
-| `$06` | title | Yellow title layout and animated objects |
-| `$07` | Nidorino intro | Yellow intro object/BG ownership |
-| `$08` | generic | text-safe neutral screen |
-| `$09` | overworld | tile lookup mode and overworld OBJ palettes |
-| `$0a` | party | per-row HP bars and party icon palettes |
-| `$0b` | whole-screen Pokémon | evolution, trade, Hall of Fame |
-| `$0c` | Game Freak intro | logo and sparkle palettes |
-| `$0d` | trainer card | portrait, badge, border, and text regions |
-| `$0e` | Surfing Pikachu title | Yellow-native static map and OBJ palettes |
-| `$0f` | Surfing Pikachu minigame | Yellow-native dynamic ownership |
-| `$fc` | party HP update | update one row without resetting the screen |
-| `$ff` | default | dispatch to the recorded scene command |
+Non-overworld OAM, party icons, battle animations, and picture sprites remain
+unchanged.
 
-Additional internal commands may be introduced for naming, Oak speech,
-post-black battle restoration, and other scenes where RGB separates states.
-Existing numeric IDs must not silently change without updating every caller.
+### R9. Interrupt and transfer scheduling
 
-### R7. Pokémon and trainer pictures
+- Compose renderer preparation with Yellow's existing LCD scanline handler;
+  do not replace `wLYOverrides` behavior.
+- Route VBlank palette work according to the active owner.
+- Do not run overworld palette or attribute transfers under Yellow ownership.
+- Check that sufficient safe time remains before starting an upload.
+- Leave dirty work pending when a deadline is missed.
+- Serialize map row/column attributes against palette uploads.
+- Restore ROM, WRAM, and VRAM banks on every exit path.
 
-- Resolve internal species IDs through Pokédex order before palette lookup.
-- Preserve Yellow's special Pikachu palettes and front-picture animation.
-- Provide correct player, rival, trainer-class, Old Man, ghost, fossil, and
-  substitute palettes.
-- Retain the active player's palette across Transform.
-- Define whether front and back pictures share a palette or use separate lookup
-  functions.
-- Ensure palette selection remains correct in link battles where local trainer
-  state is unreliable.
+RGB's exact scanline constants are reference values, not automatically correct
+for Yellow.
 
-### R8. Overworld objects
+### R10. Non-overworld isolation
 
-- Insert the palette index into each OAM attribute during OAM construction,
-  preserving priority, flip, tile-bank, and end-of-data flags.
-- Assign palettes by overworld picture ID with documented deterministic
-  fallback behavior.
-- Preserve Yellow's `hPikachuSpriteVRAMOffset` calculation and follower
-  animation layout.
-- Give the player, follower Pikachu, NPCs, item balls, boulders, cut trees,
-  healing machine, dust, fishing rod, ledge shadow, and emotion bubbles
-  deliberate assignments.
-- Reload the eight OBJ base palettes when the active environment changes.
-- OAM construction must remain within its frame budget and must not introduce
-  visible sprite wobble.
+- Battles and standalone screens must continue using Yellow's current palette
+  and canned/static attribute behavior.
+- Entering those scenes must perform the explicit ownership handoff first.
+- No new RGB battle, menu, animation, Pokémon-picture, or minigame palette data
+  is imported.
+- Smoke tests must prove the ownership switch did not leave bank state, dirty
+  flags, interrupts, or palette wrappers in an invalid state.
+- Returning to a map always rebuilds full-color state.
 
-### R9. Non-overworld objects and animations
+### R11. Removal of the old overworld path
 
-- Maintain a 256-byte tile-ID-to-OBJ-palette assignment table.
-- Support fixed palette IDs, type-derived attack colors, "preserve current
-  palette", and explicitly documented special selectors.
-- Port or regenerate palette maps for both battle-animation tilesets.
-- Handle Poké Ball types, status effects, Leech Seed, trade cable, ghost
-  Marowak, HUD Poké Balls, party icons, intro sparkles, slots, and healing
-  animations.
-- Audit every Yellow routine that currently calls `UpdateCGBPal_OBP0` or
-  `UpdateCGBPal_OBP1`; classify it as base-palette mutation, fade remap, scene
-  transition, or obsolete direct refresh.
+After the replacement passes:
 
-### R10. Yellow-exclusive systems
+- remove Yellow's whole-screen overworld tint selection from
+  `SetPal_Overworld`;
+- remove old overworld attribute/palette writes;
+- remove the failed feature toggle and restoration hooks if present in the
+  implementation base;
+- remove transitional overworld adapters after callers migrate; and
+- add CI searches preventing unauthorized VRAM-bank-1 or palette writers while
+  `RENDERER_FULL_COLOR_OVERWORLD` is active.
 
-The following require native implementations rather than RGB copies:
+Do not delete Yellow rendering code still used by excluded scenes.
 
-- Yellow splash and title sequences;
-- the full `intro_yellow` animation;
-- Oak speech Pikachu animation;
-- Pikachu front-picture and emotion animations;
-- follower Pikachu OAM, including temporary disappearance and respawn;
-- Pikachu's Beach title;
-- Surfing Pikachu gameplay, HUD, result screens, and transitions;
-- Beach House tileset;
-- Yellow credits palette changes;
-- Yellow-specific healing, cut, dust, and companion emotion objects;
-- printer behavior; and
-- link/trade presentation.
+## 5. Invariants
 
-Each system must declare who owns BG attributes, OBJ attributes, base palettes,
-and fade state for every phase of its animation.
-
-### R11. Interrupt and transfer scheduling
-
-- Compose palette preparation with Yellow's existing LCD interrupt; do not
-  replace the scanline-override behavior in `home/lcdc.asm`.
-- A dedicated LYC event may prepare palette buffers before VBlank only if it
-  coexists with active per-scanline effects.
-- If the LCD handler cannot safely host both responsibilities, preparation may
-  run in the main loop, but the resulting transfer protocol must retain one
-  owner and deterministic deadlines.
-- VBlank must serialize, in a documented order:
-  1. tilemap/attribute streaming;
-  2. OAM DMA preparation;
-  3. BG palette transfer;
-  4. OBJ palette transfer; and
-  5. restoration of ROM, WRAM, and VRAM banks.
-- Palette uploads must check that sufficient VBlank time remains.
-- An attribute row/column redraw and full palette upload must not overrun the
-  frame or expose a one-frame white/incorrect palette.
-- The renderer must tolerate a missed deadline by leaving dirty state pending
-  for the next safe frame.
-
-### R12. Removal of the old renderer
-
-After all acceptance gates pass:
-
-- remove `NUM_ACTIVE_PALS = 4` assumptions;
-- remove `wCGBBasePalPointers`, `wCGBPal`, and the old four-palette buffer;
-- remove `InitCGBPalettes`, `DMGPalToCGBPal`, and direct transfer routines that
-  have been superseded;
-- remove `TranslatePalPacketToBGMapAttributes`;
-- remove canned CGB BG attribute data and its loader when no longer referenced;
-- remove `hOnCGB` and branches made unreachable by the CGB-only header;
-- remove SGB packet dispatch and rendering data after any still-useful palette
-  IDs or RGB555 values have been migrated into native renderer tables; and
-- add link-time assertions or CI searches preventing unauthorized palette
-  register and VRAM-bank-1 writers.
-
-## 5. Ownership invariants
-
-The implementation is not complete unless all of these are true:
-
-1. Exactly one subsystem owns CGB palette hardware.
-2. Exactly one subsystem owns BG/window attribute generation.
-3. Tile IDs and their attributes cannot be committed from unrelated paths.
-4. Every interrupt restores the ROM, WRAM, and VRAM bank it interrupted.
-5. Palette command completion leaves a fully described scene state.
-6. Fades transform palette output without destroying base palette data.
-7. No routine repairs color damage caused by another active renderer.
-8. A missed VBlank deadline delays work; it does not perform an unsafe write.
+1. Exactly one renderer owns the active scene.
+2. Yellow performs no palette or BG-attribute writes during full-color
+   overworld ownership.
+3. The new renderer performs no writes during Yellow ownership.
+4. Tile IDs and overworld attributes travel through paired transfer paths.
+5. Map-backed overlays are part of the overworld renderer.
+6. Standalone screens use an explicit handoff and map reconstruction on return.
+7. Every interrupt restores ROM, WRAM, and VRAM bank state.
+8. A missed deadline defers work instead of performing an unsafe partial write.
+9. No repair hook exists solely because another renderer overwrote the map.
 
 ## 6. Delivery stages
 
-The implementation should be delivered as independently reviewable stages.
+1. Baseline, writer inventory, and scene-boundary classification.
+2. CGB-only startup, bank-2 WRAM, and ownership state.
+3. Overworld eight-palette core with owner-dispatched wrappers.
+4. Paired initial, streamed, connected-map, and window transfers.
+5. All tileset palette/attribute data and map exceptions.
+6. Overworld OAM, including follower Pikachu and field objects.
+7. Scene handoffs, non-overworld isolation, and legacy-overworld deletion.
+8. Timing hardening and complete verification.
+
 Detailed gates are in [migration-plan.md](docs/migration-plan.md).
-
-1. Instrumentation and ownership assertions.
-2. CGB-only startup and bank-safe memory foundation.
-3. Eight-palette buffered core.
-4. Unified tile/attribute transfer primitives.
-5. Overworld and connected-map rendering.
-6. Static screens and palette-command replacement.
-7. Pokémon, trainer, and overworld object colors.
-8. Battle animations and dynamic effects.
-9. Yellow-exclusive systems.
-10. Legacy renderer removal and hardening.
-
-Do not merge a stage that introduces a second production renderer. Transitional
-adapters are allowed; transitional co-ownership is not.
 
 ## 7. Acceptance criteria
 
-### Functional
+### Overworld
 
-- All 25 tilesets render correct per-tile attributes.
-- Every palette command has a Yellow-native implementation.
-- All eight BG and OBJ palette slots can be used without corruption.
-- Horizontal and vertical scrolling, connected maps, menus, and dialogue never
-  lose or smear attributes.
-- Battles retain correct species, trainer, HP, EXP, text, transition, and
-  animation colors.
-- Pikachu-following and all Yellow-exclusive sequences remain functional.
-- Fades, flashes, blackouts, whiteouts, poison, and transition effects preserve
-  their intended timing.
-- Link, trade, printer, save/load, and soft reset do not corrupt bank state.
+- All 25 tilesets use correct per-tile attributes.
+- Initial entry, reload, scrolling, and all map connections remain colored.
+- Dialogue and map-backed menus never erase or smear map attributes.
+- Town roofs, map overrides, animated tiles, and field effects remain correct.
+- Player, follower Pikachu, NPCs, and map objects use deliberate OBJ palettes.
+- No visible one-frame stale, white, black, or mismatched palette appears.
+
+### Handoffs
+
+- Every standalone screen is entered under Yellow ownership.
+- Battles, title/intro, menus, pictures, trade, slots, printer, and Surfing
+  Pikachu remain functionally unchanged.
+- Returning from every tested screen reconstructs the overworld correctly.
+- Repeated rapid transitions do not leak ownership or pending work.
 
 ### Technical
 
-- Release and debug ROMs build with RGBDS warnings treated as errors.
-- The ROM header is CGB-only and the non-CGB startup path is deterministic.
-- No unauthorized direct palette-register writes remain.
-- No unauthorized VRAM-bank-1 attribute writers remain.
-- Interrupt bank-restoration tests pass under forced non-default ROM, WRAM, and
-  VRAM bank conditions.
-- VBlank work remains within measured budgets on real-speed CGB timing.
-- Automated screenshots are stable over multiple frames, not merely correct on
-  one captured frame.
-
-### Regression
-
-- Gameplay state, collision, movement, scripts, audio, serial communication,
-  and battle calculations are unchanged except where renderer timing previously
-  exposed an actual bug. Save compatibility is not required, although unrelated
-  save-data changes should not be introduced without cause.
-- The failed hybrid implementation is not imported as runtime architecture.
-  Its tests and verified tile assignments may be reused only after review.
+- Release, debug, and VC ROMs build with warnings as errors.
+- Header validation confirms CGB-only.
+- Hardware-writer audits pass.
+- Forced bank-state interrupt tests pass.
+- Measured LCD/VBlank/OAM work fits CGB timing or safely defers.
+- Multi-frame automated captures pass for transfers and handoffs.
 
 ## 8. Definition of done
 
-The swap is done only when the old Yellow CGB renderer can be deleted without
-changing behavior, all renderer ownership invariants are enforced, the complete
-verification matrix passes, and no screen depends on a legacy attribute packet
-or direct synchronous palette update.
+The work is complete when RGB's architecture exclusively renders every
+overworld frame, Yellow exclusively renders every excluded scene, transitions
+between them are explicit and deterministic, and the old Yellow overworld path
+can be deleted without changing either side's behavior.

@@ -1,63 +1,64 @@
-# Why the hybrid overworld approach failed
+# Why the previous hybrid failed
 
-The prior full-color-overworld experiment did not replace Yellow's renderer.
-It retained Yellow's palette commands and canned attribute maps, then added
-per-tile overworld attribute writes around them.
+The previous experiment kept Yellow's overworld palette renderer active and
+added per-tile attributes around it.
 
-Its own design constraints demonstrate the conflict:
-
-- it intentionally excluded battles and menus;
-- it suppressed only selected original palette refreshes;
-- it restored attributes after dialogue and menu operations;
-- it added separate initial-map and streamed-row/column writers;
-- it performed some attribute work by waiting for accessible VRAM outside a
-  centralized renderer schedule; and
-- later fixes had to address map connections, redraw direction, serialization,
-  menu/dialogue restoration, and competing battle/window palettes.
-
-## Root cause
-
-Two active systems believed they owned the same hardware state:
+Both systems touched the same map scene:
 
 ```text
-Yellow renderer --------------------+
-  canned screen maps                |
-  four palette commands             +--> VRAM bank 1 / palette RAM
-  direct palette refreshes          |
-                                     |
-full-color overworld overlay -------+
+Yellow overworld renderer ---------+
+  whole-screen palettes            |
+  canned/window attributes         +--> active map hardware state
+  direct palette refreshes         |
+                                    |
+full-color overlay ----------------+
   per-tile map attributes
+  scrolling attributes
   restoration hooks
-  streamed edge updates
 ```
 
-Correctness depended on which system wrote last. Adding another restoration
-hook could repair one transition while exposing a different timing or map-edge
-failure.
+Correctness depended on which system wrote last. This produced restoration
+hooks after dialogue, menus, reloads, and transitions, followed by fixes for
+streamed direction, serialization, connections, and stale window attributes.
 
-## Lessons carried into this specification
+## Corrected model
 
-1. VRAM bank 1 must have one owner.
-2. Palette RAM must have one owner.
-3. Initial draw, scrolling, dialogue, and menus are not separate color
-   features; they are consumers of one transfer layer.
-4. A palette command must describe the complete target scene.
-5. Restoration is legitimate only for restoring a deliberately saved scene,
-   not for repairing damage from a competing renderer.
-6. Timing waits scattered through gameplay code are not a renderer scheduler.
-7. A feature toggle between two live renderers multiplies the transition state
-   space and should not be part of the replacement.
+The revised architecture contains two renderers but only one active owner:
 
-## Reusable material
+```text
+map and map-backed overlays       standalone screens
+FULL_COLOR_OVERWORLD       <----> YELLOW
+```
 
-The failed runtime architecture should not be ported. Some artifacts may still
-be useful after independent verification:
+This is not a hybrid because:
 
-- per-tileset palette assignments;
-- Yellow-specific map and connection tests;
+- Yellow cannot write palette or attribute hardware while the map owner is
+  active;
+- the full-color renderer cannot write while Yellow owns a standalone screen;
+- handoff occurs before screen initialization;
+- pending work from the prior owner is drained or cancelled; and
+- returning to the map performs a complete rebuild.
+
+## Lessons
+
+1. Scope may be overworld-only while ownership remains complete within that
+   scope.
+2. Dialogue and transient menus belong to the map renderer if they reveal the
+   existing map on close.
+3. Standalone screens require a handoff, not a restoration patch.
+4. Tile and attribute streaming are one operation.
+5. Palette wrappers must dispatch by owner.
+6. A feature toggle that allows both overworld renderers is forbidden.
+7. Failed implementation code is not the foundation.
+
+## Reusable artifacts
+
+After independent review, it may be useful to reuse:
+
+- verified tileset assignments;
+- map and connection test scenarios;
 - screenshot tooling;
-- map atlas coverage;
-- emulator setup; and
-- documented edge cases discovered during the experiment.
+- atlas coverage; and
+- documented edge cases.
 
-Reusing a test does not imply reusing the implementation it was written for.
+The runtime overlay and restoration architecture must not be reused.

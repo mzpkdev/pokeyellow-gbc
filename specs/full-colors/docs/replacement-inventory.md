@@ -1,107 +1,114 @@
-# Replacement inventory
+# Overworld replacement inventory
 
-This inventory maps the donor architecture to Yellow integration points. It is
-an implementation checklist, not permission to copy files without adaptation.
+## Donor modules in scope
 
-## Core donor modules
-
-| RGB source | Responsibility | Yellow action |
-|---|---|---|
-| `color/init.asm` | double speed and WRAM clearing | rewrite for Yellow startup and soft reset |
-| `color/wram.asm` | bank-2 state | convert absolute addresses to named WRAMX bank-2 sections |
-| `color/super_palettes.asm` | eight-byte palette loading | port behind Yellow palette IDs |
-| `color/vblank.asm` | transforms and buffered transfer | compose with Yellow LCD/VBlank handlers |
-| `color/refreshmaps.asm` | paired tile/attribute transfers | port to Yellow's transfer primitives |
-| `color/loadpalettes.asm` | tileset sets and assignments | add `BEACH_HOUSE`; audit tile IDs |
-| `color/color.asm` | scene palette commands | rewrite for Yellow layouts and commands |
-| `color/sprites.asm` | overworld/non-overworld OAM colors | adapt to Yellow OAM and Pikachu |
-| `color/animations.asm` | animation-palette loading | integrate with Yellow animation loader |
-| `color/update_hp_bar.asm` | dynamic HP palette regions | adapt to Yellow battle/status layouts |
-| `color/exp_bar.asm` | dynamic EXP colors | verify Yellow HUD geometry |
-| `color/trade.asm` | trade attributes/OBJ colors | adapt to Yellow trade flow |
-| `color/cable_club.asm` | link-room screen colors | adapt to MBC5 and Yellow link code |
-| `color/ssanne.asm` | map-specific water/ship fix | verify Yellow Vermilion Dock sequence |
-| `color/boulder.asm` | moving boulder object colors | merge with Yellow boulder/cut OAM |
-| `color/ghost_marowak_anim.asm` | BG picture to OBJ palette | adapt Yellow ghost routine |
-| `color/oak_intro.asm` | intro picture colors | replace with Yellow-native sequence |
-| `color/dmg.asm` | non-CGB error | reuse concept, not ROM-bank binary |
-
-## Yellow renderer components to replace
-
-| Yellow source | Current responsibility | Final state |
-|---|---|---|
-| `engine/gfx/palettes.asm` | command dispatch, four CGB palettes, SGB translation, hardware writes | retain command-facing entry points; replace internals |
-| `engine/gfx/bg_map_attributes.asm` | canned attribute DMA | remove after static-map replacement |
-| `data/cgb/bg_map_attributes.asm` | canned screen attributes | remove after all commands migrate |
-| `home/cgb_palettes.asm` | CGB update wrappers | convert to renderer requests, then simplify |
-| `home/palettes.asm` | fades and command wrapper | preserve public behavior; route through buffers |
-| `home/fade.asm` | DMG register fade sequences | preserve; new core observes register changes |
-| `ram/wram.asm` CGB section | four-palette pointers/scratch | remove after bank-2 state is live |
-| `ram/hram.asm:hOnCGB` | runtime compatibility branch | remove or make constant after CGB-only conversion |
-
-## Tile and attribute transfer integration
-
-| Yellow source | Required change |
+| RGB source | Use |
 |---|---|
-| `home/vcopy.asm` | pair attributes with row, column, thirds, and explicit row transfers |
-| `home/vblank.asm` | serialize attribute and palette transfers; preserve all banks |
-| `home/overworld.asm` | select palettes before initial tile/attribute commit |
-| `home/reload_tiles.asm` | reload attributes through the same transfer primitive |
-| `home/text_script.asm` | use static/tile-mode window attributes without restoration hacks |
-| `engine/overworld/update_map.asm` | load tileset palette set before exposing a map |
-| map connection/streaming code | prove correct wrapping at all four edges |
-| `engine/movie/intro_yellow.asm` | replace direct `rVBK` writes with scene-owned attributes |
+| `color/init.asm` | CGB double speed and renderer WRAM initialization |
+| `color/wram.asm` | model for bank-2 state; convert to named WRAMX |
+| `color/loadpalettes.asm` | tileset palette sets, assignments, roofs, overrides |
+| `color/refreshmaps.asm` | paired map/window tile and attribute transfers |
+| `color/vblank.asm` | overworld palette transformation and scheduling concepts |
+| `color/super_palettes.asm` | loading eight-byte RGB555 palettes |
+| overworld portion of `color/color.asm` | `SetPal_Overworld` scene initialization |
+| overworld portion of `color/sprites.asm` | NPC/player/object palettes |
+| `color/boulder.asm` | overworld moving-object behavior where applicable |
+| `color/ssanne.asm` | Vermilion Dock/ship overworld exception |
+| `color/data/map_*` | palette sets and tile assignments |
+| `color/data/roofpalettes.asm` | town-specific roof colors |
+| `color/tilesets/*.asm` | candidate tile assignment data |
 
-All searches for direct `rVBK` writes must be reviewed. A direct write is not
-automatically wrong, but its ownership and bank restoration must be explicit.
+Every donor routine must be adapted to Yellow's MBC5 banks, labels, interrupt
+model, and `BEACH_HOUSE` tileset.
 
-## Palette command coverage
+## Donor modules excluded
 
-Yellow has 16 ordinary command slots plus `$fc` and `$ff`. RGB lacks Yellow's
-Surfing Pikachu commands and adds commands Yellow does not currently expose.
+Do not port runtime behavior from:
 
-| Yellow scene | Donor reuse | Yellow work |
-|---|---|---|
-| battle | high | verify Yellow HUD and transition geometry |
-| town map | medium | preserve Yellow cursor and map data |
-| status | medium | Yellow status layout and Pikachu |
-| Pokédex | medium | Yellow layout and animated Pikachu cases |
-| slots | medium | preserve Yellow wheel/OBJ effects |
-| title | low | Yellow-specific title animation |
-| Nidorino/intro | low | Yellow uses an extended unique intro |
-| generic | high | define text-safe baseline |
-| overworld | high | add Beach House and Yellow map exceptions |
-| party | medium | Yellow party icons and HP rows |
-| whole-screen Pokémon | high | evolution/trade/Hall of Fame |
-| Game Freak | medium | verify Yellow sparkle OAM |
-| trainer card | medium | Yellow portrait/badge layout |
-| Surfing Pikachu title | none | implement natively |
-| Surfing Pikachu game | none | implement natively |
+- battle palette commands in `color/color.asm`;
+- non-overworld portions of `color/sprites.asm`;
+- `color/animations.asm`;
+- HP/EXP bar color modules;
+- trade, cable club, slots, status, and Oak intro color modules;
+- ghost Marowak and HUD Poké Ball modules; or
+- RGB's DMG fallback bank binary.
 
-## Existing call-site audit
+Palette values may be referenced artistically, but these systems stay on
+Yellow's renderer.
 
-At specification time, Yellow contains palette calls across these categories:
+## Yellow integration points
 
-- 28 assembly files call `RunPaletteCommand`;
-- 18 files call `UpdateCGBPal_BGP`;
-- 13 files call `UpdateCGBPal_OBP0`;
-- 17 files call `UpdateCGBPal_OBP1`;
-- three files call `LoadBGMapAttributes`; and
-- direct palette hardware writes are concentrated in
-  `engine/gfx/palettes.asm`.
+| Yellow source | Required overworld change |
+|---|---|
+| `home/start.asm` | CGB-only startup and initialization |
+| `home/vcopy.asm` | paired map/window tile and attribute transfers |
+| `home/vblank.asm` | owner-routed palette/attribute scheduling and bank safety |
+| `home/lcdc.asm` | compose renderer preparation with scanline overrides |
+| `home/overworld.asm` | ownership entry/exit and map reconstruction |
+| `home/reload_tiles.asm` | reload through paired transfer path |
+| `home/text_script.asm` | map-backed dialogue attributes |
+| `home/palettes.asm` | owner-dispatched fade/palette requests |
+| `home/cgb_palettes.asm` | wrappers dispatch to active renderer |
+| `engine/overworld/update_map.asm` | select tileset palettes before map commit |
+| `engine/gfx/sprite_oam.asm` | insert overworld palette bits after tile selection |
+| `engine/gfx/palettes.asm:SetPal_Overworld` | replace only overworld command behavior |
+| `ram/wram.asm` | named WRAMX bank-2 state |
+| `ram/hram.asm` | owner/bank scratch if justified |
+| `layout.link` | renderer bank `$3b` and WRAMX layout |
+| `Makefile` | CGB-only header flag |
 
-Before removing an adapter, regenerate these searches:
+The existing Yellow implementations for excluded scenes remain.
 
-```sh
-rg -n "RunPaletteCommand|UpdateCGBPal_BGP|UpdateCGBPal_OBP0|UpdateCGBPal_OBP1" \
-  --glob '*.asm'
-rg -n "\[r(BGPI|BGPD|OBPI|OBPD)\]" --glob '*.asm'
-rg -n "\[rVBK\]" --glob '*.asm'
+## Ownership-boundary call-site audit
+
+Calls to these APIs must be classified by scene:
+
+```text
+RunPaletteCommand
+UpdateCGBPal_BGP
+UpdateCGBPal_OBP0
+UpdateCGBPal_OBP1
+LoadBGMapAttributes
 ```
 
-Each result must be assigned to an owner in the implementation PR.
+Classification:
 
-## Overworld tilesets
+1. **Overworld or map-backed overlay:** route to the new renderer or replace.
+2. **Standalone scene:** hand off first, then retain Yellow behavior.
+3. **Return to map:** invoke complete full-color reconstruction.
+
+Direct hardware writer searches:
+
+```sh
+rg -n "\[r(BGPI|BGPD|OBPI|OBPD)\]" --glob '*.asm'
+rg -n "\[rVBK\]" --glob '*.asm'
+rg -n "\[rSVBK\]" --glob '*.asm'
+```
+
+The goal is not to eliminate Yellow's non-overworld writers. The goal is to
+prove they cannot execute while the full-color overworld owner is active.
+
+## Tile transfer audit
+
+Review every path that can alter the visible map:
+
+- `RedrawRowOrColumn`;
+- `AutoBgMapTransfer`;
+- `TransferBgRows`;
+- `VBlankCopyBgMap`;
+- map load with LCD disabled;
+- connected-map streaming;
+- tile reload;
+- dialogue and text windows;
+- start-menu/list/yes-no overlays;
+- moving background tiles;
+- field effects that replace tiles; and
+- alternate BG map destination changes.
+
+Each must use an authoritative paired transfer or explicitly hand off to
+Yellow before drawing a standalone scene.
+
+## Tilesets
 
 RGB and Yellow share IDs 0-23:
 
@@ -115,37 +122,37 @@ ID 24 differs:
 - RGB: `SAFARI`
 - Yellow: `BEACH_HOUSE`
 
-Even for IDs 0-23, matching names do not prove matching tile graphics. Compare
-the generated `.2bpp` tiles and in-game semantics before accepting donor
-assignments. Add an assertion that every table has `NUM_TILESETS` entries and
-every assignment has exactly `$60` bytes.
+Matching names do not guarantee identical tile graphics. Verify generated tile
+IDs before adopting RGB assignments.
 
-## Yellow-exclusive object and animation audit
+## Overworld object audit
 
-The following must receive explicit palette ownership:
+Assign or deliberately preserve palettes for:
 
-- follower Pikachu base and emotion sprites;
-- Pikachu front-picture animation;
-- Pikachu entrance animation;
-- splash Pikachu;
-- Yellow intro Pikachu and character layers;
-- Surfing Pikachu sprite animation;
-- Beach House NPCs and objects;
+- player;
+- follower Pikachu;
+- NPC picture IDs;
+- item balls;
+- boulders;
+- cut trees;
+- dust/smoke;
 - healing machine;
-- cut tree and boulder dust;
+- fishing rod;
+- ledge shadow;
 - emotion bubbles;
-- fishing rod and ledge shadow;
-- trade machine and cable;
-- printer presentation; and
-- credits objects.
+- map-specific animated objects; and
+- transient overworld effects.
 
-## Bank and hardware conflicts
+Exclude party icons, battle sprites, title/intro objects, trade objects, slots,
+and Surfing Pikachu.
 
-- Yellow is MBC5; donor MBC1 register names and assumptions must not survive.
-- Yellow bank `$3b` is empty and preferred for the first implementation.
-- Yellow LCD interrupt already runs `LCDC` scanline overrides.
-- Yellow VBlank saves/restores `rVBK` but not `rSVBK`.
-- Yellow does not currently enter double-speed mode.
-- Yellow currently builds a CGB-compatible, not CGB-only, header.
+## Bank conflicts
 
-These are foundation tasks, not cleanup tasks.
+- RGB bank `$2c` conflicts with Yellow Text 7.
+- RGB bank `$31` conflicts with Yellow Pikachu cries.
+- RGB uses MBC1 assumptions; Yellow uses MBC5.
+- Yellow bank `$3b` is empty.
+- Yellow VBlank preserves `rVBK` but not currently `rSVBK`.
+- Yellow LCD interrupt is already active.
+
+These constraints must be solved before visual content is ported.
