@@ -49,6 +49,9 @@ COPIED_REGIONS = (
 )
 FARCALL_LABELS = ("Bankswitch", "JumpToAddress")
 DMA_CONTROL_LABELS = ("DMARoutine", "WriteDMACodeToHRAM", "hDMARoutine")
+LIFECYCLE_ROOTS = ("EnterMap",)
+SCENE_ROOTS: tuple[str, ...] = ()
+MUTATION_ROOTS = ("CopyMapViewToVRAM",)
 
 _PREDEF = re.compile(
     r"^\s*add_predef\s+([A-Za-z_][\w#.]*)(?:\s*,\s*\$([0-9a-f]+))?"
@@ -59,7 +62,13 @@ _PREDEF = re.compile(
 
 def discover_baseline_sources(repository: str | Path) -> SourceDiscoveryReport:
     """Discover every linked source translation unit in canonical order."""
-    return discover_sources(repository, SOURCE_ROOTS)
+    return discover_sources(
+        repository,
+        SOURCE_ROOTS,
+        lifecycle_roots=LIFECYCLE_ROOTS,
+        scene_roots=SCENE_ROOTS,
+        mutation_roots=MUTATION_ROOTS,
+    )
 
 
 def writer_roots(report: SourceDiscoveryReport) -> tuple[str, ...]:
@@ -112,16 +121,22 @@ def discover_baseline_rom(
     root = Path(repository)
     report = source_report or discover_baseline_sources(root)
     symbols = load_sym(root / "pokeyellow_debug.sym")
+    scene_roots = tuple(sorted(set(LIFECYCLE_ROOTS) | set(SCENE_ROOTS)))
+    roots = tuple(
+        sorted(set(writer_roots(report)) | set(scene_roots) | set(MUTATION_ROOTS))
+    )
     return discover_rom_batched(
         (root / "pokeyellow_debug.gbc").read_bytes(),
         symbols,
-        writer_roots(report),
+        roots,
         batch_size=batch_size,
         sections=load_map(root / "pokeyellow_debug.map"),
         farcall_labels=FARCALL_LABELS,
         predef_targets=load_predef_targets(root, symbols),
         copied_regions=COPIED_REGIONS,
         shadow_oam_ranges=SHADOW_OAM_RANGES,
+        scene_roots=scene_roots,
+        mutation_roots=MUTATION_ROOTS,
         dma_control_labels=DMA_CONTROL_LABELS,
         follow_calls=False,
     )

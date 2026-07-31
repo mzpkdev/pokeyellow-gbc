@@ -6,9 +6,14 @@ from tools.rom_tests.full_color.baseline_discovery import (
     COPIED_REGIONS,
     DMA_CONTROL_LABELS,
     FARCALL_LABELS,
+    LIFECYCLE_ROOTS,
+    MUTATION_ROOTS,
+    SCENE_ROOTS,
     SHADOW_OAM_RANGES,
     SOURCE_ROOTS,
     baseline_summary,
+    discover_baseline_rom,
+    discover_baseline_sources,
     load_predef_targets,
     main,
     summary_json,
@@ -32,6 +37,104 @@ def test_reviewed_baseline_configuration_is_stable() -> None:
         "WriteDMACodeToHRAM",
         "hDMARoutine",
     )
+    assert LIFECYCLE_ROOTS == ("EnterMap",)
+    assert SCENE_ROOTS == ()
+    assert MUTATION_ROOTS == ("CopyMapViewToVRAM",)
+
+
+def test_baseline_sources_forward_reviewed_control_roots(monkeypatch) -> None:
+    seen = []
+    expected = object()
+
+    def fake_discover(repository, roots, **kwargs):
+        seen.append((repository, roots, kwargs))
+        return expected
+
+    monkeypatch.setattr(
+        "tools.rom_tests.full_color.baseline_discovery.discover_sources",
+        fake_discover,
+    )
+
+    assert discover_baseline_sources("repo") is expected
+    assert seen == [
+        (
+            "repo",
+            SOURCE_ROOTS,
+            {
+                "lifecycle_roots": LIFECYCLE_ROOTS,
+                "scene_roots": SCENE_ROOTS,
+                "mutation_roots": MUTATION_ROOTS,
+            },
+        )
+    ]
+
+
+def test_baseline_rom_includes_and_classifies_bootstrap_roots(
+    monkeypatch, tmp_path: Path
+) -> None:
+    (tmp_path / "pokeyellow_debug.gbc").write_bytes(b"rom")
+    symbols = object()
+    source_report = SourceDiscoveryReport(
+        (),
+        (),
+        (
+            SourceFinding(
+                "writer",
+                "a.asm",
+                1,
+                "EnterMap",
+                "direct",
+                "ff40",
+                "DISPLAY_REGISTER",
+            ),
+            SourceFinding(
+                "writer",
+                "a.asm",
+                2,
+                "Writer",
+                "direct",
+                "ff41",
+                "DISPLAY_REGISTER",
+            ),
+        ),
+        (),
+    )
+    seen = []
+    expected = object()
+    monkeypatch.setattr(
+        "tools.rom_tests.full_color.baseline_discovery.load_sym",
+        lambda path: symbols,
+    )
+    monkeypatch.setattr(
+        "tools.rom_tests.full_color.baseline_discovery.load_map",
+        lambda path: ("section",),
+    )
+    monkeypatch.setattr(
+        "tools.rom_tests.full_color.baseline_discovery.load_predef_targets",
+        lambda repository, table: {},
+    )
+
+    def fake_discover(rom, table, roots, **kwargs):
+        seen.append((rom, table, roots, kwargs))
+        return expected
+
+    monkeypatch.setattr(
+        "tools.rom_tests.full_color.baseline_discovery.discover_rom_batched",
+        fake_discover,
+    )
+
+    assert (
+        discover_baseline_rom(tmp_path, source_report=source_report, batch_size=7)
+        is expected
+    )
+    assert seen[0][0:3] == (
+        b"rom",
+        symbols,
+        ("CopyMapViewToVRAM", "EnterMap", "Writer"),
+    )
+    assert seen[0][3]["batch_size"] == 7
+    assert seen[0][3]["scene_roots"] == ("EnterMap",)
+    assert seen[0][3]["mutation_roots"] == ("CopyMapViewToVRAM",)
 
 
 def test_writer_roots_are_unique_sorted_source_backed_labels() -> None:

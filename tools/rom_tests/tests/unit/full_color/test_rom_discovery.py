@@ -188,6 +188,34 @@ def test_call_expansion_can_be_disabled_without_hiding_call_site_evidence() -> N
     assert any(item.address == 0x116 for item in report.findings)
 
 
+def test_configured_scene_and_mutation_roots_emit_exact_entry_evidence() -> None:
+    report = SM83Decoder(
+        synthetic_rom(),
+        symbols(),
+        sections=sections(),
+        scene_roots={"ResetRoot"},
+        mutation_roots={"VbkZero"},
+        follow_calls=False,
+    ).decode(["VbkZero", "ResetRoot"])
+
+    entries = {
+        item.root: item for item in report.findings if item.mechanism == "root-entry"
+    }
+    assert tuple(sorted(entries)) == ("ResetRoot", "VbkZero")
+    assert entries["ResetRoot"].category == "scene"
+    assert entries["ResetRoot"].site_key == (0, 0x100)
+    assert entries["ResetRoot"].rom_offset == 0x100
+    assert entries["ResetRoot"].bytes == "3e01"
+    assert entries["ResetRoot"].destination_low == 0x100
+    assert entries["ResetRoot"].destination_high == 0x100
+    assert entries["ResetRoot"].control_flow_kind == "root-entry"
+    assert entries["ResetRoot"].resolved
+    assert entries["VbkZero"].category == "mutation"
+    assert entries["VbkZero"].site_key == (0, 0x160)
+    assert entries["VbkZero"].bytes == "af"
+    assert entries["VbkZero"].call_path == ("VbkZero",)
+
+
 def test_dma_control_names_do_not_match_incidental_wait_or_map_substrings() -> None:
     rom = bytearray(0x4000)
     rom[0x100:0x10D] = bytes.fromhex(
@@ -414,7 +442,11 @@ def test_configured_shadow_oam_dma_and_scene_control_flow_evidence() -> None:
         extra=bytes.fromhex("c9"),
         scene_roots={"Root"},
     )
-    edge = next(item for item in scene.findings if item.category == "scene")
+    edge = next(
+        item
+        for item in scene.findings
+        if item.category == "scene" and item.control_flow_kind == "call"
+    )
     assert edge.control_flow_kind == "call"
     assert edge.destination_low == 0x200
 

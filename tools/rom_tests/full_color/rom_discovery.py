@@ -562,10 +562,13 @@ class SM83Decoder:
         if validate_coverage:
             self._validate_candidate_coverage()
         queue: deque[tuple[DecoderState, str, tuple[str, ...]]] = deque()
+        root_entries: dict[str, BankAddress] = {}
         for root in roots:
             if isinstance(root, str):
                 site = self.symbols.resolve(root)
                 root_name = root
+                if root in self.scene_roots or root in self.mutation_roots:
+                    root_entries[root] = site
             else:
                 site, root_name = root, f"{root.bank:02x}:{root.address:04x}"
             queue.append(
@@ -587,6 +590,7 @@ class SM83Decoder:
         ] = {}
         visited_sites: set[tuple[int, int]] = set()
         findings: list[RomFinding] = []
+        emitted_root_entries: set[str] = set()
         unresolved: set[str] = set()
         unresolved_control: set[str] = set()
         max_states = max(4096, len(self.rom) * 2)
@@ -639,6 +643,33 @@ class SM83Decoder:
                 )
                 continue
             data = self.rom[offset : offset + length]
+            if (
+                root not in emitted_root_entries
+                and root_entries.get(root) == BankAddress(state.bank, state.address)
+                and path == (root,)
+            ):
+                category = "mutation" if root in self.mutation_roots else "scene"
+                findings.append(
+                    RomFinding(
+                        state.bank,
+                        state.address,
+                        offset,
+                        data.hex(),
+                        "root-entry",
+                        state.address,
+                        state.address,
+                        "CONTROL_FLOW",
+                        None,
+                        None,
+                        root,
+                        path,
+                        None,
+                        True,
+                        category,
+                        "root-entry",
+                    )
+                )
+                emitted_root_entries.add(root)
             next_state = replace(state, address=state.address + length)
             next_state = self._transfer(next_state, opcode, data)
             finding = self._sink(state, opcode, data, root, path)
@@ -854,6 +885,8 @@ class SM83Decoder:
                 item.destination_high,
                 item.root,
                 item.call_path,
+                item.mechanism,
+                item.category,
             ): item
             for item in adjusted
         }
