@@ -8,7 +8,10 @@ from tools.rom_tests.full_color.baseline_discovery import (
     FARCALL_LABELS,
     SHADOW_OAM_RANGES,
     SOURCE_ROOTS,
+    baseline_summary,
     load_predef_targets,
+    main,
+    summary_json,
     writer_roots,
 )
 from tools.rom_tests.full_color.rom_discovery import RomDiscoveryError, parse_sym
@@ -89,3 +92,70 @@ def test_predef_targets_fail_closed_on_unknown_or_incomplete_authority(
     path.write_text("add_predef Only\n", encoding="utf-8")
     with pytest.raises(RomDiscoveryError, match="exactly 99"):
         load_predef_targets(tmp_path, parse_sym("00:0100 Only\n"))
+
+
+def test_summary_json_and_cli_are_byte_stable(monkeypatch, capsys) -> None:
+    summary = {
+        "schema": "full-color-baseline-discovery-summary-v1",
+        "source": {"files": 2},
+        "rom": {"findings": 3},
+    }
+    monkeypatch.setattr(
+        "tools.rom_tests.full_color.baseline_discovery.baseline_summary",
+        lambda repository: summary,
+    )
+
+    assert summary_json(".") == (
+        '{"rom":{"findings":3},"schema":'
+        '"full-color-baseline-discovery-summary-v1","source":{"files":2}}\n'
+    )
+    assert main(["--repository", "repo"]) == 0
+    assert capsys.readouterr().out == summary_json(".")
+
+
+def test_real_summary_shape_uses_one_source_report_for_rom(monkeypatch) -> None:
+    rom = type(
+        "Rom",
+        (),
+        {
+            "rom_sha256": "0" * 64,
+            "sym_sha256": "1" * 64,
+            "map_sha256": "2" * 64,
+            "findings": (),
+            "visited": (),
+            "unresolved_destinations": (),
+            "unresolved_control_flow": (),
+            "candidate_findings": (),
+            "candidate_sections": (),
+        },
+    )()
+    source_report = type(
+        "Source",
+        (),
+        {
+            "source_sha256": "3" * 64,
+            "roots": ("main.asm",),
+            "include_graph": (("main.asm", ()),),
+            "findings": (),
+            "errors": (),
+        },
+    )()
+    seen = []
+    monkeypatch.setattr(
+        "tools.rom_tests.full_color.baseline_discovery.discover_baseline_sources",
+        lambda repository: source_report,
+    )
+    monkeypatch.setattr(
+        "tools.rom_tests.full_color.baseline_discovery.discover_baseline_rom",
+        lambda repository, *, source_report: seen.append(source_report) or rom,
+    )
+    monkeypatch.setattr(
+        "tools.rom_tests.full_color.baseline_discovery.writer_roots",
+        lambda report: (),
+    )
+
+    result = baseline_summary("repo")
+
+    assert seen == [source_report]
+    assert result["source"]["files"] == 1
+    assert result["rom"]["candidate_sections"] == 0

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 from pathlib import Path
 import re
+from typing import Any, Sequence
 
 from .rom_discovery import (
     BankAddress,
@@ -122,3 +125,61 @@ def discover_baseline_rom(
         dma_control_labels=DMA_CONTROL_LABELS,
         follow_calls=False,
     )
+
+
+def baseline_summary(repository: str | Path) -> dict[str, Any]:
+    """Return byte-stable evidence that the real baseline audit completed."""
+    source = discover_baseline_sources(repository)
+    rom = discover_baseline_rom(repository, source_report=source)
+    return {
+        "schema": "full-color-baseline-discovery-summary-v1",
+        "source": {
+            "sha256": source.source_sha256,
+            "roots": len(source.roots),
+            "files": len(source.include_graph),
+            "findings": len(source.findings),
+            "writer_roots": len(writer_roots(source)),
+            "diagnostics": len(source.errors),
+        },
+        "rom": {
+            "sha256": rom.rom_sha256,
+            "sym_sha256": rom.sym_sha256,
+            "map_sha256": rom.map_sha256,
+            "findings": len(rom.findings),
+            "visited_sites": len(rom.visited),
+            "unresolved_destinations": len(rom.unresolved_destinations),
+            "unresolved_control_flow": len(rom.unresolved_control_flow),
+            "candidate_findings": len(rom.candidate_findings),
+            "candidate_sections": len(rom.candidate_sections),
+        },
+    }
+
+
+def summary_json(repository: str | Path) -> str:
+    return (
+        json.dumps(
+            baseline_summary(repository),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Run deterministic full-color Gate 0 baseline discovery."
+    )
+    parser.add_argument(
+        "--repository",
+        default=".",
+        help="repository containing pokeyellow_debug.gbc/.sym/.map",
+    )
+    args = parser.parse_args(argv)
+    print(summary_json(args.repository), end="")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

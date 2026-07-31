@@ -100,3 +100,46 @@ jobs:
 
       - name: Run unit tests
         run: python -m pytest tools/rom_tests/tests/unit
+
+  gate-0-baseline:
+    name: Gate 0 Baseline
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Download debug build
+        uses: actions/download-artifact@v7
+        with:
+          name: pokeyellow-build
+          path: release
+
+      - name: Prepare linked debug artifacts
+        run: |
+          cp release/pokeyellow-debug.gbc pokeyellow_debug.gbc
+          cp release/pokeyellow-debug.map pokeyellow_debug.map
+          cp release/pokeyellow-debug.sym pokeyellow_debug.sym
+
+      - name: Run deterministic baseline discovery twice
+        run: |
+          python -m tools.rom_tests.full_color.baseline_discovery > gate-0-run-1.json
+          python -m tools.rom_tests.full_color.baseline_discovery > gate-0-run-2.json
+          cmp gate-0-run-1.json gate-0-run-2.json
+
+      - name: Upload Gate 0 evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: gate-0-baseline-discovery
+          path: |
+            gate-0-run-1.json
+            gate-0-run-2.json
+          if-no-files-found: error
+          retention-days: 14
