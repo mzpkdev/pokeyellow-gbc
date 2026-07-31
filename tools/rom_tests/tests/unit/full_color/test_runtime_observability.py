@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 import struct
 
@@ -14,6 +15,7 @@ from tools.rom_tests.full_color.runtime_observability import (
     REQUIRED_DEBUG_SYMBOLS,
     capture_yellow_baseline_snapshot,
     require_debug_symbols,
+    run_retained_smoke,
     run_smoke,
 )
 from tools.rom_tests.full_color.snapshots import SemanticSnapshot
@@ -279,3 +281,85 @@ def test_smoke_writes_deterministic_debug_ready_snapshot(
     assert summary["snapshot_bytes"] == len(encoded)
     assert summary["snapshot_sha256"] == hashlib.sha256(encoded).hexdigest()
     assert emulator.closed
+
+
+def test_smoke_routes_diagnostics_to_external_results_without_repo_local_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    rom = root / "pokeyellow_debug.gbc"
+    rom.write_bytes(b"deterministic ROM")
+    emulator = SnapshotEmulator(rom)
+    emulator.data.update(
+        {
+            "wFullColorDebugGeneration": (1).to_bytes(4, "little"),
+            "wFullColorDebugCurrentROMBank": b"\x01",
+            "wFullColorDebugCurrentWRAMBank": b"\x01",
+            "wFullColorDebugCurrentVRAMBank": b"\x00",
+        }
+    )
+    constructor_args: dict[str, object] = {}
+
+    def emulator_factory(**kwargs: object) -> SnapshotEmulator:
+        constructor_args.update(kwargs)
+        return emulator
+
+    monkeypatch.setattr(runtime_observability, "Emulator", emulator_factory)
+    external = tmp_path / "external results with spaces"
+
+    run_smoke(
+        root,
+        snapshot_output=external / "semantic-snapshot.json",
+        diagnostics_output=external / "diagnostics",
+    )
+
+    assert constructor_args["results"] == external / "diagnostics"
+    assert not (root / "test-results").exists()
+
+
+def test_retained_smoke_failure_does_not_stale_or_destroy_prior_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def smoke(
+        root: Path,
+        *,
+        snapshot_output: Path | None = None,
+        diagnostics_output: Path | None = None,
+    ) -> dict[str, object]:
+        nonlocal calls
+        del root
+        calls += 1
+        assert snapshot_output is not None
+        assert diagnostics_output is not None
+        diagnostics_output.mkdir(parents=True)
+        (diagnostics_output / "emulator.log").write_text(
+            f"attempt {calls}", encoding="utf-8"
+        )
+        if calls == 2:
+            raise AssertionError("mutated smoke failure")
+        snapshot_output.write_text("stable snapshot", encoding="utf-8")
+        return {"schema": "smoke-report-v1"}
+
+    monkeypatch.setattr(runtime_observability, "run_smoke", smoke)
+    results = tmp_path / "smoke results"
+    first = run_retained_smoke(tmp_path, results)
+    first_summary = (results / "attempt-0001/summary.json").read_bytes()
+
+    with pytest.raises(AssertionError, match="mutated smoke failure"):
+        run_retained_smoke(tmp_path, results)
+
+    assert first["status"] == "passed"
+    assert (results / "attempt-0001/summary.json").read_bytes() == first_summary
+    assert (results / "attempt-0001/semantic-snapshot.json").read_text() == (
+        "stable snapshot"
+    )
+    failed = results / "attempt-0002"
+    assert json.loads((failed / "summary.json").read_text())["status"] == "failed"
+    assert (failed / "diagnostics/emulator.log").read_text() == "attempt 2"
+    assert not (failed / "semantic-snapshot.json").exists()
+    assert not (failed / "observability.json").exists()

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+import sys
 from typing import Sequence
 
 from tools.rom_tests.emulator import Emulator
@@ -353,11 +354,14 @@ def run_smoke(
     root: Path,
     *,
     snapshot_output: Path | None = None,
+    diagnostics_output: Path | None = None,
 ) -> dict[str, object]:
+    if diagnostics_output is None:
+        diagnostics_output = root / "test-results" / "full-color-debug-observability"
     emulator = Emulator(
         rom=root / "pokeyellow_debug.gbc",
         symbols=root / "pokeyellow_debug.sym",
-        results=root / "test-results" / "full-color-debug-observability",
+        results=diagnostics_output,
         cgb=True,
     )
     try:
@@ -386,8 +390,7 @@ def run_smoke(
         raise AssertionError("semantic snapshot JSON did not round-trip exactly")
     snapshot_bytes = snapshot_json.encode("utf-8")
     if snapshot_output is not None:
-        snapshot_output.parent.mkdir(parents=True, exist_ok=True)
-        snapshot_output.write_text(snapshot_json, encoding="utf-8")
+        _write_text(snapshot_output, snapshot_json)
 
     return {
         "schema": "full-color-debug-observability-smoke-v1",
@@ -397,6 +400,60 @@ def run_smoke(
         "state": state.to_dict(),
         "trace_layout_version": TRACE_LAYOUT_VERSION,
     }
+
+
+def _write_text(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(value, encoding="utf-8")
+    temporary.replace(path)
+
+
+def _write_json(path: Path, value: object) -> None:
+    _write_text(
+        path, json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+    )
+
+
+def _new_smoke_attempt(results_root: Path) -> Path:
+    results_root.mkdir(parents=True, exist_ok=True)
+    for number in range(1, 1_000_000):
+        attempt = results_root / f"attempt-{number:04d}"
+        try:
+            attempt.mkdir()
+        except FileExistsError:
+            continue
+        return attempt
+    raise RuntimeError("smoke results root contains too many attempts")
+
+
+def run_retained_smoke(root: Path, results_root: Path) -> dict[str, object]:
+    """Run smoke into a fresh attempt, retaining both successes and failures."""
+    root = root.resolve()
+    attempt = _new_smoke_attempt(results_root.resolve())
+    status: dict[str, object] = {
+        "schema": "full-color-debug-observability-attempt-v1",
+        "attempt": attempt.name,
+        "status": "running",
+    }
+    _write_json(attempt / "summary.json", status)
+    try:
+        report = run_smoke(
+            root,
+            snapshot_output=attempt / "semantic-snapshot.json",
+            diagnostics_output=attempt / "diagnostics",
+        )
+        _write_json(attempt / "observability.json", report)
+    except Exception as exc:
+        status["status"] = "failed"
+        status["error"] = str(exc)
+        _write_json(attempt / "summary.json", status)
+        raise
+    status["status"] = "passed"
+    status["report"] = "observability.json"
+    status["snapshot"] = "semantic-snapshot.json"
+    _write_json(attempt / "summary.json", status)
+    return status
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -414,14 +471,35 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Path,
         help="optional path for the canonical debug-ready semantic snapshot",
     )
-    args = parser.parse_args(argv)
-    print(
-        json.dumps(
-            run_smoke(args.root, snapshot_output=args.snapshot_output),
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+    parser.add_argument(
+        "--diagnostics-output",
+        type=Path,
+        help="directory for emulator diagnostics (defaults below the repository)",
     )
+    parser.add_argument(
+        "--results",
+        type=Path,
+        help="retain this smoke invocation below a fresh attempt directory",
+    )
+    args = parser.parse_args(argv)
+    if args.results is not None and (
+        args.snapshot_output is not None or args.diagnostics_output is not None
+    ):
+        parser.error("--results cannot be combined with explicit output paths")
+    try:
+        report = (
+            run_retained_smoke(args.root, args.results)
+            if args.results is not None
+            else run_smoke(
+                args.root,
+                snapshot_output=args.snapshot_output,
+                diagnostics_output=args.diagnostics_output,
+            )
+        )
+    except Exception as exc:
+        print(f"full-color observability smoke failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(report, sort_keys=True, separators=(",", ":")))
     return 0
 
 
