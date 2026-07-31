@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+import hashlib
 import json
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
+import re
 from typing import Any
+
+from PIL import Image
 
 from ._validation import require_int, require_object, require_str
 from .errors import ManifestValidationError
@@ -21,6 +25,7 @@ class ArtifactType(StrEnum):
     SCREENSHOT = "screenshot"
     FRAME_STRIP = "frame_strip"
     CONTACT_SHEET = "contact_sheet"
+    LOCALIZED_IMAGE_DIFF = "localized_image_diff"
     SEMANTIC_SNAPSHOT = "semantic_snapshot"
     WRITER_TRACE = "writer_trace"
     STRUCTURED_DIFF = "structured_diff"
@@ -47,13 +52,15 @@ class Artifact:
     type: ArtifactType
     path: str
     frame_numbers: tuple[int, ...] | None
+    size_bytes: int
+    sha256: str
 
     @classmethod
     def from_dict(cls, raw: object, *, path: str) -> Artifact:
         obj = require_object(
             raw,
             path=path,
-            required={"type", "path", "frame_numbers"},
+            required={"type", "path", "frame_numbers", "size_bytes", "sha256"},
             error=ManifestValidationError,
         )
         type_raw = require_str(obj["type"], path=f"{path}.type", error=ManifestValidationError)
@@ -103,6 +110,13 @@ class Artifact:
             type=artifact_type,
             path=artifact_path,
             frame_numbers=frames,
+            size_bytes=require_int(
+                obj["size_bytes"],
+                path=f"{path}.size_bytes",
+                minimum=1,
+                error=ManifestValidationError,
+            ),
+            sha256=_sha256(obj["sha256"], path=f"{path}.sha256"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -112,6 +126,8 @@ class Artifact:
             "frame_numbers": (
                 None if self.frame_numbers is None else list(self.frame_numbers)
             ),
+            "size_bytes": self.size_bytes,
+            "sha256": self.sha256,
         }
 
 
@@ -149,6 +165,7 @@ class ArtifactCheckpoint:
             ArtifactType.SCREENSHOT,
             ArtifactType.FRAME_STRIP,
             ArtifactType.CONTACT_SHEET,
+            ArtifactType.LOCALIZED_IMAGE_DIFF,
             ArtifactType.SEMANTIC_SNAPSHOT,
             ArtifactType.WRITER_TRACE,
             ArtifactType.COMPACT_SUMMARY,
@@ -290,3 +307,68 @@ class ArtifactManifest:
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":")) + "\n"
+
+
+def _sha256(value: object, *, path: str) -> str:
+    text = require_str(value, path=path, error=ManifestValidationError)
+    if re.fullmatch(r"[0-9a-f]{64}", text) is None:
+        raise ManifestValidationError(f"{path}: expected 64 lowercase hexadecimal digits")
+    return text
+
+
+def artifact_for_path(
+    artifact_type: ArtifactType,
+    path: Path,
+    *,
+    root: Path,
+    frame_numbers: tuple[int, ...] | None = None,
+) -> Artifact:
+    """Create a manifest row from bytes already written below the evidence root."""
+    payload = path.read_bytes()
+    return Artifact(
+        type=artifact_type,
+        path=path.relative_to(root).as_posix(),
+        frame_numbers=frame_numbers,
+        size_bytes=len(payload),
+        sha256=hashlib.sha256(payload).hexdigest(),
+    )
+
+
+def validate_artifact_files(root: Path, manifest: ArtifactManifest) -> None:
+    """Fail closed on missing, corrupt, or non-viewable linked evidence."""
+    image_types = {
+        ArtifactType.SCREENSHOT,
+        ArtifactType.FRAME_STRIP,
+        ArtifactType.CONTACT_SHEET,
+        ArtifactType.LOCALIZED_IMAGE_DIFF,
+    }
+    for checkpoint in manifest.checkpoints:
+        for artifact in checkpoint.artifacts:
+            path = root / artifact.path
+            if not path.is_file():
+                raise ManifestValidationError(
+                    f"manifest artifact is missing: {artifact.path}"
+                )
+            payload = path.read_bytes()
+            if len(payload) != artifact.size_bytes:
+                raise ManifestValidationError(
+                    f"manifest artifact size mismatch: {artifact.path}"
+                )
+            if hashlib.sha256(payload).hexdigest() != artifact.sha256:
+                raise ManifestValidationError(
+                    f"manifest artifact sha256 mismatch: {artifact.path}"
+                )
+            if artifact.type in image_types:
+                try:
+                    with Image.open(path) as image:
+                        image.verify()
+                        if image.format != "PNG":
+                            raise ManifestValidationError(
+                                f"manifest visual must be lossless PNG: {artifact.path}"
+                            )
+                except ManifestValidationError:
+                    raise
+                except Exception as exc:
+                    raise ManifestValidationError(
+                        f"manifest visual is not viewable: {artifact.path}: {exc}"
+                    ) from exc

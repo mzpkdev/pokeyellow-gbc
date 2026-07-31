@@ -143,7 +143,7 @@ def wait_until_debug_ready(emulator: Emulator, *, max_frames: int = 600) -> None
 def read_baseline_debug_state(emulator: Emulator) -> BaselineDebugState:
     wait_until_debug_ready(emulator)
 
-    decoded = _read_writer_trace(emulator)
+    decoded = read_writer_trace(emulator)
 
     state = BaselineDebugState(
         layout_version=emulator.read("wFullColorDebugLayoutVersion"),
@@ -178,7 +178,7 @@ def _read_little_endian(emulator: Emulator, symbol: str, size: int) -> int:
     return int.from_bytes(emulator.read_bytes(symbol, size), "little")
 
 
-def _read_writer_trace(emulator: Emulator) -> WriterTrace:
+def read_writer_trace(emulator: Emulator) -> WriterTrace:
     """Decode the bounded SRAM trace without changing the selected MBC bank."""
 
     trace_size = (
@@ -239,7 +239,7 @@ def capture_yellow_baseline_snapshot(
     """Capture one observational, schema-valid Yellow-owned CGB checkpoint."""
     wait_until_debug_ready(emulator)
     guards_before = _read_capture_guards(emulator)
-    trace = _read_writer_trace(emulator)
+    trace = read_writer_trace(emulator)
 
     layout_version = emulator.read("wFullColorDebugLayoutVersion")
     owner_code = emulator.read("wFullColorDebugOwner")

@@ -245,8 +245,12 @@ class Emulator:
 
     def save_screenshot(self, filename: str) -> Path:
         path = self.results / filename
-        self.pyboy.screen.image.save(path)
+        self.capture_screen().save(path)
         return path
+
+    def capture_screen(self) -> Image.Image:
+        """Copy the current frame as stable RGB pixels."""
+        return self.pyboy.screen.image.convert("RGB").copy()
 
     def assert_screen_matches(
         self,

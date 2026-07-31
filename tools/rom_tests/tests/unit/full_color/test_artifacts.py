@@ -9,6 +9,18 @@ from tools.rom_tests.full_color.artifacts import (
     ManifestValidationError,
 )
 
+HASH = "0" * 64
+
+
+def artifact(artifact_type: str, path: str, frames: object = None) -> dict[str, object]:
+    return {
+        "type": artifact_type,
+        "path": path,
+        "frame_numbers": frames,
+        "size_bytes": 1,
+        "sha256": HASH,
+    }
+
 
 def manifest_dict() -> dict[str, object]:
     return {
@@ -23,36 +35,17 @@ def manifest_dict() -> dict[str, object]:
                 "checkpoint": "map_entry",
                 "frame": 100,
                 "artifacts": [
-                    {
-                        "type": "screenshot",
-                        "path": "map-entry/screenshot.png",
-                        "frame_numbers": None,
-                    },
-                    {
-                        "type": "frame_strip",
-                        "path": "map-entry/frames.png",
-                        "frame_numbers": [98, 99, 100, 101, 102],
-                    },
-                    {
-                        "type": "contact_sheet",
-                        "path": "map-entry/contact.png",
-                        "frame_numbers": None,
-                    },
-                    {
-                        "type": "semantic_snapshot",
-                        "path": "map-entry/semantic.json",
-                        "frame_numbers": None,
-                    },
-                    {
-                        "type": "writer_trace",
-                        "path": "map-entry/trace.json",
-                        "frame_numbers": None,
-                    },
-                    {
-                        "type": "compact_summary",
-                        "path": "map-entry/summary.txt",
-                        "frame_numbers": None,
-                    },
+                    artifact("screenshot", "map-entry/screenshot.png"),
+                    artifact(
+                        "frame_strip",
+                        "map-entry/frames.png",
+                        [98, 99, 100, 101, 102],
+                    ),
+                    artifact("contact_sheet", "map-entry/contact.png"),
+                    artifact("localized_image_diff", "map-entry/diff.png"),
+                    artifact("semantic_snapshot", "map-entry/semantic.json"),
+                    artifact("writer_trace", "map-entry/trace.json"),
+                    artifact("compact_summary", "map-entry/summary.txt"),
                 ],
                 "timing_row_keys": [],
             }
@@ -81,11 +74,7 @@ def test_manifest_round_trip_is_canonical() -> None:
         ),
         (
             lambda raw: raw["checkpoints"][0]["artifacts"].append(
-                {
-                    "type": "screenshot",
-                    "path": "other.png",
-                    "frame_numbers": None,
-                }
+                artifact("screenshot", "other.png")
             ),
             "duplicate artifact type",
         ),
@@ -98,6 +87,12 @@ def test_manifest_round_trip_is_canonical() -> None:
         (
             lambda raw: raw.update({"unknown": True}),
             "unknown fields: unknown",
+        ),
+        (
+            lambda raw: raw["checkpoints"][0]["artifacts"][0].update(
+                {"sha256": "BAD"}
+            ),
+            "64 lowercase hexadecimal digits",
         ),
     ],
 )
