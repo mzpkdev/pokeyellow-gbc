@@ -36,7 +36,7 @@ PyBoy drives deterministic gameplay:
 - presses inputs;
 - reads symbols and memory;
 - enters map, overlay, and handoff scenarios;
-- captures screenshots;
+- captures named checkpoint screenshots and bounded frame strips;
 - repeats soak loops; and
 - detects hangs through explicit timeouts.
 
@@ -48,6 +48,7 @@ CGB timing.
 Python:
 
 - coordinates scenarios;
+- runs the reference ownership model and seeded action sequences;
 - resolves `.sym` addresses;
 - reads WRAM, HRAM, VRAM, OAM, and palette state;
 - writes semantic JSON;
@@ -85,6 +86,32 @@ tools/rom_tests/
 
 Exact names may change, but unit and emulator-driven responsibilities must stay
 separate.
+
+## LLM-visible play evidence
+
+An LLM-driven test play must be able to inspect the actual rendered output, not
+only receive a pass/fail result. At named checkpoints, save:
+
+- a lossless screenshot;
+- a short, bounded frame strip before and after the checkpoint;
+- a contact sheet with frame numbers and checkpoint labels;
+- the matching semantic snapshot and decoded writer trace; and
+- a compact text summary linking visual and semantic artifacts.
+
+Write an artifact manifest containing relative file paths, checkpoint names,
+frame numbers, scenario seed, and artifact types. Prefer directly viewable PNG
+files for screenshots and contact sheets.
+
+Use screenshots to inspect palette selection, seams, missing attributes,
+incorrect priority, follower/NPC OAM, overlay damage, stale return frames, and
+visible flicker. Prefer a frame strip or contact sheet when correctness depends
+on ordering; a single final frame cannot prove that no transient corruption
+occurred.
+
+Visual review is a first-class diagnostic and acceptance input, but it does not
+replace semantic assertions. A plausible screenshot can still contain stale
+state, and visual differences may be ambiguous until paired with attributes,
+palettes, owner, generation, banks, and last-writer data.
 
 ## Semantic artifact
 
@@ -128,7 +155,8 @@ Also save:
 
 - actual semantic state;
 - expected-versus-actual structured diff;
-- screenshot;
+- named screenshot and annotated contact sheet;
+- bounded frame strip for temporal failures;
 - screenshot diff when applicable; and
 - decoded writer trace.
 
@@ -139,20 +167,22 @@ Also save:
 - build/debug symbols as needed;
 - unit tests for snapshots, traces, and writer audit;
 - Gate 0 bank/ownership smoke;
-- one vertical-slice checkpoint.
+- one hostile-slice checkpoint; and
+- its LLM-viewable screenshot.
 
 ### Focused: transfer or handoff change
 
 - complete vertical slice;
 - affected connection/overlay/handoff cases;
-- semantic and visual comparisons.
+- semantic comparisons and LLM visual review; and
+- current timing measurements.
 
 ### Full: stage completion
 
 - all tilesets and connections;
 - handoff matrix;
 - soak loops;
-- timing instrumentation;
+- timing measurements;
 - excluded-scene regressions.
 
 ## Determinism rules
@@ -164,6 +194,8 @@ Also save:
 - Seed or mask legitimate randomness explicitly.
 - Never update golden files automatically in CI.
 - Require review when semantic expectations change.
+- Record the seed and action list for generated ownership scenarios.
+- Give every screenshot and frame strip a stable checkpoint name.
 
 ## Timing limitation
 

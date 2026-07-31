@@ -18,6 +18,15 @@ checks in fast, focused, and full tiers.
 
 There are no DMG/SGB, binary matching, or old-save migration gates.
 
+## Ownership-model sequences
+
+Run seeded valid and adversarial sequences against the Python reference model.
+Include movement, overlays, connections, pending work, handoffs, returns,
+interrupt boundaries, and reset. Compare owner, generation, permitted writers,
+jobs, and banks after every action.
+
+Preserve the seed and shortest reproducible sequence for every failure.
+
 ## Bank-safety matrix
 
 Trigger map rendering and handoffs while:
@@ -47,6 +56,23 @@ Measure:
 - OAM construction with maximum visible overworld objects.
 
 Force insufficient time and confirm whole jobs defer safely.
+
+Timing begins with the diagnostic slice and is repeated after transfer, OAM,
+handoff, and content phases. Final hardening confirms prior measurements; it
+must not be the first time timing is inspected.
+
+## Architecture stress gate
+
+Before tileset expansion, repeatedly test:
+
+- simultaneous scrolling, animation, palettes, representative maximum OAM, and
+  interrupt pressure;
+- standalone handoff immediately after map activity and complete reconstruction
+  on return; and
+- connection transfer at an interrupt or insufficient-time boundary.
+
+Each case must satisfy semantic, ownership-model, bank, writer-trace, timing,
+and visual checks.
 
 ## Tileset and map matrix
 
@@ -152,6 +178,12 @@ Automated captures should record:
 A correct-looking single frame is insufficient because it can contain stale
 attributes from the previous owner.
 
+For LLM-driven test plays, publish named lossless screenshots, bounded frame
+strips, and annotated contact sheets beside the corresponding semantic snapshot
+and trace. The LLM reviews palette selection, tile seams, priority, follower and
+NPC OAM, overlay damage, return frames, and flicker. Machine assertions remain
+mandatory even when the visual review looks correct.
+
 ## Completion report
 
 The final implementation PR must report:
@@ -160,9 +192,12 @@ The final implementation PR must report:
 - hardware-writer audit;
 - bank-stress results;
 - timing measurements;
+- ownership-model sequence results;
+- architecture stress-gate results;
 - all tileset/map coverage;
 - overlay coverage;
 - handoff coverage;
 - overworld OAM coverage;
+- LLM-reviewed screenshot/frame-strip artifacts;
 - emulator versions; and
 - physical CGB tests not performed.

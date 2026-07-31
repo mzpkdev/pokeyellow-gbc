@@ -61,12 +61,17 @@ Gate 0 includes:
 - pinned PyBoy/Python test dependencies;
 - deterministic scenario and timeout handling;
 - semantic state snapshots;
+- model-generated ownership sequences;
 - renderer-owner and writer tracing;
 - hardware-writer inventory checks;
 - bank-torture tests;
+- an LLM-viewable screenshot and frame-strip artifact pipeline;
 - mutation tests proving the gates fail when invariants are violated; and
-- a scripted diagnostic vertical-slice scenario ready to receive the new
-  renderer.
+- a hostile diagnostic vertical slice ready to receive the new renderer.
+
+The first renderer slice must then activate an unmistakable canary palette,
+pass early timing checks, and clear the three architecture stress cases before
+content expansion.
 
 Details:
 
@@ -82,7 +87,8 @@ The project is done when:
 3. Map tiles and attributes use paired, serialized transfer paths.
 4. Overlays and scene handoffs pass deterministic semantic tests.
 5. All bank, ownership, timing, and writer gates pass.
-6. Yellow's old overworld ownership path can be deleted.
+6. The three architecture stress cases pass before content expansion.
+7. Yellow's old overworld ownership path can be deleted.
 
 See [Acceptance criteria](docs/acceptance-criteria.md).
 

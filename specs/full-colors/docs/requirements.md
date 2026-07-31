@@ -109,6 +109,7 @@ Gameplay-level color-restoration hooks are forbidden.
 
 - Compose preparation with Yellow's existing LCD `wLYOverrides` handler.
 - Route VBlank work by active owner.
+- Instrument timing from the first diagnostic renderer slice onward.
 - Check safe time before starting uploads.
 - Defer complete jobs when a deadline is missed.
 - Serialize row/column attributes against palette uploads.
@@ -116,7 +117,17 @@ Gameplay-level color-restoration hooks are forbidden.
 
 RGB scanline constants are references, not accepted Yellow values.
 
-## R11. Isolation and removal
+## R11. Diagnostic mode
+
+- Provide a debug-only canary mode with unmistakable assignments for all eight
+  palette slots and selected tile classes.
+- Keep canary output deterministic and unavailable in release builds.
+- Capture named screenshots and bounded frame strips at diagnostic checkpoints.
+- Pair visual evidence with semantic state and writer traces.
+- Treat LLM screenshot inspection as a supported test-play workflow, not as a
+  replacement for machine assertions.
+
+## R12. Isolation and removal
 
 - Battles and standalone screens retain Yellow rendering behavior.
 - Handoff occurs before their initialization.

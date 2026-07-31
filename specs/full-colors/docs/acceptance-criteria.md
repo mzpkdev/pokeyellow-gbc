@@ -28,9 +28,17 @@ validate themselves, and pass before production renderer code begins.
 - Static hardware-writer inventory passes.
 - Runtime owner/writer assertions pass.
 - Semantic snapshots match at all required checkpoints.
+- Seeded ownership-model sequences match the reference state machine.
 - Forced bank-state and interrupt tests pass.
 - Measured LCD, VBlank, and OAM work fits timing or safely defers.
 - Mutation tests prove critical gates detect their target failures.
+- Named screenshots and frame strips are available for LLM visual inspection.
+
+## Architecture expansion gate
+
+Before scaling to all tilesets and real color content, the implementation passes
+the three stress cases defined by the migration plan: combined renderer
+pressure, handoff reconstruction, and interrupted connection transfer.
 
 ## Removal
 
