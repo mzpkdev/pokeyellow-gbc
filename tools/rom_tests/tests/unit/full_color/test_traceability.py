@@ -1,6 +1,9 @@
 """Concrete traceability closure and mutation tests."""
 
 from dataclasses import replace
+import json
+from pathlib import Path
+import shutil
 
 import pytest
 
@@ -8,8 +11,15 @@ from tools.rom_tests.full_color.errors import TraceabilityError
 from tools.rom_tests.full_color.traceability import (
     AcceptanceMap,
     RequirementMap,
+    SPECIFICATION_DOCUMENTS,
+    main,
+    validate_specification,
     validate_traceability,
 )
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
+REAL_SPEC_ROOT = REPOSITORY_ROOT / "specs/full-colors"
 
 
 def valid_input() -> dict[str, object]:
@@ -137,3 +147,166 @@ def test_rows_reject_missing_evidence_metadata(
 
     with pytest.raises(TraceabilityError, match=message):
         validate_traceability(**raw)
+
+
+def test_real_specification_emits_complete_canonical_mapping_report() -> None:
+    report = validate_specification(REAL_SPEC_ROOT)
+    payload = report.to_dict()
+
+    assert payload["schema"] == "full-color-traceability-report-v1"
+    assert payload["documents"] == list(SPECIFICATION_DOCUMENTS)
+    assert payload["requirements"] == payload["requirement_rows"] == 115
+    assert payload["acceptances"] == payload["acceptance_rows"] == 39
+    assert payload["checks"] == 27
+    assert payload["relative_links"] == 75
+    assert len(payload["requirement_mappings"]) == 115
+    assert len(payload["acceptance_mappings"]) == 39
+    assert json.dumps(payload, sort_keys=True) == json.dumps(
+        validate_specification(REAL_SPEC_ROOT).to_dict(), sort_keys=True
+    )
+
+
+def test_cli_writes_identical_report_on_double_execution(tmp_path: Path) -> None:
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+
+    assert main(("--spec-root", str(REAL_SPEC_ROOT), "--output", str(first))) == 0
+    assert main(("--spec-root", str(REAL_SPEC_ROOT), "--output", str(second))) == 0
+    assert first.read_bytes() == second.read_bytes()
+    assert json.loads(first.read_text(encoding="utf-8"))["checks"] == 27
+
+
+def test_cli_reports_output_parent_failure_without_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    invalid_parent = tmp_path / "not-a-directory"
+    invalid_parent.write_text("occupied", encoding="utf-8")
+
+    assert main(
+        (
+            "--spec-root",
+            str(REAL_SPEC_ROOT),
+            "--output",
+            str(invalid_parent / "report.json"),
+        )
+    ) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("full-color specification validation failed: ")
+    assert "Traceback" not in captured.err
+
+
+def _copy_specification(tmp_path: Path) -> Path:
+    target = tmp_path / "full-colors"
+    shutil.copytree(REAL_SPEC_ROOT, target)
+    return target
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("extra-document", "scoped Markdown set differs"),
+        ("unknown-reference", "unknown R99.99"),
+        ("duplicate-definition", "R1.1: 2 definitions"),
+        ("missing-primary", "uncovered requirement authority IDs: R1.1"),
+        ("orphan-check", "orphan check IDs.*CHK-GHOST-99"),
+        ("broken-anchor", "missing anchor 'not-a-real-anchor'"),
+        ("ac-multisegment-wildcard", "wildcard ID AC-GATE-ZERO-\\*"),
+        ("check-multisegment-wildcard", "wildcard ID CHK-GATE-ZERO-\\*"),
+    ],
+)
+def test_real_specification_mutations_fail_specifically(
+    tmp_path: Path, mutation: str, message: str
+) -> None:
+    root = _copy_specification(tmp_path)
+    requirements = root / "docs/requirements.md"
+    verification = root / "docs/verification-plan.md"
+    spec = root / "SPEC.md"
+
+    if mutation == "extra-document":
+        (root / "unexpected.md").write_text("# Unexpected\n", encoding="utf-8")
+    elif mutation == "unknown-reference":
+        requirements.write_text(
+            requirements.read_text(encoding="utf-8") + "\nUnknown R99.99 reference.\n",
+            encoding="utf-8",
+        )
+    elif mutation == "duplicate-definition":
+        requirements.write_text(
+            requirements.read_text(encoding="utf-8") + "\n- **R1.1:** Duplicate.\n",
+            encoding="utf-8",
+        )
+    elif mutation == "missing-primary":
+        verification.write_text(
+            verification.read_text(encoding="utf-8").replace(
+                "| R-MAP | R1.1 |", "| NOT-A-MAP | R1.1 |", 1
+            ),
+            encoding="utf-8",
+        )
+    elif mutation == "orphan-check":
+        verification.write_text(
+            verification.read_text(encoding="utf-8")
+            + "\n- **CHK-GHOST-99:** Method: fixture; tier: fast; evidence: fixture.\n",
+            encoding="utf-8",
+        )
+    elif mutation == "broken-anchor":
+        spec.write_text(
+            spec.read_text(encoding="utf-8").replace(
+                "(docs/scope.md)", "(docs/scope.md#not-a-real-anchor)", 1
+            ),
+            encoding="utf-8",
+        )
+    elif mutation == "ac-multisegment-wildcard":
+        requirements.write_text(
+            requirements.read_text(encoding="utf-8")
+            + "\nForbidden AC-GATE-ZERO-* placeholder.\n",
+            encoding="utf-8",
+        )
+    elif mutation == "check-multisegment-wildcard":
+        requirements.write_text(
+            requirements.read_text(encoding="utf-8")
+            + "\nForbidden CHK-GATE-ZERO-* placeholder.\n",
+            encoding="utf-8",
+        )
+
+    with pytest.raises(TraceabilityError, match=message):
+        validate_specification(root)
+
+
+@pytest.mark.parametrize(
+    "acceptances", [", AC-OWN-01", "AC-OWN-01,", "AC-OWN-01,, AC-TECH-06"]
+)
+def test_mapping_cells_reject_empty_comma_entries(
+    tmp_path: Path, acceptances: str
+) -> None:
+    root = _copy_specification(tmp_path)
+    verification = root / "docs/verification-plan.md"
+    verification.write_text(
+        verification.read_text(encoding="utf-8").replace(
+            "| R-MAP | R1.1 | AC-OWN-01 |",
+            f"| R-MAP | R1.1 | {acceptances} |",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TraceabilityError, match="comma-separated concrete acceptance"):
+        validate_specification(root)
+
+
+@pytest.mark.parametrize("requirements", [", R1.1", "R1.1,", "R1.1,, R1.2"])
+def test_direct_requirements_reject_empty_comma_entries(
+    tmp_path: Path, requirements: str
+) -> None:
+    root = _copy_specification(tmp_path)
+    acceptance = root / "docs/acceptance-criteria.md"
+    acceptance.write_text(
+        acceptance.read_text(encoding="utf-8").replace(
+            "Direct requirements: R1.1, R1.2, R1.3, R1.4, R1.5, R10.2.",
+            f"Direct requirements: {requirements}.",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TraceabilityError, match="comma-separated direct requirement IDs"):
+        validate_specification(root)
