@@ -1,5 +1,10 @@
 # Overworld verification plan
 
+This is the complete implementation matrix. The smaller
+[prerequisite suite](prerequisite-gates.md) must already be operational before
+renderer work starts, and the [AI harness](ai-iteration-harness.md) runs these
+checks in fast, focused, and full tiers.
+
 ## Build and ownership checks
 
 - Release, debug, and VC builds.

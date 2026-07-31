@@ -1,103 +1,117 @@
-# Overworld migration plan
+# Migration plan
 
-## Stage 0: baseline and classification
+## Phase 0: mandatory iteration foundation
 
-- Build release, debug, and VC ROMs.
-- Record bank capacity and interrupt timing.
-- Inventory all palette and VRAM-bank-1 writers.
-- Classify every palette command call as map-backed, standalone, or return.
-- Capture stable map, connection, dialogue, and handoff states.
+Implement [Gate 0](prerequisite-gates.md) using the existing
+[PyBoy/Python harness](ai-iteration-harness.md).
 
-Exit gate: every relevant writer and scene boundary has an owner.
+Allowed work:
 
-## Stage 1: ownership and bank-safe foundation
+- tests and fixtures;
+- debug-only observability;
+- hardware-writer inventory;
+- semantic snapshot and diff support;
+- bank-torture controls;
+- deterministic baseline scenarios; and
+- mutation tests for the gates.
+
+Production renderer code is not allowed in this phase.
+
+Exit gate: every Gate 0 item validates itself and passes twice with identical
+semantic output.
+
+## Phase 1: ownership foundation
 
 - Make the ROM CGB-only.
 - Add bank-2 renderer WRAM.
-- Add `RENDERER_YELLOW` and `RENDERER_FULL_COLOR_OVERWORLD`.
-- Preserve ROM, WRAM, and VRAM banks in renderer-capable interrupts.
-- Add job cancellation/generation behavior for handoffs.
-- Initially keep visuals unchanged.
+- Add both renderer owners and ownership generation.
+- Preserve banks in renderer-capable interrupts.
+- Add job cancellation behavior.
+- Keep visuals unchanged.
 
-Exit gate: repeated synthetic ownership switches preserve banks and game state.
+Exit gate: ownership, bank-torture, mutation, and baseline semantic tests pass.
 
-## Stage 2: overworld palette core
+## Phase 2: diagnostic vertical slice
 
-- Add eight BG and OBJ base palettes.
-- Add transformed buffers and DMG shade remapping.
-- Route palette wrappers by active owner.
-- Activate the new core only under overworld ownership.
-- Prove Yellow standalone screens still use their existing renderer.
+- Add eight diagnostic BG and OBJ palettes.
+- Add transformed buffers and shade remapping.
+- Pair initial, horizontal, vertical, connection, and overlay attributes for
+  one diagnostic tileset.
+- Route wrappers by owner.
+- Implement one real standalone-screen handoff and return.
 
-Exit gate: diagnostic eight-palette output survives fades and repeated handoffs.
+Exit gate: the complete diagnostic scenario passes semantic checkpoints without
+restoration hooks.
 
-## Stage 3: paired attribute transfers
+Do not expand to real palette content until this gate is green.
 
-- Add the 256-byte tile attribute lookup.
-- Pair initial map tile and attribute loads.
-- Pair horizontal and vertical streaming.
-- Pair all four connected-map directions.
-- Pair third-screen and explicit row transfers.
-- Add authoritative map-backed overlay attributes.
+## Phase 3: complete transfer architecture
 
-Exit gate: a diagnostic attribute table survives map entry, movement,
-connections, dialogue, start-menu overlays, and reloads without restoration
-hooks.
+- Generalize the tile attribute lookup.
+- Cover every map load/reload path.
+- Cover all connections and transfer destinations.
+- Cover dialogue and transient overlays.
+- Cover animated and replaced tiles.
 
-## Stage 4: overworld content
+Exit gate: transfer matrix, bank tests, ownership trace, and focused soak pass.
 
-- Add palette sets and `$60` assignments for all 25 tilesets.
+## Phase 4: tileset content
+
+- Add all 25 palette sets and `$60` assignment tables.
 - Add native Beach House data.
-- Add roofs and reviewed map-specific overrides.
+- Add roofs and reviewed map overrides.
 - Verify animated tile compatibility.
 
-Exit gate: every tileset and representative map exception passes atlas tests.
+Exit gate: tileset atlas and semantic attribute snapshots pass.
 
-## Stage 5: overworld OAM
+## Phase 5: overworld OAM
 
 - Add picture-ID palette assignments.
 - Insert palette bits after Yellow's final tile calculation.
-- Preserve follower Pikachu VRAM offsets and animation.
-- Cover field objects and transient overworld effects.
+- Preserve follower Pikachu VRAM offsets.
+- Cover field objects and transient effects.
 
-Exit gate: maximum visible NPCs, player movement, follower Pikachu, cut,
-boulder, healing, fishing, ledges, and emotions render without wobble.
+Exit gate: maximum-NPC, player, follower Pikachu, priority, and field-object
+tests pass without wobble or bank leakage.
 
-## Stage 6: real scene handoffs
+## Phase 6: complete handoff coverage
 
-- Handoff before battles and every standalone screen.
-- Rebuild the map on every return path.
-- Stress rapid open/close and nested transitions.
-- Remove any implementation path that restores stale map VRAM.
+- Handoff before every standalone screen.
+- Reconstruct the map on every return path.
+- Stress rapid, repeated, interrupted, and nested transitions.
+- Reject stale-generation jobs.
 
-Exit gate: all handoff smoke tests pass and owner logs never overlap.
+Exit gate: full handoff matrix and 100-cycle soak tests pass.
 
-## Stage 7: delete old overworld ownership
+## Phase 7: delete old overworld ownership
 
-- Remove Yellow's old `SetPal_Overworld` tint path.
-- Remove old map attribute writes.
-- Delete transitional overworld adapters.
-- Add CI enforcement for owner-gated hardware writers.
-- Keep Yellow code required by standalone scenes.
+- Remove Yellow's old overworld tint and attribute path.
+- Remove transitional overworld adapters.
+- Remove restoration behavior.
+- Enforce owner-gated hardware writers in CI.
+- Retain Yellow code required by excluded scenes.
 
-Exit gate: old overworld code can no longer be selected, and excluded scenes
-remain unchanged.
+Exit gate: old overworld ownership is unreachable and excluded-scene
+regressions remain green.
 
-## Stage 8: timing and release hardening
+## Phase 8: timing and release hardening
 
 - Measure LCD, VBlank, map streaming, palette upload, and OAM budgets.
-- Test missed deadlines.
-- Run the complete multi-frame verification matrix.
-- Verify release/debug/VC builds.
+- Verify safe missed-deadline behavior.
+- Run the complete multi-frame suite.
+- Verify release, debug, and VC builds.
 
-Exit gate: no unsafe partial updates, bank leaks, or one-frame color corruption.
+Exit gate: all [acceptance criteria](acceptance-criteria.md) pass.
 
-## Commit discipline
+## Iteration rule
 
-Each implementation PR should:
+Run the fastest relevant gate after each change. A red prerequisite,
+ownership, bank, or semantic-state gate stops renderer expansion until fixed.
 
-- change one stage or bounded transfer path;
-- state the active owner before and after the change;
-- include a transition or transfer test;
-- avoid unrelated non-overworld color work; and
+Each implementation PR must:
+
+- address one phase or bounded transfer path;
+- state owner transitions;
+- include a machine-checkable test;
+- avoid unrelated non-overworld work; and
 - remain bootable and diagnosable.
