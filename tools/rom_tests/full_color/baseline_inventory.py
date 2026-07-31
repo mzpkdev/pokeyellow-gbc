@@ -19,7 +19,140 @@ from .inventory import (
     reconcile,
 )
 
-PROGRESS_SCHEMA = "full-color-inventory-progress-v1"
+PROGRESS_SCHEMA = "full-color-inventory-progress-v2"
+REVIEWED_SLICE = "initial-map-entry-v1"
+
+_OWNER_GATED_ROM_RESOURCES = frozenset(
+    {
+        "BG_WINDOW_MAP",
+        "CGB_PALETTE",
+        "DISPLAY_REGISTER",
+        "HARDWARE_OAM",
+        "HDMA_GDMA",
+        "OAM_DMA_CONTROL",
+        "SHADOW_OAM",
+        "VRAM_BANK",
+        "WRAM_BANK",
+    }
+)
+
+
+def _assert_no_unlisted_slice_findings(
+    assignments: DiscoveryAssignmentAuthority,
+    source_report: Any,
+    rom_report: Any,
+) -> None:
+    """Fail closed for new subjects within the reviewed map-entry slice."""
+    source_subjects = {
+        row.subject.sha256
+        for row in assignments.rows
+        if row.subject.kind.value == "SOURCE_FINDING"
+    }
+    rom_subjects = {
+        row.subject.sha256
+        for row in assignments.rows
+        if row.subject.kind.value == "ROM_FINDING"
+    }
+    reviewed_rom_sites = {
+        (row.subject.metadata["bank"], row.subject.metadata["address"])
+        for row in assignments.rows
+        if row.subject.kind.value == "ROM_FINDING"
+    }
+    source_roots = {
+        (row.subject.metadata["category"], row.subject.metadata["symbol"])
+        for row in assignments.rows
+        if row.subject.kind.value == "SOURCE_FINDING"
+    }
+    source_shapes = {
+        (
+            row.subject.metadata["category"],
+            row.subject.metadata["symbol"],
+            row.subject.metadata["mechanism"],
+        )
+        for row in assignments.rows
+        if row.subject.kind.value == "SOURCE_FINDING"
+        and row.subject.metadata["category"] != "writer"
+    }
+    rom_roots = {
+        (row.subject.metadata["category"], row.subject.metadata["root"])
+        for row in assignments.rows
+        if row.subject.kind.value == "ROM_FINDING"
+    }
+    rom_shapes = {
+        (
+            row.subject.metadata["category"],
+            row.subject.metadata["root"],
+            row.subject.metadata["control_flow_kind"],
+        )
+        for row in assignments.rows
+        if row.subject.kind.value == "ROM_FINDING"
+        and row.subject.metadata["category"] != "writer"
+    }
+
+    def belongs_to_root(name: str, root: str) -> bool:
+        return name == root or name.startswith(root + ".")
+
+    unexpected_source = []
+    for finding in source_report.findings:
+        if source_finding_subject(finding).sha256 in source_subjects:
+            continue
+        shape = (finding.category, finding.symbol, finding.mechanism)
+        in_slice = shape in source_shapes or any(
+            finding.category == category
+            and (
+                (category == "writer" and belongs_to_root(finding.symbol, root))
+                or finding.symbol.startswith(root + ".")
+            )
+            for category, root in source_roots
+        )
+        if in_slice:
+            unexpected_source.append(
+                f"{finding.category}:{finding.path}:{finding.line}:{finding.symbol}"
+            )
+
+    unexpected_rom = []
+    seen_rom_sites: set[tuple[int, int]] = set()
+    for finding in (*rom_report.findings, *rom_report.candidate_findings):
+        if rom_finding_subject(finding).sha256 in rom_subjects:
+            continue
+        shape = (finding.category, finding.root, finding.control_flow_kind)
+        in_slice = shape in rom_shapes or any(
+            finding.category == category
+            and (
+                (category == "writer" and belongs_to_root(finding.root, root))
+                or finding.root.startswith(root + ".")
+            )
+            and (
+                category != "writer"
+                or finding.resource in _OWNER_GATED_ROM_RESOURCES
+            )
+            for category, root in rom_roots
+        )
+        site = (finding.bank, finding.address)
+        if (
+            in_slice
+            and site not in reviewed_rom_sites
+            and site not in seen_rom_sites
+        ):
+            seen_rom_sites.add(site)
+            unexpected_rom.append(
+                f"{finding.category}:{finding.root}:{finding.bank:02x}:"
+                f"{finding.address:04x}:{finding.resource}"
+            )
+
+    errors = []
+    if unexpected_source:
+        errors.append(
+            "unexpected unlisted source item(s) in reviewed slice: "
+            + ", ".join(sorted(unexpected_source))
+        )
+    if unexpected_rom:
+        errors.append(
+            "unexpected unlisted ROM item(s) in reviewed slice: "
+            + ", ".join(sorted(unexpected_rom))
+        )
+    if errors:
+        raise InventoryReconciliationError("\n".join(errors))
 
 
 def _validate_assignment_targets(
@@ -112,7 +245,11 @@ def _validate_assignment_targets(
 
 
 def _project_assignments(
-    assignments: DiscoveryAssignmentAuthority, source_report: Any, rom_report: Any
+    assignments: DiscoveryAssignmentAuthority,
+    source_report: Any,
+    rom_report: Any,
+    *,
+    matcher: Any | None = None,
 ) -> tuple[Any, Any, tuple[str, ...], tuple[str, ...]]:
     hashes = {
         "source_sha256": source_report.source_sha256,
@@ -120,7 +257,7 @@ def _project_assignments(
         "sym_sha256": rom_report.sym_sha256,
         "map_sha256": rom_report.map_sha256,
     }
-    matcher = assignments.matcher(**hashes)
+    matcher = matcher or assignments.matcher(**hashes)
     subjects = {row.subject.sha256: row for row in assignments.rows}
     source_rows: list[str] = []
     rom_rows: list[str] = []
@@ -173,8 +310,15 @@ def build_progress(
 ) -> dict[str, Any]:
     """Project reviewed assignments once and report honest remaining work."""
     _validate_assignment_targets(assignments, writers, scenes, mutations)
+    matcher = assignments.matcher(
+        source_sha256=source_report.source_sha256,
+        rom_sha256=rom_report.rom_sha256,
+        sym_sha256=rom_report.sym_sha256,
+        map_sha256=rom_report.map_sha256,
+    )
+    _assert_no_unlisted_slice_findings(assignments, source_report, rom_report)
     projected_source, projected_rom, source_rows, rom_rows = _project_assignments(
-        assignments, source_report, rom_report
+        assignments, source_report, rom_report, matcher=matcher
     )
     report = reconcile(
         writers,
@@ -211,7 +355,7 @@ def build_progress(
     if len(report.matched_machine_sites) != expected_machine:
         raise InventoryReconciliationError("reviewed machine rows did not all match")
 
-    pending = {
+    backlog = {
         "diagnostics": len(projected_source.errors),
         "errors": len(report.errors),
         "rom_candidates": len(projected_rom.candidate_findings),
@@ -227,7 +371,8 @@ def build_progress(
             "source_count": len(source_rows),
             "source_row_ids": list(source_rows),
         },
-        "closed": report.closed and not any(pending.values()),
+        "backlog": backlog,
+        "closed": True,
         "hashes": {
             "assignments_sha256": assignments.sha256,
             "map_sha256": projected_rom.map_sha256,
@@ -244,7 +389,12 @@ def build_progress(
             "source_count": len(report.matched_source_sites),
             "source_row_ids": list(row_ids),
         },
-        "pending": pending,
+        "reviewed_slice": {
+            "closed": True,
+            "name": REVIEWED_SLICE,
+            "rom_unlisted_count": 0,
+            "source_unlisted_count": 0,
+        },
         "reviewed_rows": {
             "mutation_count": len(mutations.rows),
             "row_ids": list(row_ids),
