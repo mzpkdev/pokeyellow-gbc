@@ -11,10 +11,10 @@ slice. A red activated check blocks expansion of the affected path.
 
 ## Gate 0 required artifact contract
 
-The following are required outputs of future Gate 0 implementation and
-execution. This documentation revision defines their schemas and pass
-conditions; it does not claim that an inventory has been populated, a
-measurement has been taken, or an artifact has been produced or validated.
+The following are the live required outputs implemented and validated by Gate
+0. Together they form its artifact and execution exit contract within the
+reviewed initial map-entry slice. They do not claim whole-game inventory
+closure or renderer runtime, representation, timing, or hostile-slice evidence.
 
 | Gate 0 artifact | Required baseline content |
 |---|---|

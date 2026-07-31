@@ -177,3 +177,31 @@ def test_second_run_traceability_mutation_fails_with_exact_path(tmp_path: Path) 
         (tmp_path / "results/attempt-0001/summary.json").read_text()
     )
     assert "traceability-report.json" in summary["comparison"]["changed"]
+
+
+def test_second_run_manifest_mutation_fails_with_exact_path(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    calls, stable = _fake_runner()
+
+    def divergent(
+        command: Sequence[str], cwd: Path, stdout_path: Path, stderr_path: Path
+    ) -> int:
+        returncode = stable(command, cwd, stdout_path, stderr_path)
+        if command[command.index("-m") + 1].endswith("visual_pipeline"):
+            output = Path(command[command.index("--output") + 1])
+            if output.parent.name == "run-2":
+                (output / "manifest.json").write_bytes(
+                    b'{"schema":"mutated-manifest-v1"}\n'
+                )
+        return returncode
+
+    with pytest.raises(RuntimeError, match="produced different evidence"):
+        run_gate0(root, tmp_path / "results", run_command=divergent)
+
+    assert len(calls) == 2 * len(COMPONENTS)
+    summary = json.loads(
+        (tmp_path / "results/attempt-0001/summary.json").read_text()
+    )
+    assert summary["comparison"]["versioned_manifest_byte_identical"] is False
+    assert summary["comparison"]["changed"] == ["visual/manifest.json"]
