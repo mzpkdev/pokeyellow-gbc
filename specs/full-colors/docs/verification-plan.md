@@ -17,9 +17,9 @@ before renderer work starts, and the
 - **CHK-OVERLAY-01:** Method: independent request-data oracle across authoritative BG/window destination, map/tileset identity, world transform, override set, clipping mappings, classification, and full-byte precedence; tier: fast/focused/full; evidence: complete request fixture, clipped source/destination/world coordinate map, expected/actual tile and attribute bytes, and trace proving no VRAM or ambient-map oracle read.
 - **CHK-OAM-01:** Method: missing, out-of-range, and unmapped final-picture identities under diagnostic and release builds; tier: fast/focused; evidence: final identity, before/after attributes, palette-0 result, diagnostic fallback record, and release-symbol audit.
 - **CHK-TIME-01:** Method: numeric cycle instrumentation for every operation plus an exact defer-threshold-plus-one case; tier: focused/full; evidence: completed timing row, equation result, whole-unit defer trace, and timing artifact key.
-- **CHK-INV-01:** Method: reconcile source search with symbol-guided built-ROM disassembly for the Phase 0 baseline and after every atomically added concrete planned row; tier: fast/full; evidence: reviewed `WR-…`, `SC-…`, and `MU-…` rows, before-reachability review, renewed closure report, and unlisted-writer/scene/mutation fixtures.
+- **CHK-INV-01:** Method: reconcile source search with symbol-guided built-ROM disassembly for the initial map-entry slice and every later declared implementation slice; tier: fast/full; evidence: reviewed `WR-…`, `SC-…`, and `MU-…` rows, before-reachability review, slice closure report, visible out-of-slice backlog, and unlisted-writer/scene/mutation fixtures.
 - **CHK-TRACE-01:** Method: validate authority definitions, references, and bidirectional primary mappings; tier: fast; evidence: machine-readable mapping report and zero unknown, uncovered, duplicate, or orphan IDs.
-- **CHK-G0-01:** Method: run only Gate 0 harness/schema/self-mutation, baseline-inventory, representation-selection, and baseline timing-instrument-readiness tests twice against the baseline debug ROM; tier: fast/full; evidence: identical outputs, mutation failures, artifact manifests, suite logs, and no renderer acceptance claim.
+- **CHK-G0-01:** Method: run the lean Gate 0 environment, observability, snapshot, ownership-model, bank-torture, initial-inventory-slice, visual-pipeline, implemented-gate mutation, stable-command, and CI checks twice against the baseline debug ROM; tier: fast/full; evidence: identical semantic and contract-versioned artifact-manifest outputs, specific mutation failures, diagnostic artifacts, suite logs, and no renderer acceptance claim.
 - **CHK-BUILD-01:** Method: reproducibly build release, debug, and VC variants with warnings fatal; tier: fast/full; evidence: commands, tool versions, ROM content IDs, headers, symbols, link maps, and warning logs.
 - **CHK-CGB-01:** Method: exercise CGB hard boot, DMG/SGB rejection, soft reset, and double-speed initialization; tier: fast/full; evidence: header bytes, startup traces, reset snapshots, and rejection-path checkpoints.
 - **CHK-BANK-01:** Method: invoke renderer paths from non-default ROM/VRAM banks, every selected renderer WRAM bank, every other valid WRAM entry bank, and interrupt boundaries; tier: fast/focused/full; evidence: before/after bank, stack, interrupt, owner, generation, and dirty-state snapshots.
@@ -29,7 +29,7 @@ before renderer work starts, and the
 - **CHK-TILESET-01:** Method: audit and exercise all 25 tilesets, table assertions, graphics, roofs, overrides, animations, and native Beach House data; tier: full; evidence: table lengths, assignment audit, semantic atlas, animation captures, and reviewed visual atlas.
 - **CHK-HANDOFF-01:** Method: execute the concrete directed scene graph, including boot/reset, initial new-game/continue and other actual Yellow-owned source lifecycles, Yellow-to-Yellow nested/error edges, and only source/ROM-proven map ownership boundaries; tier: focused/full; evidence: concrete scene/writer IDs, Yellow-before-destination-initialization trace only for proven map-to-Yellow boundaries, generation transitions, reconstruction only on Yellow-to-overworld edges, and regression result.
 - **CHK-OAM-02:** Method: exercise player, follower, every mapped object class, maximum population, shadow construction, sort/copy, invalidation, and one hardware DMA; tier: focused/full; evidence: concrete writer/mutation IDs, final-picture mapping, shadow/hardware OAM snapshots, DMA trace, and frame strip.
-- **CHK-VISUAL-01:** Method: inspect named screenshots, bounded frame strips, and contact sheets beside semantic state; tier: focused/full; evidence: versioned manifest, reviewer result, image diffs, snapshots, and linked traces.
+- **CHK-VISUAL-01:** Method: inspect named screenshots, bounded frame strips, annotated contact sheets, and localized image diffs beside semantic state; tier: fast/focused/full; evidence: versioned manifest, reviewer result, image diffs, snapshots, and linked traces.
 - **CHK-STRESS-01:** Method: repeat simultaneous scrolling, animation, palette, maximum representative OAM, and interrupt pressure; tier: focused/full; evidence: request accounting, semantic snapshots, writer trace, bank snapshots, numeric timing rows, and reviewed frame strips.
 - **CHK-STRESS-02:** Method: enter a standalone lifecycle immediately after map activity, poison old resources, and return; tier: focused/full; evidence: concrete scene IDs, poison/reconstruction ledger, barrier, five active frames, model trace, and timing rows.
 - **CHK-STRESS-03:** Method: force insufficient budget at every pre-visible connection-transfer boundary and interrupt mid-operation only for inactive or LCD-off destinations; tier: focused/full; evidence: concrete mutation/writer IDs, old/new snapshots, pre-commit defer traces, reserved-budget completion, bank state, timing row, and frame strip.
@@ -50,7 +50,7 @@ defined concrete IDs.
 | R-MAP | R1.4 | AC-OWN-01, AC-TECH-04 | CHK-OWN-01 | fast/full | full-color write during Yellow ownership | assertion and writer trace |
 | R-MAP | R1.5 | AC-OWN-01, AC-TECH-06 | CHK-OWN-01 | fast/full | absent owner or generation | job snapshot and trace |
 | R-MAP | R1.6 | AC-JOB-01, AC-HO-04 | CHK-JOB-01 | fast/full | departing-generation execution | cancellation and no-later-write trace |
-| R-MAP | R1.7 | AC-INV-01, AC-TECH-03 | CHK-INV-01 | fast/full | reachable unlisted writer | source/ROM closure report |
+| R-MAP | R1.7 | AC-G0-01, AC-INV-01, AC-TECH-03 | CHK-G0-01, CHK-INV-01 | fast/full | reachable unlisted in-slice writer | source/ROM slice closure report |
 | R-MAP | R1.8 | AC-REQUEST-01 | CHK-REQUEST-01 | fast/full | missing admission declaration | request record and assertion |
 | R-MAP | R1.9 | AC-REQUEST-01 | CHK-REQUEST-01 | fast/full | wrong owner | result and no-work trace |
 | R-MAP | R1.10 | AC-REQUEST-01 | CHK-REQUEST-01 | fast/full | stale generation | result and no-work trace |
@@ -69,7 +69,7 @@ defined concrete IDs.
 | R-MAP | R1.23 | AC-COMMIT-01 | CHK-COMMIT-01 | focused/full | early completion record | declared-resource diff |
 | R-MAP | R1.24 | AC-JOB-01 | CHK-JOB-01 | fast/full | write after cancellation | bounded trace |
 | R-MAP | R1.25 | AC-COMMIT-01, AC-HO-04 | CHK-COMMIT-01, CHK-JOB-01 | focused/full | missing reservation or illegal visible mid-commit interruption | reservation, presentation, and ownership trace |
-| R-MAP | R1.26 | AC-G0-01, AC-STRESS-01 | CHK-G0-01, CHK-STRESS-01 | fast/full | preselected representation | numeric decision record |
+| R-MAP | R1.26 | AC-REQUEST-01, AC-STRESS-01 | CHK-REQUEST-01, CHK-STRESS-01 | focused/full | preselected representation | phase-local numeric decision record |
 | R-MAP | R1.27 | AC-JOB-01, AC-COMMIT-01 | CHK-JOB-01, CHK-COMMIT-01 | fast/full | failed commit revalidation | cancellation/no-write trace |
 | R-MAP | R1.28 | AC-REQUEST-01, AC-COMMIT-01 | CHK-REQUEST-01, CHK-COMMIT-01 | focused/full | numeric budget failure | prepared-job retry trace |
 | R-MAP | R2.1 | AC-JOB-01, AC-HO-04 | CHK-JOB-01, CHK-HANDOFF-01 | focused/full | admission during handoff | admission and transition trace |
@@ -87,14 +87,14 @@ defined concrete IDs.
 | R-MAP | R2.13 | AC-RETURN-01, AC-REMOVE-02 | CHK-RETURN-01, CHK-REMOVE-01 | focused/full | saved-byte restoration | poison result and reachability audit |
 | R-MAP | R3.1 | AC-TECH-02 | CHK-CGB-01 | fast/full | DMG/SGB startup | header and rejection checkpoints |
 | R-MAP | R3.2 | AC-TECH-02 | CHK-CGB-01 | fast/full | repeated/missing speed switch | hard-boot trace |
-| R-MAP | R3.3 | AC-G0-01, AC-TECH-07 | CHK-G0-01, CHK-BANK-01 | fast/full | unmeasured WRAM placement | decision record and link map |
-| R-MAP | R3.4 | AC-TECH-02, AC-JOB-01 | CHK-CGB-01, CHK-JOB-01 | fast/full | observable uncleared state | boot/reset snapshots |
-| R-MAP | R3.5 | AC-TECH-07 | CHK-BANK-01 | fast/full | leaked bank/stack/interrupt | boundary snapshots |
-| R-MAP | R3.6 | AC-TECH-07 | CHK-BANK-01 | fast/full | accidental return bank | Yellow-return snapshots |
+| R-MAP | R3.3 | AC-TECH-07 | CHK-BANK-01 | focused/full | unmeasured WRAM placement | Phase 1 decision record and link map |
+| R-MAP | R3.4 | AC-G0-01, AC-TECH-02, AC-JOB-01 | CHK-G0-01, CHK-CGB-01, CHK-JOB-01 | fast/full | observable uncleared state | boot/reset snapshots |
+| R-MAP | R3.5 | AC-G0-01, AC-TECH-07 | CHK-G0-01, CHK-BANK-01 | fast/full | leaked bank/stack/interrupt | boundary snapshots |
+| R-MAP | R3.6 | AC-G0-01, AC-TECH-07 | CHK-G0-01, CHK-BANK-01 | fast/full | accidental return bank | Yellow-return snapshots |
 | R-MAP | R4.1 | AC-TECH-01, AC-TECH-07 | CHK-ROM-01, CHK-BUILD-01 | fast/full | use donor bank 2c | link-map and source audit |
 | R-MAP | R4.2 | AC-TECH-01, AC-TECH-07 | CHK-ROM-01, CHK-BUILD-01 | fast/full | import donor bank 31 | link-map and source audit |
 | R-MAP | R4.3 | AC-TECH-01, AC-TECH-07 | CHK-ROM-01, CHK-BUILD-01 | fast/full | assume extension bank 1c | link-map and source audit |
-| R-MAP | R4.4 | AC-G0-01, AC-TECH-01 | CHK-ROM-01, CHK-G0-01 | fast/full | fixed unmeasured bank 3b | placement evidence |
+| R-MAP | R4.4 | AC-TECH-01 | CHK-BUILD-01, CHK-ROM-01 | fast/full | fixed unmeasured bank 3b | Phase 1 ROM/build audit |
 | R-MAP | R4.5 | AC-TECH-07 | CHK-ROM-01, CHK-BANK-01 | fast/full | retained MBC1 assumption | far-call and bank audit |
 | R-MAP | R5.1 | AC-OW-01, AC-TECH-05 | CHK-PALETTE-01 | focused/full | incomplete BG base palettes | palette snapshot |
 | R-MAP | R5.2 | AC-OW-05, AC-TECH-05 | CHK-PALETTE-01 | focused/full | incomplete OBJ base palettes | palette snapshot |
@@ -137,7 +137,7 @@ defined concrete IDs.
 | R-MAP | R9.9 | AC-OW-05 | CHK-OAM-02 | focused/full | non-final palette identity | mapping trace |
 | R-MAP | R10.1 | AC-TECH-07, AC-TIME-01 | CHK-BANK-01, CHK-TIME-01 | focused/full | override-handler interference | interrupt trace and timing row |
 | R-MAP | R10.2 | AC-OWN-01, AC-TECH-06 | CHK-OWN-01 | fast/full | wrong-owner VBlank route | owner/generation writer trace |
-| R-MAP | R10.3 | AC-TIME-01, AC-G0-01 | CHK-TIME-01, CHK-G0-01 | focused/full | late instrumentation | diagnostic-slice timing artifacts |
+| R-MAP | R10.3 | AC-TIME-01 | CHK-TIME-01 | focused/full | late instrumentation | diagnostic-slice timing artifacts |
 | R-MAP | R10.4 | AC-TIME-01, AC-COMMIT-01 | CHK-TIME-01, CHK-COMMIT-01 | focused/full | unchecked upload threshold | timing and defer trace |
 | R-MAP | R10.5 | AC-TIME-01, AC-OW-02 | CHK-TIME-01, CHK-TRANSFER-01 | focused/full | transfer/palette overlap | serialization trace and timing rows |
 | R-MAP | R10.6 | AC-TECH-07 | CHK-BANK-01 | fast/full | scheduled-work bank leak | boundary snapshots |
@@ -147,18 +147,18 @@ defined concrete IDs.
 | R-MAP | R10.10 | AC-TIME-01, AC-COMMIT-01 | CHK-TIME-01, CHK-COMMIT-01 | focused/full | threshold plus one | whole-unit defer evidence |
 | R-MAP | R11.1 | AC-TECH-10 | CHK-CANARY-01 | fast/focused | indistinct canary assignments | semantic and visual artifacts |
 | R-MAP | R11.2 | AC-TECH-01 | CHK-CANARY-01, CHK-BUILD-01 | fast/full | canary in release | source/symbol audit |
-| R-MAP | R11.3 | AC-TECH-10 | CHK-VISUAL-01 | focused/full | missing named visual | manifest and image artifacts |
-| R-MAP | R11.4 | AC-TECH-10 | CHK-VISUAL-01 | focused/full | unpaired visual | linked snapshot and trace |
-| R-MAP | R11.5 | AC-TECH-10 | CHK-VISUAL-01 | focused/full | visual-only verdict | machine assertion and review |
-| R-MAP | R11.6 | AC-G0-01 | CHK-G0-01 | fast/full | renderer starts before Gate 0 | phase/build audit |
+| R-MAP | R11.3 | AC-G0-01, AC-TECH-10 | CHK-G0-01, CHK-VISUAL-01 | fast/focused/full | missing named visual | manifest and image artifacts |
+| R-MAP | R11.4 | AC-G0-01, AC-TECH-10 | CHK-G0-01, CHK-VISUAL-01 | fast/focused/full | unpaired visual | linked snapshot and trace |
+| R-MAP | R11.5 | AC-G0-01, AC-TECH-10 | CHK-G0-01, CHK-VISUAL-01 | fast/focused/full | visual-only verdict | machine assertion and review |
+| R-MAP | R11.6 | AC-G0-01 | CHK-G0-01 | fast/full | non-identical repeat outputs or renderer starts before Gate 0 | semantic/manifest comparison and phase/build audit |
 | R-MAP | R12.1 | AC-HO-02, AC-REMOVE-04 | CHK-REGRESS-01 | focused/full | changed Yellow lifecycle | baseline comparisons |
 | R-MAP | R12.2 | AC-HO-01 | CHK-HANDOFF-01 | focused/full | standalone display before Yellow | first-writer trace |
 | R-MAP | R12.3 | AC-REMOVE-02, AC-REMOVE-04 | CHK-REMOVE-01, CHK-REGRESS-01 | fast/full | imported excluded runtime | source/ROM audit |
 | R-MAP | R12.4 | AC-REMOVE-01 | CHK-REMOVE-01 | full | reachable old overworld owner | reachability report |
 | R-MAP | R12.5 | AC-REMOVE-04, AC-HO-02 | CHK-REGRESS-01 | focused/full | removed required Yellow code | excluded-scene regressions |
-| R-MAP | R12.6 | AC-INV-01, AC-TECH-03 | CHK-INV-01 | fast/full | unreviewed writer in CI | audit log and mutation |
+| R-MAP | R12.6 | AC-G0-01, AC-INV-01, AC-TECH-03 | CHK-G0-01, CHK-INV-01 | fast/full | unreviewed in-slice writer in CI | audit log and mutation |
 | R-MAP | R12.7 | AC-REMOVE-01 | CHK-REMOVE-01 | full | dual selectable overworld modes | source/ROM negative evidence |
-| R-MAP | R12.8 | AC-INV-01 | CHK-INV-01, CHK-HANDOFF-01 | fast/full | scene touched without row | closed scene inventory |
+| R-MAP | R12.8 | AC-G0-01, AC-INV-01 | CHK-G0-01, CHK-INV-01, CHK-HANDOFF-01 | fast/full | scene touched without row | closed scene slice |
 
 ## Acceptance-to-evidence traceability
 
@@ -177,7 +177,7 @@ never satisfy a full-tier completion row.
 | AC-MAP | AC-TIME-01 | R9.7, R10.3, R10.4, R10.7, R10.8, R10.9, R10.10 | CHK-TIME-01 | focused/full | numeric margin and threshold plus one | completed rows and defer trace |
 | AC-MAP | AC-INV-01 | R1.7, R12.6, R12.8 | CHK-INV-01 | fast/full | unlisted reachable item | source/ROM reconciliation |
 | AC-MAP | AC-TRACE-01 | R11.4, R12.6 | CHK-TRACE-01 | fast | unknown/uncovered/duplicate ID | validator and mapping report |
-| AC-MAP | AC-G0-01 | R1.26, R3.3, R10.3, R11.6 | CHK-G0-01 | fast/full | named gate mutations | repeat logs and manifests |
+| AC-MAP | AC-G0-01 | R1.7, R3.4, R3.5, R3.6, R11.3, R11.4, R11.5, R11.6, R12.6, R12.8 | CHK-G0-01, CHK-INV-01, CHK-BANK-01, CHK-VISUAL-01 | fast/full | named lean-gate mutations | repeat logs, semantic outputs, and manifests |
 | AC-MAP | AC-OW-01 | R5.1, R6.1, R6.2, R6.3, R8.1, R8.2, R8.3, R8.4 | CHK-TILESET-01, CHK-PALETTE-01 | full | all tileset content | semantic/visual atlas and audits |
 | AC-MAP | AC-OW-02 | R2.5, R7.1, R7.3, R10.5 | CHK-TRANSFER-01, CHK-COMMIT-01 | focused/full | load/scroll/connection paths | paired bytes, traces, frame strips |
 | AC-MAP | AC-OW-03 | R6.3, R6.4, R6.8, R6.11, R7.1 | CHK-OVERLAY-01, CHK-TRANSFER-01 | focused/full | dialogue and transient overlays | oracle and paired-transfer evidence |
@@ -196,7 +196,7 @@ never satisfy a full-tier completion row.
 | AC-MAP | AC-TECH-06 | R1.2, R1.5, R1.19, R1.20, R2.9, R10.2 | CHK-OWN-01, CHK-JOB-01, CHK-REQUEST-01 | fast/full | seeded ownership actions | model/ROM state comparison |
 | AC-MAP | AC-TECH-07 | R3.3, R3.5, R3.6, R4.5, R10.1, R10.6 | CHK-BANK-01, CHK-ROM-01 | fast/focused/full | bank and interrupt torture | boundary snapshots |
 | AC-MAP | AC-TECH-08 | R5.8, R9.7, R10.4, R10.5, R10.8, R10.9, R10.10 | CHK-TIME-01 | focused/full | all timed operations | numeric rows and defer evidence |
-| AC-MAP | AC-TECH-09 | R11.6, R12.6 | CHK-G0-01 | fast/full | each critical gate mutation | targeted failure artifacts |
+| AC-MAP | AC-TECH-09 | R11.6, R12.6 | CHK-G0-01 | fast/full | each implemented or phase-activated critical gate mutation | targeted failure artifacts |
 | AC-MAP | AC-TECH-10 | R9.4, R11.1, R11.3, R11.4, R11.5 | CHK-VISUAL-01, CHK-CANARY-01, CHK-OAM-01 | focused/full | checkpoint artifact omissions | complete versioned manifests |
 | AC-MAP | AC-STRESS-01 | R1.15, R1.16, R1.21, R1.22, R1.26, R7.3, R9.7, R10.8, R10.9, R10.10 | CHK-STRESS-01 | focused/full | combined renderer pressure | accounting, traces, timing, visuals |
 | AC-MAP | AC-STRESS-02 | R2.7, R2.10, R2.11, R2.12, R2.13 | CHK-STRESS-02 | focused/full | handoff after map activity | poison/rebuild/barrier/five-frame evidence |
@@ -237,10 +237,9 @@ LCD-off cases. Repeated measurements retain phase and ROM identity.
 
 ## Directed scene and reconstruction matrix
 
-Phase 0 expands this matrix to one evidence row for every concrete baseline
-`STANDALONE` lifecycle and directed transition. Later phases add concrete rows
-atomically with new edges and rerun source plus built-ROM closure before
-reachability. A lifecycle row is never expanded into assumed map entry and
+Each implementation phase expands this matrix for the lifecycles and directed
+transitions it touches, then reruns source plus built-ROM slice closure before
+the changed path becomes reachable. A lifecycle row is never expanded into assumed map entry and
 return edges. Grouping aliases is forbidden unless the reviewed inventory
 proves identical control flow and names every alias. A representative
 fast-tier sample cannot close a full-tier row.
@@ -252,7 +251,7 @@ fast-tier sample cannot close a full-tier row.
 | Yellow-to-Yellow nesting, return, failure, disconnect, and error recovery | one concrete directed Yellow-owned `SC-…` row per edge | Yellow remains selected; no generation handoff | none | CHK-HANDOFF-01, CHK-REGRESS-01 |
 | each source-and-ROM-proven map-to-Yellow edge | one concrete directional `SCENE_BOUNDARY` row | Yellow selected before destination initialization entry | poison may be installed for a later return fixture, but no reconstruction occurs on departure | CHK-HANDOFF-01 |
 | each source-and-ROM-proven Yellow-to-full-color overworld edge | one concrete directional `SCENE_BOUNDARY` row joined to its actual source lifecycle | full-color selected before reconstruction | poison, every reconstruction item, barrier, five active frames | CHK-HANDOFF-01, CHK-RETURN-01 |
-| every additional lifecycle or directed edge added after Phase 0 | one atomically added, reviewed concrete row plus renewed source/ROM closure | evidence follows the actual owner transition | reconstruction only for an actual Yellow-to-overworld edge | CHK-INV-01, CHK-HANDOFF-01, CHK-RETURN-01 |
+| every lifecycle or directed edge activated by an implementation phase | one reviewed concrete row plus renewed source/ROM slice closure | evidence follows the actual owner transition | reconstruction only for an actual Yellow-to-overworld edge | CHK-INV-01, CHK-HANDOFF-01, CHK-RETURN-01 |
 
 Every actual Yellow-to-overworld row records its actual Yellow-owned source
 lifecycle and poisons prior bank-0 tilemaps, bank-1 attributes, BG and OBJ
@@ -311,10 +310,9 @@ debug-only recording without changing the deterministic palette-0 result.
 
 ## Inventory-keyed implementation matrices
 
-Phase 0 supplies concrete baseline rows before renderer expansion. Each later
-phase may add a concrete row atomically with its new symbol or edge and must
-rerun source plus built-ROM closure before reachability. Each full-tier matrix
-is generated by joining the baseline and atomically extended inventories,
+Phase 0 supplies the initial map-entry rows. Each implementation phase declares
+and closes the rows for the paths it touches before those changes become
+reachable. Each full-tier matrix is generated from the union of closed slices,
 never by substituting a representative category:
 
 - every concrete `MU-…` row for load, reload, return, reconstruction,

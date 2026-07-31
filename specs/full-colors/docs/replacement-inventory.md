@@ -61,15 +61,15 @@ imported.
 
 ## Inventory closure
 
-Source search and built-ROM symbol/disassembly review must both find no
-unclassified row. A source allowlist without reachable-scene review is
-incomplete. Migration Phase 0 performs discovery, assigns concrete stable IDs,
-populates every field of every baseline row, reviews permissions and
-dispositions, and closes the baseline inventories before Phase 1. This
-documentation revision defines the schemas and closure rule only; it does not
-fabricate rows or placeholder IDs.
+Source search and built-ROM symbol/disassembly review must agree within the
+declared slice. A source allowlist without reachable-scene review is incomplete.
+Migration Phase 0 proves discovery, assignment, review, and closure on the
+initial map-entry slice. Each later phase declares the paths it touches and
+closes their concrete rows before the changed path becomes reachable. This
+documentation defines the schemas and closure rule; it does not require an
+exhaustive audit of untouched Yellow code before Phase 1.
 
-Baseline closure requires a one-to-one reviewed row for every discovered:
+Slice closure requires a one-to-one reviewed row for every in-slice discovered:
 
 - reachable owner-gated writer, including aliases and wrapper-mediated writes;
 - scene lifecycle and each entry/return ownership boundary; and
@@ -82,16 +82,14 @@ order a write. One source symbol receives multiple rows when it has materially
 different resources, permissions, destinations, or commit units. Generated and
 hand-written code are held to the same rule.
 
-Phase 0 baseline closure is green only when the source and built-ROM result sets
-reconcile to the populated tables, every reachable finding has exactly one
-reviewed disposition, every requirement reference is concrete and valid, and
-no unclassified writer, lifecycle, boundary, or mutation remains. Any later
-phase may introduce a concrete planned `WR-…`, `SC-…`, or `MU-…` row, but it
-must add the fully populated row atomically with the new symbol or edge, review
-it, and rerun source plus built-ROM reconciliation before the new path becomes
-reachable or the phase proceeds. A later discovery that was not introduced by
-that reviewed change reopens closure and blocks dependent work until the row,
-disposition, and evidence are reviewed. This supplies the inventory evidence required by
+Phase 0 is green when source and built-ROM results reconcile for the initial
+map-entry slice, every in-slice finding has one reviewed disposition, and the
+audit fails under synthetic unlisted writer, lifecycle, boundary, and mutation
+fixtures. A later phase must declare its implementation slice, add or update
+fully populated `WR-…`, `SC-…`, and `MU-…` rows, review them, and rerun source
+plus built-ROM reconciliation before the changed path becomes reachable. An
+unexpected in-slice discovery reopens that phase gate; out-of-slice findings
+remain backlog evidence rather than blocking unrelated work. This supplies the inventory evidence required by
 [R1.7](requirements.md#r1-renderer-ownership),
 [R12.8](requirements.md#r12-isolation-and-removal), and
 [AC-INV-01](acceptance-criteria.md#cross-cutting-contract-outcomes).
@@ -250,8 +248,8 @@ These are discovery seeds, not pre-populated inventory rows:
 | `engine/overworld/update_map.asm` | tileset selection before map commit |
 | `engine/gfx/sprite_oam.asm` | overworld palette bits after final tile selection |
 | `engine/gfx/palettes.asm:SetPal_Overworld` | overworld command replacement boundary |
-| `ram/wram.asm` | candidate state ranges subject to Gate 0 evidence |
-| `ram/hram.asm` | owner/bank scratch only if Gate 0 justifies it |
+| `ram/wram.asm` | candidate state ranges subject to the implementing phase's evidence |
+| `ram/hram.asm` | owner/bank scratch only if the implementing phase justifies it |
 | `layout.link` | measured ROM and WRAM placement |
 | `Makefile` | CGB-only header flag |
 
@@ -285,5 +283,5 @@ scene-boundary reachability, not imported overworld content.
 - Yellow VBlank preserves `rVBK` but does not currently preserve `rSVBK`.
 - Yellow's LCD interrupt already owns `wLYOverrides` behavior.
 
-These constraints are inputs to Gate 0 evidence and must be resolved before
-visual content is ported.
+These constraints are inputs to phase-local decision evidence and must be
+resolved before the affected renderer path becomes reachable.

@@ -24,6 +24,7 @@
 # precompiled python
 *.pyc
 *$py.class
+.venv/
 
 # save game files
 *.sgm
@@ -32,3 +33,7 @@
 *.sn*
 *.sa*
 *.sg1
+*.ram
+
+# retained local test evidence
+test-results/

@@ -53,3 +53,61 @@ sBank3IndividualBoxChecksums:: ds 6
 		"boxes: Expected {d:NUM_BOXES} total boxes, got {d:box_n}"
 
 ENDSECTION
+
+
+SECTION "Full Color Gate 0 Debug State", SRAM, BANK[3]
+
+IF DEF(_DEBUG)
+DEF FULL_COLOR_DEBUG_LAYOUT_VERSION EQU 1
+DEF FULL_COLOR_DEBUG_OWNER_YELLOW EQU 0
+DEF FULL_COLOR_DEBUG_PHASE_YELLOW_ACTIVE EQU 0
+DEF FULL_COLOR_DEBUG_TRACE_LAYOUT_VERSION EQU 2
+DEF FULL_COLOR_DEBUG_TRACE_CAPACITY EQU 32
+DEF FULL_COLOR_DEBUG_TRACE_RECORD_SIZE EQU 33
+
+EXPORT FULL_COLOR_DEBUG_LAYOUT_VERSION
+EXPORT FULL_COLOR_DEBUG_OWNER_YELLOW
+EXPORT FULL_COLOR_DEBUG_PHASE_YELLOW_ACTIVE
+EXPORT FULL_COLOR_DEBUG_TRACE_LAYOUT_VERSION
+EXPORT FULL_COLOR_DEBUG_TRACE_CAPACITY
+
+wFullColorDebugStateStart::
+wFullColorDebugMagic:: ds 4
+wFullColorDebugLayoutVersion:: db
+wFullColorDebugOwner:: db
+wFullColorDebugPhase:: db
+wFullColorDebugGeneration:: ds 4
+wFullColorDebugLastRequestResult:: db
+wFullColorDebugJobState:: db
+wFullColorDebugCancellationReason:: db
+wFullColorDebugDirtyFlags:: db
+wFullColorDebugCommitUnitID:: dw
+wFullColorDebugWriterID:: dw
+wFullColorDebugCurrentROMBank:: db
+wFullColorDebugCurrentWRAMBank:: db
+wFullColorDebugCurrentVRAMBank:: db
+wFullColorDebugLastWriterID:: dw
+wFullColorDebugLastResourceID:: dw
+wFullColorDebugReconstructionItems:: dw
+wFullColorDebugPresentationBarrierStatus:: db
+wFullColorDebugOAMFallbackKind:: db
+wFullColorDebugOAMFallbackObjectID:: dw
+wFullColorDebugOAMFallbackTileID:: db
+wFullColorDebugTimingRowKey:: dw
+wFullColorDebugAssertionCode:: dw
+
+; Binary layout consumed by tools/rom_tests/full_color/trace.py:
+; magic, layout version, capacity, count, next write, then physical slots.
+wFullColorDebugTraceStart::
+wFullColorDebugTraceMagic:: ds 4
+wFullColorDebugTraceLayoutVersion:: db
+wFullColorDebugTraceCapacity:: dw
+wFullColorDebugTraceCount:: dw
+wFullColorDebugTraceNextWrite:: dw
+wFullColorDebugTraceRecords::
+	ds FULL_COLOR_DEBUG_TRACE_CAPACITY * FULL_COLOR_DEBUG_TRACE_RECORD_SIZE
+wFullColorDebugTraceEnd::
+wFullColorDebugStateEnd::
+ASSERT wFullColorDebugStateEnd <= $c000, \
+	"Gate 0 debug state must fit after saved boxes in SRAM bank 3"
+ENDC

@@ -99,8 +99,8 @@ A request follows this exact realization of
    creates or attaches work.
 2. Equivalent tracked work returns `COALESCED`. Otherwise available capacity
    returns `ACCEPTED`; at capacity, non-equivalent work returns exactly the
-   Gate 0-selected policy for its request class. Required visible-state work
-   returns `DEFERRED` and its caller retries. `REJECTED_CAPACITY` is available
+   measured policy selected when its request class is implemented. Required
+   visible-state work returns `DEFERRED` and its caller retries. `REJECTED_CAPACITY` is available
    only to an optional or supersedable class with a documented caller fallback.
 3. Accepted work is prepared using scratch or an inactive destination only.
    `PENDING` and `PREPARED` jobs do not alter a presented resource.
@@ -168,8 +168,8 @@ Wrapper functions dispatch through the selected owner and generation
 
 ## Semantic state lifetimes
 
-Gate 0 selects storage and representation. Architecture requires these semantic
-lifetimes only:
+Architecture fixes these semantic lifetimes. Storage and representation are
+selected when the corresponding renderer state is first implemented:
 
 | State | Lifetime and invalidation |
 |---|---|
@@ -182,24 +182,26 @@ lifetimes only:
 | reconstruction state | one overworld arrival; complete only at its presentation barrier |
 | OAM mapping and prepared shadow batch | current object state/current generation; invalid on handoff, reset, or object-state change |
 
-Gate 0 records measured capacity, byte cost, placement, and scratch needs
-before any allocation is selected. Renderer calls and interrupts preserve ROM
-bank, `rSVBK`, `rVBK`, stack, and interrupt state at their boundaries under
+Phase 1 records measured byte cost, placement, and interrupt-access needs before
+allocating the ownership foundation. Later phases record capacity, descriptor,
+and scratch measurements when their request classes are implemented. Renderer
+calls and interrupts preserve ROM bank, `rSVBK`, `rVBK`, stack, and interrupt
+state at their boundaries under
 [R3.3, R3.4, R3.5, and R3.6](requirements.md#r3-cgb-and-bank-foundation).
 
-## Gate 0 representation record
+## Representation decision record
 
 | Decision | Required measured evidence |
 |---|---|
-| capacity, pressure policy, and coalescing | hostile and generated high-water marks plus one selected policy per request class, required-work retry evidence, optional/supersedable fallback evidence where final rejection is selected, and schema/reference-model coverage of unselected enum branches |
+| capacity, pressure policy, and coalescing | measurements from the implemented request class plus generated high-water marks, required-work retry evidence, optional/supersedable fallback evidence where final rejection is selected, and schema/reference-model coverage of every result branch |
 | descriptor semantics | every distinct resource and commit-unit shape, including cancellation and reconstruction |
 | WRAM location and size | link-map ranges, byte and bank cost, interrupt access, and stack margin |
 | preparation buffers | largest overlay, paired transfer, palette, OAM, and reconstruction preparation unit plus worst-case visible-commit reservation |
 
-Each selected value records its numeric evidence and named artifact. The record
-must distinguish logical limits from encoded field widths. No ring, list, slot
-count, descriptor size, index width, scratch layout, or WRAM bank is assumed.
-This is the required realization of
+Each phase records numeric evidence before selecting the value it introduces.
+The record distinguishes logical limits from encoded field widths. Gate 0 does
+not preselect a ring, list, slot count, descriptor size, index width, scratch
+layout, or WRAM bank. This is the required realization of
 [R1.26](requirements.md#r1-renderer-ownership) and
 [R3.3](requirements.md#r3-cgb-and-bank-foundation).
 
@@ -232,8 +234,8 @@ It produces one matching full-byte attribute for every committed tile. The
 same realization serves initial load/reload, both scrolling axes, four
 connections, third-screen, row and rectangle transfers, tile reload,
 alternate BG destinations, animation and field replacements, dialogue/text,
-and transient overlays. Phase 0 supplies exhaustive baseline mutation rows;
-later rows are added atomically and reclosed before reachability under
+and transient overlays. Each phase supplies closed mutation rows for the paths
+it touches; later rows are added atomically and reclosed before reachability under
 [replacement-inventory.md](replacement-inventory.md).
 
 ## Overlay realization

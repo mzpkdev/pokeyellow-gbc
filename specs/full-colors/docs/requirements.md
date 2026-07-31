@@ -36,7 +36,7 @@ epoch. Numeric enum values are not part of this contract.
 - **R1.4:** The full-color renderer shall perform no owner-gated hardware or shadow-state write during Yellow ownership.
 - **R1.5:** Every request and job shall carry the owner and generation under which it may execute.
 - **R1.6:** Work from a departing ownership generation shall not execute after handoff.
-- **R1.7:** Phase 0 shall close stable reviewed inventory rows for every reachable baseline direct, indirect-high-memory, DMA, wrapper, and interrupt writer of an owner-gated resource, and a later phase shall add and review a concrete row atomically with each new writer and rerun source plus built-ROM closure before that writer becomes reachable.
+- **R1.7:** Phase 0 shall prove source and built-ROM discovery on a reviewed initial map-entry slice, and each implementation phase shall close stable reviewed rows for every direct, indirect-high-memory, DMA, wrapper, and interrupt writer it touches before the changed path becomes reachable.
 
 ### Request and job contract
 
@@ -47,7 +47,7 @@ epoch. Numeric enum values are not part of this contract.
 - **R1.12:** `COALESCED` shall attach the request to equivalent tracked work without creating a distinct job.
 - **R1.13:** `DEFERRED` shall create no work, attach to no work, and require the caller to retry while the visible state is still required.
 - **R1.14:** `REJECTED_CAPACITY` shall create no work, attach to no work, and shall be used only for an optional or supersedable request class whose caller has a documented final-rejection fallback.
-- **R1.15:** At capacity, an equivalent request shall return exactly `COALESCED`, while each non-equivalent request class shall return exactly its Gate 0-selected policy result: required visible-state work returns `DEFERRED` and is retried, whereas only an optional or supersedable class meeting R1.14 may return `REJECTED_CAPACITY`.
+- **R1.15:** At capacity, an equivalent request shall return exactly `COALESCED`, while each non-equivalent request class shall return exactly the measured policy selected when that class is implemented: required visible-state work returns `DEFERRED` and is retried, whereas only an optional or supersedable class meeting R1.14 may return `REJECTED_CAPACITY`.
 - **R1.16:** Capacity pressure shall never silently discard a request that returned `ACCEPTED` or `COALESCED`.
 - **R1.17:** Jobs in `PENDING` or `PREPARED` may change scratch state only and shall not change a presented resource.
 - **R1.18:** Coalescing shall be permitted only when ordered execution would produce the same final state at the same visible boundary.
@@ -58,7 +58,7 @@ epoch. Numeric enum values are not part of this contract.
 - **R1.23:** Completion shall be recorded only after every declared resource equals the request's desired state.
 - **R1.24:** Cancelled work shall perform no later write.
 - **R1.25:** Entry to `COMMITTING` shall reserve the measured worst-case budget needed to complete the visible unit without interruption, except that arbitrary interruption is permitted while writing only an inactive destination or while the LCD is off.
-- **R1.26:** Gate 0 evidence shall select capacity, descriptor bytes and semantics, indices, scratch layout, WRAM placement, and one pressure policy per request class; runtime tests shall exercise exactly each selected policy while schema and reference-model tests shall also exercise every unselected result branch.
+- **R1.26:** The phase that first implements each request class or storage allocation shall select its capacity, descriptor semantics, indices, scratch layout, WRAM placement, and pressure policy from measurements taken against that implementation; runtime tests shall exercise the selected policy while schema and reference-model tests cover every result branch.
 - **R1.27:** Owner, generation, or destination revalidation failure before visibility shall cancel the job with the applicable stable reason and perform no visible write.
 - **R1.28:** Numeric-budget failure before visibility shall leave the complete job prepared for a later commit attempt rather than returning an admission result.
 
@@ -85,7 +85,7 @@ epoch. Numeric enum values are not part of this contract.
 
 - **R3.1:** The cartridge shall be CGB-only and shall reject DMG and SGB startup.
 - **R3.2:** Hard boot shall enter double-speed mode exactly once.
-- **R3.3:** Renderer state shall occupy the WRAM placement selected from Gate 0 link-map, bank-cost, interrupt-access, and stack-margin evidence.
+- **R3.3:** Renderer state shall occupy the WRAM placement selected during Phase 1 from current link-map, byte-cost, bank-cost, interrupt-access, and stack-margin evidence.
 - **R3.4:** Hard boot and soft reset shall clear and initialize renderer state before it can be observed.
 - **R3.5:** Renderer calls and interrupts shall preserve ROM bank, `rSVBK`, `rVBK`, stack, and interrupt state across their call or interrupt boundary.
 - **R3.6:** Control shall never return to Yellow code with an accidental ROM, WRAM, or VRAM bank selection.
@@ -193,7 +193,7 @@ timing boundary.
 - **R11.3:** Diagnostic checkpoints shall capture named screenshots and bounded frame strips.
 - **R11.4:** Every visual artifact shall be paired with semantic state and owner, generation, job, and writer traces.
 - **R11.5:** LLM screenshot inspection shall be a supported test-play workflow but shall not replace machine assertions.
-- **R11.6:** Production renderer work shall not begin until the self-validating Gate 0 suite passes against the baseline debug ROM.
+- **R11.6:** Production renderer work shall not begin until the lean Gate 0 harness passes twice against the baseline debug ROM with identical semantic outputs and identical contract-versioned artifact-manifest outputs, and later renderer paths shall not expand while their activated inventory, visual, mutation, or timing gates are red.
 
 ## R12 Isolation and removal
 
@@ -204,7 +204,7 @@ timing boundary.
 - **R12.5:** Yellow code still required by excluded scenes shall remain intact.
 - **R12.6:** Owner-gated hardware-writer checks shall run in CI.
 - **R12.7:** A selectable feature mode that permits both overworld renderers shall not exist.
-- **R12.8:** Phase 0 shall close stable reviewed `SC-…` rows for every reachable baseline scene lifecycle and directed transition, and a later phase shall add and review a concrete row atomically with each new lifecycle or edge and rerun source plus built-ROM closure before that path becomes reachable.
+- **R12.8:** Phase 0 shall prove lifecycle discovery on a reviewed initial map-entry slice, and each implementation phase shall close stable reviewed `SC-…` rows for every lifecycle and directed transition it touches before the changed path becomes reachable.
 
 ## Owner-gated resources
 

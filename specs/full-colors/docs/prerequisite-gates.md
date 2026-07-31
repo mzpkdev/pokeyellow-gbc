@@ -1,48 +1,47 @@
 # Mandatory prerequisite gates
 
-Gate 0 is a hard prerequisite. Work may add tests, debug instrumentation, and
-test-only control surfaces, but may not begin the production renderer port
-until every Gate 0 item passes against the baseline debug ROM.
+Gate 0 is a lean hard prerequisite. It proves that the harness can observe,
+compare, visualize, and reject bad evidence before production renderer work
+begins. It does not certify renderer behavior that does not exist, exhaustively
+inventory untouched Yellow code, or preselect representation and timing values.
 
-Some sections also state a later activation condition. Only their baseline
-condition belongs to Gate 0; the later condition becomes a blocking phase exit
-after renderer code exists.
+Each later phase declares its implementation slice and activates the inventory,
+runtime mutation, representation, visual, and timing checks needed by that
+slice. A red activated check blocks expansion of the affected path.
 
 ## Gate 0 required artifact contract
 
-The following are required outputs of future Gate 0 implementation and
-execution. This documentation revision defines their schemas and pass
-conditions; it does not claim that an inventory has been populated, a
-measurement has been taken, or an artifact has been produced or validated.
+The following are the live required outputs implemented and validated by Gate
+0. Together they form its artifact and execution exit contract within the
+reviewed initial map-entry slice. They do not claim whole-game inventory
+closure or renderer runtime, representation, timing, or hostile-slice evidence.
 
 | Gate 0 artifact | Required baseline content |
 |---|---|
-| baseline writer/scene/mutation inventories | concrete existing-code `WR-…`/`SC-…`/`MU-…` IDs, populated rows, reachability, permissions, and source plus built-ROM closure |
-| representation decision | numeric baseline and synthetic/model high-water and size evidence selecting capacity, descriptor semantics, one policy per request class, and WRAM placement |
-| timing-instrument readiness | deterministic numeric instrumentation cost, complete Yellow baseline rows, and detection of synthetic over-budget fixtures |
+| deterministic harness | pinned dependencies, bounded scenarios, stable commands, and identical double-run outputs |
+| observability and snapshots | decodable debug symbols, bounded traces, semantic capture, and exact resource/offset diffs |
+| model and bank torture | deterministic valid/adversarial ownership sequences plus ROM/WRAM/VRAM, stack, and interrupt restoration fixtures |
+| initial writer/scene/mutation slice | concrete reviewed `WR-…`/`SC-…`/`MU-…` rows for map entry, with matching source and built-ROM evidence and unlisted-item self-mutations |
 | semantic schema | decodable owner, phase, generation, request result, job state/cancellation, commit unit, reconstruction items, overlay request fields, OAM fallback, and timing-row fields |
-| traceability report | every concrete `R…` and `AC-…` mapped to named `CHK-…` checks and evidence, with activation phase recorded for renderer checks |
+| visual artifact pipeline | deterministic lossless screenshots, bounded frame strips, annotated contact sheets, localized image diffs, and a contract-versioned manifest linking semantic snapshots and writer traces |
+| execution surface | stable local commands, blocking CI, deterministic double execution, and diagnostic failure artifacts |
 
-Future Gate 0 execution cannot pass until the three baseline inventories are
-populated and reviewed and both source and built-ROM discovery are closed.
-Later phases may add concrete planned rows atomically with new symbols or
-directed edges, but must review them and rerun source plus built-ROM closure
-before the path becomes reachable or the phase proceeds.
+Gate 0 closes only the reviewed initial map-entry slice. Later phases declare
+and close every writer, scene, boundary, and mutation row they touch before the
+changed path becomes reachable. Untouched baseline findings remain visible
+backlog evidence and do not block unrelated renderer work.
 
-Gate 0 synthetic/schema and reference-model evidence selects exactly one
-pressure policy per request class. It exercises the selected result and every
-unselected enum branch without claiming baseline runtime renderer behavior.
-Required visible-state classes select `DEFERRED` plus caller retry when they
-cannot coalesce. `REJECTED_CAPACITY` may be selected only for an optional or
-supersedable class with a documented caller fallback. Runtime conformance to
-the selected class policies activates with the request implementation in
-Phase 2.
+Gate 0 schema and reference-model evidence exercises every request result
+branch without selecting a runtime pressure policy. The phase implementing a
+request class measures it, selects exactly one policy, and proves runtime
+conformance. Required visible-state classes select `DEFERRED` plus caller retry
+when they cannot coalesce. `REJECTED_CAPACITY` remains limited to optional or
+supersedable work with a documented caller fallback.
 
-Renderer acceptance is deliberately not a Gate 0 exit condition. Request,
-commit, actual Yellow-to-overworld reconstruction, overlay, overworld OAM, and
-renderer-operation timing checks exist as schemas, reference-model cases, and
-self-mutations in Gate 0, then become runtime acceptance in their migration
-activation phases. Production renderer code remains prohibited during Gate 0.
+Renderer acceptance is not a Gate 0 exit condition. Request, commit, actual
+Yellow-to-overworld reconstruction, overlay, overworld OAM, representation,
+and renderer timing become acceptance only when their implementation phase
+activates them. Production renderer code remains prohibited during Gate 0.
 
 The overlay schema carries destination BG/window selector, map identity,
 tileset identity, rectangle, world-coordinate origin/transform, override set,
@@ -76,33 +75,33 @@ the LCD off.
 Pass condition: a clean checkout runs the smoke command twice with identical
 semantic outputs.
 
-## G0.2 Inventory discovery and closure
+## G0.2 Inventory discovery and initial-slice closure
 
-Build the concrete writer, scene, and visible-map-mutation inventories defined
-by [replacement-inventory.md](replacement-inventory.md). Discovery must cover
-source search and built-ROM symbol/disassembly reachability. Grep only seeds
-rows and cannot prove closure.
+Build the inventory machinery defined by
+[replacement-inventory.md](replacement-inventory.md) and prove it on the
+initial map-entry slice. Discovery covers source search and built-ROM
+symbol/disassembly reachability. Grep only seeds rows and cannot prove closure.
 
-The writer audit covers direct, indirect-high-memory, wrapper, DMA, and
+Within each declared slice, the writer audit covers direct, indirect-high-memory, wrapper, DMA, and
 interrupt writes to every owner-gated resource, including LCD/STAT/LYC,
 scroll/window/palette registers, `rVBK`, `rSVBK`, HDMA/GDMA, shadow OAM,
 hardware OAM, and every `rDMA` source, launch, and wait path. Scene discovery
-covers every lifecycle and boundary in the scope contract plus reachable
-reset, failure, nested-exit, load, and return paths. Mutation discovery covers
+covers every in-slice lifecycle and boundary plus reachable reset, failure,
+nested-exit, load, and return paths. Mutation discovery covers
 every visible-map load, transfer, overlay, animation, replacement, alternate
 destination, and reconstruction path.
 
-Every discovered baseline item receives a concrete `WR-…`, `SC-…`, or `MU-…`
-ID and a fully populated reviewed row. Later concrete rows are added and
-reviewed atomically with new symbols or directed edges, followed by source and
-built-ROM closure before reachability. Unexpected additions or any reachable
-unclassified item fail CI.
+Every discovered item inside the declared slice receives a concrete `WR-…`,
+`SC-…`, or `MU-…` ID and a fully populated reviewed row. Later phases expand
+the declared slice around the paths they touch, review those rows, and close
+source plus built-ROM evidence before the changed path becomes reachable.
+Unexpected in-slice additions fail CI.
 
-Pass condition: all three baseline inventories are populated, reviewed, and
-closed in both source and built-ROM evidence; independent source and ROM
-fixtures containing an unlisted reachable item make the audit fail, and a
-fixture proves a planned row cannot become reachable before atomic row review
-and renewed closure.
+Pass condition: the initial map-entry writer, scene, and mutation rows are
+populated, reviewed, and closed in source and built-ROM evidence; independent
+source and ROM fixtures containing an unlisted in-slice item make the audit
+fail; the progress report keeps out-of-slice findings visible without treating
+them as Gate 0 closure debt.
 
 ## G0.3 Debug observability
 
@@ -160,8 +159,8 @@ Debug assertions fail when:
 - a renderer returns with unexpected bank state.
 
 Gate 0 schema/reference-model fixtures submit wrong-owner, stale-generation,
-equivalent-at-capacity, and each request class's selected pressure result; they
-also exercise unselected enum branches only in the schema/model. Atomicity
+equivalent-at-capacity, and every pressure-result branch without selecting a
+runtime class policy. Atomicity
 self-mutations model insufficient time at every pre-visible preparation and
 revalidation boundary, failure to reserve worst-case completion budget, and
 illegal interruption after visible `COMMITTING`.
@@ -177,8 +176,7 @@ Provide debug entry points, synthetic fixtures, or controlled baseline
 scenarios that exercise bank capture and restoration with:
 
 - non-default ROM bank;
-- every bank in the Gate 0-selected renderer WRAM range and every other valid
-  WRAM entry bank;
+- every valid WRAM entry bank, without assuming the later renderer placement;
 - VRAM bank 1;
 - an interrupt during a far call; and
 - pending work during soft reset or ownership switch.
@@ -219,7 +217,7 @@ transitions fail at the first divergent action.
 Activation condition after Phase 1: generated sequences agree with debug-ROM
 traces at every action.
 
-## G0.8 Hostile diagnostic vertical slice
+## Phase 2 activation: hostile diagnostic vertical slice
 
 Script one bounded PyBoy scenario:
 
@@ -238,13 +236,9 @@ map entry
 Run it with forced non-default ROM/WRAM/VRAM entry state and representative
 interrupt pressure.
 
-Before renderer work, the scenario records stable Yellow baseline checkpoints.
-It also defines the future full-color expectations.
-
-Pass condition before implementation: scenario and baseline are deterministic.
-
-Pass condition before expanding beyond the first slice: all semantic,
-multi-frame visual, ownership, bank, and initial timing checkpoints pass without
+This scenario activates with the first colored renderer slice. Before expanding
+beyond that slice, all semantic, multi-frame visual, ownership, bank, and
+initial timing checkpoints pass without
 restoration hooks. An actual Yellow-to-overworld return records the last map
 generation, Yellow ownership before destination initialization entry, poison
 installation, every reconstruction item, the presentation barrier, and at
@@ -252,7 +246,7 @@ least five active overworld frames. Overlay checkpoints apply the
 authoritative destination/map/tileset/world-transform request oracle from the
 artifact contract.
 
-## G0.9 LLM visual artifact pipeline
+## G0.8 LLM visual artifact pipeline
 
 At named checkpoints, emit lossless screenshots, bounded frame strips,
 annotated contact sheets, and metadata linking each image to its semantic
@@ -265,12 +259,16 @@ linked trace and timing-row keys.
 Gate 0 pass condition: a deterministic baseline fixture produces viewable
 artifacts, and an intentional visual mutation produces a localized image diff.
 
-Activation condition after Phase 2: the hostile slice's canary assignments
+Activation condition during Phase 2: the hostile slice's canary assignments
 produce the expected semantic and visual artifacts.
 
-## G0.10 Gate mutation suite
+## G0.9 Gate mutation suite
 
-Tests deliberately introduce or emulate:
+Gate 0 mutates only implemented harness behavior: schema validation, snapshot
+diffs, trace decoding, ownership-model transitions, bank restoration, initial
+inventory-slice closure, visual artifact integrity, and CI failure reporting.
+Each later phase adds the runtime mutations for the behavior it activates,
+including:
 
 - wrong-owner write;
 - invalid ownership-model transition;
@@ -290,24 +288,20 @@ Tests deliberately introduce or emulate:
 - unexpected hardware writer; and
 - snapshot corruption.
 
-Pass condition: each mutation makes the intended gate fail with a specific
-message and useful artifacts. This suite validates the tests, not the renderer.
+Pass condition: every mutation for currently implemented behavior makes its
+intended gate fail with a specific message and useful artifacts. A future
+renderer mutation cannot block Gate 0 before its target behavior exists.
 
-## G0.11 Early timing instrumentation
+## Phase activation: timing instrumentation
 
-Before renderer code exists, add debug counters and checkpoints that report
-scanline or cycle consumption for LCD, VBlank, transfer, palette, and OAM work.
-Record stable Yellow baselines. Future renderer execution must populate one
-numeric table row from the artifact contract for every timed operation and
-derive, rather than assume, its explicit budget and exact safe-defer threshold.
+Add debug counters and checkpoints when the first timed renderer path exists.
+Each affected phase records scanline or cycle consumption for its LCD, VBlank,
+transfer, palette, and OAM work and populates one numeric table row per timed
+operation. Budgets and exact safe-defer thresholds are derived from the running
+implementation rather than assumed beforehand.
 
 PyBoy may drive and record these checks, but a timing-focused emulator or
 physical CGB remains the final authority.
-
-Gate 0 pass condition: instrumentation is deterministic, its cost is numeric,
-the Yellow baseline rows are complete, and synthetic over-budget and illegal
-mid-commit-interruption fixtures are detected. No renderer-operation timing row
-is accepted in Gate 0.
 
 Activation condition before architecture expansion: the hostile slice has
 complete numeric results for every timed operation, every row passes the
@@ -315,7 +309,7 @@ required equation, insufficient budget at every pre-visible boundary safely
 defers the whole job, and a visible `COMMITTING` unit always completes from its
 reserved worst-case budget.
 
-## G0.12 CI enforcement
+## G0.10 CI enforcement
 
 - Add a job that builds the debug ROM and symbols.
 - Run Gate 0 unit and bounded PyBoy tests on pull requests.
