@@ -448,6 +448,7 @@ class SM83Decoder:
         scene_roots: Iterable[str] = (),
         mutation_roots: Iterable[str] = (),
         dma_control_labels: Iterable[str] = (),
+        follow_calls: bool = True,
     ) -> None:
         self.rom = bytes(rom)
         self.symbols = symbols
@@ -475,6 +476,7 @@ class SM83Decoder:
         self.scene_roots = frozenset(scene_roots)
         self.mutation_roots = frozenset(mutation_roots)
         self.dma_control_labels = frozenset(dma_control_labels)
+        self.follow_calls = follow_calls
 
     def _validate_candidate_coverage(self) -> None:
         if not self.sections:
@@ -550,8 +552,15 @@ class SM83Decoder:
         )
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
-    def decode(self, roots: Iterable[str | BankAddress]) -> RomDiscoveryReport:
-        self._validate_candidate_coverage()
+    def decode(
+        self,
+        roots: Iterable[str | BankAddress],
+        *,
+        scan_candidates: bool = True,
+        validate_coverage: bool = True,
+    ) -> RomDiscoveryReport:
+        if validate_coverage:
+            self._validate_candidate_coverage()
         queue: deque[tuple[DecoderState, str, tuple[str, ...]]] = deque()
         for root in roots:
             if isinstance(root, str):
@@ -753,14 +762,16 @@ class SM83Decoder:
                     target = None
                 else:
                     target = BankAddress(target_bank, target_address)
-                    enqueue(target, f"{target_bank:02x}:{target_address:04x}")
+                    if self.follow_calls:
+                        enqueue(target, f"{target_bank:02x}:{target_address:04x}")
                     control = self._control_flow_finding(
                         state, data, root, path, "call", target
                     )
                     if control is not None:
                         findings.append(control)
                 if (
-                    target is not None
+                    self.follow_calls
+                    and target is not None
                     and (target.bank, target.address) in self.farcall_addresses
                 ):
                     b, hl = state.b, state.pair("h", "l")
@@ -773,11 +784,16 @@ class SM83Decoder:
                         unresolved.add(
                             f"{root}: unresolved farcall at {state.bank:02x}:{state.address:04x}"
                         )
-                if target is not None and target.address in {
-                    symbol.address
-                    for name, symbol in self.symbols.by_name.items()
-                    if name.lower().startswith("predef")
-                }:
+                if (
+                    self.follow_calls
+                    and target is not None
+                    and target.address
+                    in {
+                        symbol.address
+                        for name, symbol in self.symbols.by_name.items()
+                        if name.lower().startswith("predef")
+                    }
+                ):
                     if state.a and state.a.value in self.predef_targets:
                         enqueue(
                             self.predef_targets[state.a.value],
@@ -829,27 +845,7 @@ class SM83Decoder:
             queue.append((next_state, root, path))
 
         # Associate copied HRAM evidence with sites contained in reviewed copy ranges.
-        adjusted: list[RomFinding] = []
-        for finding in findings:
-            copied = next(
-                (
-                    region
-                    for region in self.copied_regions
-                    if region.bank == finding.bank
-                    and region.address
-                    <= finding.address
-                    < region.address + region.length
-                ),
-                None,
-            )
-            if copied:
-                runtime = copied.runtime_address + finding.address - copied.address
-                finding = replace(
-                    finding,
-                    mechanism=f"copied-hram:{finding.mechanism}",
-                    runtime_copy=(runtime, copied.length, copied.launcher),
-                )
-            adjusted.append(finding)
+        adjusted = [self._with_copied_region(finding) for finding in findings]
         unique = {
             (
                 item.bank,
@@ -870,8 +866,27 @@ class SM83Decoder:
             self._symbol_digest(),
             self._map_digest(),
             tuple(sorted(unresolved_control)),
-            self.scan_executable_candidates(),
+            self.scan_executable_candidates() if scan_candidates else (),
             self.sections,
+        )
+
+    def _with_copied_region(self, finding: RomFinding) -> RomFinding:
+        copied = next(
+            (
+                region
+                for region in self.copied_regions
+                if region.bank == finding.bank
+                and region.address <= finding.address < region.address + region.length
+            ),
+            None,
+        )
+        if copied is None:
+            return finding
+        runtime = copied.runtime_address + finding.address - copied.address
+        return replace(
+            finding,
+            mechanism=f"copied-hram:{finding.mechanism}",
+            runtime_copy=(runtime, copied.length, copied.launcher),
         )
 
     @staticmethod
@@ -1261,7 +1276,7 @@ class SM83Decoder:
                     (section.name,),
                 )
                 if finding:
-                    findings.append(finding)
+                    findings.append(self._with_copied_region(finding))
         return tuple(sorted(findings, key=_finding_sort_key))
 
     def _linear_candidate_states(self, section: MapSection) -> dict[int, DecoderState]:
@@ -1324,3 +1339,87 @@ def discover_rom(
     if not sections:
         raise RomDiscoveryError("discover_rom requires non-empty linker ROM sections")
     return SM83Decoder(rom, symbols, **kwargs).decode(roots)
+
+
+def discover_rom_batched(
+    rom: bytes,
+    symbols: SymbolTable,
+    roots: Iterable[str | BankAddress],
+    *,
+    batch_size: int = 16,
+    **kwargs: Any,
+) -> RomDiscoveryReport:
+    """Decode independent authority roots without multiplying candidate scans.
+
+    Root identity is part of the decoder's state key because it is retained in
+    every finding. A large root set can therefore make a single worklist grow
+    in proportion to roots times reachable code. Bounded batches retain that
+    provenance while limiting peak state and scan linked executable sections
+    exactly once.
+    """
+    if (
+        isinstance(batch_size, bool)
+        or not isinstance(batch_size, int)
+        or batch_size < 1
+    ):
+        raise RomDiscoveryError("batch_size must be a positive integer")
+    sections = kwargs.get("sections")
+    if not sections:
+        raise RomDiscoveryError(
+            "discover_rom_batched requires non-empty linker ROM sections"
+        )
+
+    def root_key(root: str | BankAddress) -> tuple[int, int, int, str]:
+        if isinstance(root, str):
+            site = symbols.resolve(root)
+            return site.bank, site.address, 0, root
+        return root.bank, root.address, 1, ""
+
+    ordered_roots = tuple(sorted(set(roots), key=root_key))
+    if not ordered_roots:
+        raise RomDiscoveryError("discover_rom_batched requires at least one root")
+
+    decoder = SM83Decoder(rom, symbols, **kwargs)
+    candidates = decoder.scan_executable_candidates()
+    reports = tuple(
+        decoder.decode(
+            ordered_roots[start : start + batch_size],
+            scan_candidates=False,
+            validate_coverage=False,
+        )
+        for start in range(0, len(ordered_roots), batch_size)
+    )
+    first = reports[0]
+    findings = {
+        (
+            finding.bank,
+            finding.address,
+            finding.destination_low,
+            finding.destination_high,
+            finding.root,
+            finding.call_path,
+            finding.mechanism,
+            finding.category,
+        ): finding
+        for report in reports
+        for finding in report.findings
+    }
+    return RomDiscoveryReport(
+        tuple(sorted(findings.values(), key=_finding_sort_key)),
+        tuple(
+            sorted(
+                {item for report in reports for item in report.unresolved_destinations}
+            )
+        ),
+        tuple(sorted({item for report in reports for item in report.visited})),
+        first.rom_sha256,
+        first.sym_sha256,
+        first.map_sha256,
+        tuple(
+            sorted(
+                {item for report in reports for item in report.unresolved_control_flow}
+            )
+        ),
+        candidates,
+        decoder.sections,
+    )

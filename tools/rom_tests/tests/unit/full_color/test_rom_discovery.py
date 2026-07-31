@@ -10,6 +10,7 @@ from tools.rom_tests.full_color.rom_discovery import (
     SM83Decoder,
     bank_address_from_offset,
     discover_rom,
+    discover_rom_batched,
     normalize_rom_offset,
     parse_map,
     parse_sym,
@@ -86,6 +87,12 @@ def test_direct_ldhc_pointer_vbk_mbc5_and_copied_hram() -> None:
     assert sites[(2, 0x4000)].runtime_copy == (0xFF80, 0x15, "hDMARoutine")
     assert sites[(2, 0x4006)].destination_low == 0xFE00
     assert not report.unresolved_destinations
+    candidate = next(
+        item
+        for item in report.candidate_findings
+        if (item.bank, item.address) == (2, 0x4000)
+    )
+    assert candidate.runtime_copy == (0xFF80, 0x15, "hDMARoutine")
 
     vbk_zero = decoder.decode(["VbkZero"])
     pointer = next(item for item in vbk_zero.findings if item.address == 0x166)
@@ -162,6 +169,25 @@ def test_farcall_predef_and_reviewed_jump_table_reachability() -> None:
         assert (2, 0x4000) in report.visited
 
 
+def test_call_expansion_can_be_disabled_without_hiding_call_site_evidence() -> None:
+    report = SM83Decoder(
+        synthetic_rom(),
+        symbols(),
+        sections=sections(),
+        scene_roots={"ResetRoot"},
+        follow_calls=False,
+    ).decode(["ResetRoot"])
+
+    assert (2, 0x4000) not in report.visited
+    assert any(
+        item.category == "scene"
+        and item.control_flow_kind == "call"
+        and item.address == 0x111
+        for item in report.findings
+    )
+    assert any(item.address == 0x116 for item in report.findings)
+
+
 def test_candidate_scan_and_linker_parsers_preserve_bank() -> None:
     decoder = SM83Decoder(synthetic_rom(), symbols(), sections=sections())
     candidates = decoder.scan_executable_candidates()
@@ -207,6 +233,60 @@ def test_discover_rom_fails_closed_without_complete_linker_sections() -> None:
         if (item.bank, item.address) == (2, 0x4000)
     )
     assert not bank_two.resolved
+
+
+def test_batched_discovery_matches_combined_roots_and_scans_candidates_once(
+    monkeypatch,
+) -> None:
+    decoder = SM83Decoder(synthetic_rom(), symbols(), sections=sections())
+    scans = 0
+    validations = 0
+    original = SM83Decoder.scan_executable_candidates
+    original_validate = SM83Decoder._validate_candidate_coverage
+
+    def counted_scan(self):
+        nonlocal scans
+        scans += 1
+        return original(self)
+
+    def counted_validate(self):
+        nonlocal validations
+        validations += 1
+        return original_validate(self)
+
+    monkeypatch.setattr(SM83Decoder, "scan_executable_candidates", counted_scan)
+    monkeypatch.setattr(SM83Decoder, "_validate_candidate_coverage", counted_validate)
+    combined = decoder.decode(["VbkZero", "ResetRoot"])
+    scans = 0
+    validations = 0
+    batched = discover_rom_batched(
+        synthetic_rom(),
+        symbols(),
+        ["ResetRoot", "VbkZero", "ResetRoot"],
+        batch_size=1,
+        sections=sections(),
+    )
+
+    assert scans == 1
+    assert validations == 1
+    assert batched.findings == combined.findings
+    assert batched.unresolved_destinations == combined.unresolved_destinations
+    assert batched.unresolved_control_flow == combined.unresolved_control_flow
+    assert batched.visited == combined.visited
+    assert batched.candidate_findings == combined.candidate_findings
+    assert batched.candidate_sections == combined.candidate_sections
+
+
+@pytest.mark.parametrize("batch_size", (0, -1, True, 1.5))
+def test_batched_discovery_rejects_invalid_batch_size(batch_size) -> None:
+    with pytest.raises(RomDiscoveryError, match="positive integer"):
+        discover_rom_batched(
+            synthetic_rom(),
+            symbols(),
+            ["ResetRoot"],
+            batch_size=batch_size,
+            sections=sections(),
+        )
 
 
 def decode_home(program: bytes, *, extra: bytes = b"", **kwargs):
