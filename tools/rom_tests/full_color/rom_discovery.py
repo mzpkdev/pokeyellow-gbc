@@ -114,7 +114,7 @@ class MapSection:
 
 
 class MapSections(tuple[MapSection, ...]):
-    """Tuple-compatible parsed map sections retaining artifact identity."""
+    """Tuple-compatible parsed map sections retaining semantic identity."""
 
     def __new__(
         cls, sections: Iterable[MapSection], artifact_sha256: str
@@ -133,12 +133,21 @@ _MAP_SECTION = re.compile(
 )
 
 
+def _map_sections_sha256(sections: Iterable[MapSection]) -> str:
+    digest = hashlib.sha256()
+    for section in sorted(sections):
+        digest.update(
+            (
+                f"{section.region}\0{section.bank}\0{section.start}\0"
+                f"{section.end}\0{section.name}\0"
+            ).encode("utf-8")
+        )
+    return digest.hexdigest()
+
+
 def parse_map(text: str | bytes) -> tuple[MapSection, ...]:
     if isinstance(text, bytes):
-        blob = text
-        text = blob.decode("utf-8")
-    else:
-        blob = text.encode("utf-8")
+        text = text.decode("utf-8")
     region: str | None = None
     bank: int | None = None
     sections: list[MapSection] = []
@@ -175,7 +184,7 @@ def parse_map(text: str | bytes) -> tuple[MapSection, ...]:
             raise RomDiscoveryError(
                 f".map: overlapping sections {left.name!r} and {right.name!r}"
             )
-    return MapSections(ordered, hashlib.sha256(blob).hexdigest())
+    return MapSections(ordered, _map_sections_sha256(ordered))
 
 
 def load_map(path: str | Path) -> tuple[MapSection, ...]:
@@ -543,14 +552,7 @@ class SM83Decoder:
     def _map_digest(self) -> str:
         if self.map_sha256 is not None:
             return self.map_sha256
-        value = (
-            "\n".join(
-                f"{item.region}:{item.bank}:{item.start:04x}:{item.end:04x}:{item.name}"
-                for item in self.sections
-            )
-            + "\n"
-        )
-        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+        return _map_sections_sha256(self.sections)
 
     def decode(
         self,

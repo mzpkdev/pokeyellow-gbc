@@ -81,6 +81,7 @@ jobs:
 
   test:
     name: Test
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -97,6 +98,18 @@ jobs:
 
       - name: Install ROM test dependencies
         run: python -m pip install -r tools/rom_tests/requirements.txt
+
+      - name: Download debug build
+        uses: actions/download-artifact@v7
+        with:
+          name: pokeyellow-build
+          path: release
+
+      - name: Prepare linked debug artifacts
+        run: |
+          cp release/pokeyellow-debug.gbc pokeyellow_debug.gbc
+          cp release/pokeyellow-debug.map pokeyellow_debug.map
+          cp release/pokeyellow-debug.sym pokeyellow_debug.sym
 
       - name: Run unit tests
         run: python -m pytest tools/rom_tests/tests/unit

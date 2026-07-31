@@ -268,6 +268,27 @@ def test_candidate_scan_and_linker_parsers_preserve_bank() -> None:
         (0, 0x100, 0x101),
         (2, 0x4000, 0x4007),
     ]
+    reordered_aliases = parse_map(
+        "ROM0 bank #0:\n"
+        '\tSECTION: $0100-$0101 ($0002 bytes) ["home"]\n'
+        "\t$0100 = AliasB\n"
+        "\t$0100 = AliasA\n"
+        "ROMX bank #2:\n"
+        '\tSECTION: $4000-$4007 ($0008 bytes) ["bank2"]\n'
+    )
+    assert reordered_aliases.artifact_sha256 == parsed.artifact_sha256
+    parsed_decoder = SM83Decoder(b"", parse_sym("00:0100 Root\n"), sections=parsed)
+    tuple_decoder = SM83Decoder(
+        b"", parse_sym("00:0100 Root\n"), sections=tuple(parsed)
+    )
+    assert parsed_decoder._map_digest() == tuple_decoder._map_digest()
+    changed_section = parse_map(
+        "ROM0 bank #0:\n"
+        '\tSECTION: $0100-$0102 ($0003 bytes) ["home"]\n'
+        "ROMX bank #2:\n"
+        '\tSECTION: $4000-$4007 ($0008 bytes) ["bank2"]\n'
+    )
+    assert changed_section.artifact_sha256 != parsed.artifact_sha256
     assert normalize_rom_offset(2, 0x4000) == 0x8000
     assert bank_address_from_offset(0x8000) == BankAddress(2, 0x4000)
     alias_symbols = parse_sym("02:4000 Primary\n02:4000 Alias\n01 VALUE_ONLY\n")
