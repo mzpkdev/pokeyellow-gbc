@@ -14,8 +14,8 @@ before renderer work starts, and the
 - **CHK-JOB-01:** Method: handoff, reset, supersession, stale-generation, and adversarial cancellation sequences; tier: fast/full; evidence: job-state and cancellation trace proving no post-cancellation write.
 - **CHK-COMMIT-01:** Method: force insufficient budget at every pre-visible preparation/revalidation boundary, verify deferral before `COMMITTING`, and verify uninterrupted completion after worst-case budget reservation; tier: focused/full; evidence: old/new semantic snapshots, frame strip, commit-unit/writer IDs, boundary defer traces, reservation record, and inactive-or-LCD-off interruption cases.
 - **CHK-RETURN-01:** Method: for every concrete Yellow-to-full-color overworld boundary, record its actual Yellow-owned source lifecycle, poison every prior screen resource, and reconstruct; tier: focused/full; evidence: concrete directed scene IDs, a preceding map-to-Yellow edge and last map generation only when source/ROM proves that predecessor, poison record, reconstruction-item ledger, presentation barrier, and five active-frame snapshots.
-- **CHK-OVERLAY-01:** Method: independent request-data oracle across authoritative BG/window destination, map/tileset identity, world transform, override set, clipping mappings, classification, and full-byte precedence; tier: fast/focused/full; evidence: complete request fixture, clipped source/destination/world coordinate map, expected/actual tile and attribute bytes, and trace proving no VRAM or ambient-map oracle read.
-- **CHK-OAM-01:** Method: missing, out-of-range, and unmapped final-picture identities under diagnostic and release builds; tier: fast/focused; evidence: final identity, before/after attributes, palette-0 result, diagnostic fallback record, and release-symbol audit.
+- **CHK-OVERLAY-01:** Method: independent request-data oracle across authoritative BG/window destination, map/tileset identity, nonsingular world transform, override set, clipping mappings, classification, and full-byte precedence; tier: fast/focused/full; evidence: complete causal request fixture, canonical clipped source-index/destination/world mapping records, independently derived tile and attribute bytes, structural proof for each matrix case, and trace proving no VRAM or ambient-map oracle read.
+- **CHK-OAM-01:** Method: derive missing, out-of-range, and unmapped fallback classification from final-picture identity plus one corpus-level authoritative mapped-identity set shared by every OAM case under diagnostic and release builds; tier: fast/focused; evidence: corpus-authority consistency/completeness validation, occurred/kind/identity/generation/writer, final tile, before/after attributes, palette-0 result, diagnostic fallback record, and release-symbol audit.
 - **CHK-TIME-01:** Method: numeric cycle instrumentation for every operation plus an exact defer-threshold-plus-one case; tier: focused/full; evidence: completed timing row, equation result, whole-unit defer trace, and timing artifact key.
 - **CHK-INV-01:** Method: reconcile source search with symbol-guided built-ROM disassembly for the initial map-entry slice and every later declared implementation slice; tier: fast/full; evidence: reviewed `WR-…`, `SC-…`, and `MU-…` rows, before-reachability review, slice closure report, visible out-of-slice backlog, and unlisted-writer/scene/mutation fixtures.
 - **CHK-TRACE-01:** Method: validate authority definitions, references, and bidirectional primary mappings; tier: fast; evidence: machine-readable mapping report and zero unknown, uncovered, duplicate, or orphan IDs.
@@ -36,6 +36,21 @@ before renderer work starts, and the
 - **CHK-REMOVE-01:** Method: source plus built-ROM reachability audit for obsolete ownership, restoration, and transitional paths; tier: full; evidence: deleted/unreachable concrete inventory rows, negative disassembly findings, and adapter disposition report.
 - **CHK-REGRESS-01:** Method: run baseline-equivalence scenarios for every retained Yellow-owned lifecycle and excluded resource path; tier: focused/full; evidence: concrete scene IDs, semantic and visual comparisons, build variants, and regression logs.
 - **CHK-CANARY-01:** Method: exercise all eight diagnostic canary palette slots and selected tile classes and audit release exclusion; tier: fast/focused; evidence: semantic palette/tile snapshots, screenshots, debug trace, and release source/symbol findings.
+
+### Checker execution modes
+
+| Mode | Input evidence | What a pass proves | Acceptance effect |
+|---|---|---|---|
+| `synthetic_checker_self_test` | independently authored `SCHEMA_FIXTURE` snapshots and traces | the named checker accepts its positive contract case and rejects its named corruptions | none |
+| `rom_runtime` | `RENDERER_RUNTIME` snapshots and traces from a declared nonzero activation phase | the activated renderer path matches the independent oracle | contributes evidence only to the named activated `CHK-…` and mapped acceptance rows |
+
+The mode is recorded in every conformance report and manifest. A synthetic
+result cannot be promoted, relabelled, or aggregated as runtime evidence.
+Synthetic inputs may contain only causal initial state, actions, and request
+configuration. Exact results—including job completion/cancellation,
+reconstruction ledgers and barriers, and fallback kind—must be derived. The
+case parser rejects missing primary check IDs and check IDs unrelated to the
+selected operation before a report can be produced.
 
 ## Requirement-to-evidence traceability
 
@@ -285,13 +300,13 @@ identity, or an expected attribute fails `CHK-OVERLAY-01`.
 | OVERLAY-ORDINARY-OPAQUE-DEFAULT | ordinary/unclipped | `OPAQUE_OVERLAY`, text/window default | default full byte and bit 4 forced zero | request, default key, expected/actual bytes |
 | OVERLAY-ORDINARY-REVEALED-LOOKUP | ordinary/unclipped | `REVEALED_TERRAIN`, desired tile lookup | palette 0–2, bank 3, flips 5–6, priority 7, bit 4 forced zero | tile ID, lookup entry, expected/actual bytes |
 | OVERLAY-ORDINARY-REVEALED-OVERRIDE | ordinary/unclipped | `REVEALED_TERRAIN`, coordinate override | override precedence and bit 4 forced zero | source/destination coordinate, override, bytes |
-| OVERLAY-FULLY-CLIPPED | empty after clipping | mixed request classifications | no surviving commit cell | clipped coordinate map and zero-writer trace |
-| OVERLAY-PARTIALLY-CLIPPED | clipped on each destination edge | alternating opaque/revealed source cells | preserved source/destination/world mappings and every meaningful bit | pre/post clip tilemap/world map and byte diffs |
+| OVERLAY-FULLY-CLIPPED | declared BG destination and Pallet Town/Overworld identity; empty after clipping | alternating opaque/revealed cells exercising explicit/default/override/lookup | no surviving commit cell; every source branch structurally proven | clipped coordinate map, precedence proof, and zero-entry trace with canonical non-writing `WR-NONE` allowlist |
+| OVERLAY-PARTIALLY-CLIPPED | declared destination per edge and Pallet Town/Overworld identity; clipped on each destination edge | alternating opaque/revealed cells exercising explicit/default/override/lookup | preserved source/destination/world mappings and every meaningful bit | pre/post clip tilemap/world map, precedence proof, and byte diffs |
 | OVERLAY-MAP-EDGE | map edge | mixed explicit/default/lookup/override cells | every meaningful bit and canonical bit 4 | concrete mutation/writer IDs and byte diffs |
-| OVERLAY-CONNECTION | connection destination | mixed explicit/default/lookup/override cells | every meaningful bit and canonical bit 4 | concrete mutation/writer IDs and byte diffs |
-| OVERLAY-WINDOW | window destination | opaque and revealed cells | text/window default and terrain precedence | concrete mutation/writer IDs and byte diffs |
-| OVERLAY-ALTERNATE-BG | alternate BG destination | opaque and revealed cells | destination pairing and every meaningful bit | concrete mutation/writer IDs and byte diffs |
-| OVERLAY-ALTERNATE-MAP | request-supplied alternate map identity | opaque and revealed cells | supplied destination selector, map/tileset identity, world transform, overrides, and lookup independent of ambient map | complete request, concrete mutation/writer IDs, coordinate maps, and byte diffs |
+| OVERLAY-CONNECTION | Route 1 northwest `(0,0)` connection destination with canonical Overworld tileset | mixed explicit/default/lookup/override cells | every meaningful bit and canonical bit 4 | concrete mutation/writer IDs and byte diffs |
+| OVERLAY-WINDOW | fully in-bounds Pallet Town/Overworld request to window map 9C00 | opaque and revealed cells | text/window default and terrain precedence; nonempty writer and complete commit | concrete mutation/writer/commit IDs and byte diffs |
+| OVERLAY-ALTERNATE-BG | fully in-bounds Pallet Town/Overworld request to BG map 9C00 | opaque and revealed cells | destination pairing and every meaningful bit; nonempty writer and complete commit | concrete mutation/writer/commit IDs and byte diffs |
+| OVERLAY-ALTERNATE-MAP | fully in-bounds Viridian City/Overworld request to BG map 9800 | opaque and revealed cells | supplied canonical destination, map/tileset identity, world transform, overrides, and lookup independent of ambient map; nonempty writer and complete commit | complete request, concrete mutation/writer/commit IDs, coordinate maps, and byte diffs |
 
 ## OAM fallback and lifecycle matrix
 
