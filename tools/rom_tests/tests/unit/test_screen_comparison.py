@@ -1,5 +1,7 @@
 """Focused unit coverage for visual-regression masking."""
 
+from types import SimpleNamespace
+
 from PIL import Image
 
 from tools.rom_tests.emulator import Emulator, screen_difference
@@ -44,3 +46,47 @@ def test_symbol_parser_ignores_exported_numeric_constants() -> None:
         "wExampleValue": 0xC000,
         "ExampleRoutine": 0x4567,
     }
+    assert Emulator._parse_symbol_banks(lines) == {
+        "wExampleValue": 0,
+        "ExampleRoutine": 0x0F,
+    }
+
+
+class RecordingMemory:
+    def __init__(self, initial: dict[int, int]) -> None:
+        self.values = dict(initial)
+        self.writes: list[tuple[int, int]] = []
+
+    def __getitem__(self, address: int) -> int:
+        return self.values.get(address, 0)
+
+    def __setitem__(self, address: int, value: int) -> None:
+        self.values[address] = value
+        self.writes.append((address, value))
+
+
+def test_banked_sram_read_restores_declared_quiescent_state() -> None:
+    emulator = Emulator.__new__(Emulator)
+    emulator.symbols = {"debug": 0xA100}
+    emulator.symbol_banks = {"debug": 3}
+    memory = RecordingMemory({0xA100: 0x12, 0xA101: 0x34})
+    emulator.pyboy = SimpleNamespace(memory=memory)
+
+    assert emulator.read_bytes("debug", 2) == b"\x12\x34"
+    assert memory.writes == [
+        (0x0000, 0x0A),
+        (0x4000, 3),
+        (0x4000, 0),
+        (0x0000, 0),
+    ]
+
+
+def test_banked_wram_read_restores_observed_svbk_value() -> None:
+    emulator = Emulator.__new__(Emulator)
+    emulator.symbols = {"debug": 0xD100}
+    emulator.symbol_banks = {"debug": 6}
+    memory = RecordingMemory({0xD100: 0x56, 0xFF70: 0xFA})
+    emulator.pyboy = SimpleNamespace(memory=memory)
+
+    assert emulator.read("debug") == 0x56
+    assert memory.writes == [(0xFF70, 6), (0xFF70, 0xFA)]

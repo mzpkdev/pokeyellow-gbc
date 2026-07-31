@@ -115,6 +115,11 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/rom_tests/requirements.txt
+
+      - name: Install ROM test dependencies
+        run: python -m pip install -r tools/rom_tests/requirements.txt
 
       - name: Download debug build
         uses: actions/download-artifact@v7
@@ -134,6 +139,9 @@ jobs:
           python -m tools.rom_tests.full_color.baseline_discovery > gate-0-run-2.json
           cmp gate-0-run-1.json gate-0-run-2.json
 
+      - name: Validate debug observability
+        run: python -m tools.rom_tests.full_color.runtime_observability > gate-0-observability.json
+
       - name: Upload Gate 0 evidence
         uses: actions/upload-artifact@v7
         with:
@@ -141,5 +149,6 @@ jobs:
           path: |
             gate-0-run-1.json
             gate-0-run-2.json
+            gate-0-observability.json
           if-no-files-found: error
           retention-days: 14
