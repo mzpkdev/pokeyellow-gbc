@@ -188,6 +188,43 @@ def test_call_expansion_can_be_disabled_without_hiding_call_site_evidence() -> N
     assert any(item.address == 0x116 for item in report.findings)
 
 
+def test_dma_control_names_do_not_match_incidental_wait_or_map_substrings() -> None:
+    rom = bytearray(0x4000)
+    rom[0x100:0x10D] = bytes.fromhex(
+        "cd0002"  # LoadMapData
+        "cd1002"  # WaitForSound
+        "cd2002"  # WriteOAMBlock
+        "cd3002"  # ConfiguredWait
+        "c9"
+    )
+    for address in (0x200, 0x210, 0x220, 0x230):
+        rom[address] = 0xC9
+    table = parse_sym(
+        "00:0100 Root\n"
+        "00:0200 LoadMapData\n"
+        "00:0210 WaitForSound\n"
+        "00:0220 WriteOAMBlock\n"
+        "00:0230 ConfiguredWait\n"
+    )
+    report = SM83Decoder(
+        bytes(rom),
+        table,
+        sections=(
+            MapSection(0, 0x100, 0x10C, "root", "ROM0"),
+            MapSection(0, 0x200, 0x230, "helpers", "ROM0"),
+        ),
+        dma_control_labels={"ConfiguredWait"},
+        follow_calls=False,
+    ).decode(["Root"])
+
+    controls = {
+        (item.address, item.mechanism)
+        for item in report.findings
+        if item.resource == "OAM_DMA_CONTROL"
+    }
+    assert controls == {(0x106, "dma-wrapper"), (0x109, "dma-wait")}
+
+
 def test_candidate_scan_and_linker_parsers_preserve_bank() -> None:
     decoder = SM83Decoder(synthetic_rom(), symbols(), sections=sections())
     candidates = decoder.scan_executable_candidates()

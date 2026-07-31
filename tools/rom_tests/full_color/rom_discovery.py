@@ -927,10 +927,7 @@ class SM83Decoder:
             dma_names = tuple(
                 name
                 for name in target_names
-                if (
-                    name in self.dma_control_labels
-                    or re.search(r"(dma|oam|wait)", name, re.IGNORECASE)
-                )
+                if (name in self.dma_control_labels or "DMA" in name or "OAM" in name)
             )
             if not dma_names:
                 return None
