@@ -63,6 +63,26 @@ def test_missing_include_remains_a_deterministic_error(tmp_path) -> None:
     assert report.errors == ("missing.asm: included source does not exist",)
 
 
+def test_identical_macro_expansion_findings_are_deduplicated(tmp_path) -> None:
+    (tmp_path / "main.asm").write_text(
+        """
+MACRO twice
+    ld [hl], a
+    ld [hl], a
+ENDM
+Root::
+    twice
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    report = discover_sources(tmp_path, ["main.asm"])
+
+    writers = [item for item in report.findings if item.category == "writer"]
+    assert len(writers) == 1
+    assert writers[0].symbol == "Root"
+
+
 def test_inline_labels_expressions_and_unannotated_control_flow(tmp_path) -> None:
     (tmp_path / "main.asm").write_text(
         """

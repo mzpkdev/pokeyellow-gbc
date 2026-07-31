@@ -5,6 +5,13 @@ import hashlib
 
 import pytest
 
+from tools.rom_tests.full_color.discovery_review import (
+    DiscoveryRejectionAuthority,
+    REJECTION_SCHEMA,
+    rom_finding_subject,
+    source_finding_subject,
+    source_error_subject,
+)
 from tools.rom_tests.full_color.inventory import (
     InventoryReconciliationError,
     InventoryValidationError,
@@ -13,8 +20,15 @@ from tools.rom_tests.full_color.inventory import (
     WriterInventory,
     reconcile,
 )
-from tools.rom_tests.full_color.rom_discovery import MapSection, RomDiscoveryReport
-from tools.rom_tests.full_color.source_discovery import SourceDiscoveryReport
+from tools.rom_tests.full_color.rom_discovery import (
+    MapSection,
+    RomDiscoveryReport,
+    RomFinding,
+)
+from tools.rom_tests.full_color.source_discovery import (
+    SourceDiscoveryReport,
+    SourceFinding,
+)
 
 HASH = "0" * 64
 SYM_HASH = "1" * 64
@@ -244,6 +258,159 @@ def test_all_three_authorities_round_trip_byte_stably_and_reconcile() -> None:
     )
     assert report.closed
     assert report.to_json() == report.to_json()
+
+
+def test_reviewed_rejections_are_exact_consumed_and_reported() -> None:
+    writers, scenes, mutations = inventories()
+    source_report, rom_report = findings()
+    rejected_source = SourceFinding(
+        "writer",
+        "engine/noise.asm",
+        40,
+        "Noise",
+        "pointer",
+        "hl",
+        "COMPUTED_POINTER",
+        resolved=False,
+        evidence_sha256="4" * 64,
+    )
+    rejected_rom = RomFinding(
+        0,
+        0x104,
+        0x104,
+        "02",
+        "pointer",
+        None,
+        None,
+        "UNKNOWN_DESTINATION",
+        None,
+        None,
+        "Noise",
+        ("Noise",),
+        None,
+        False,
+        "writer",
+        None,
+        None,
+        None,
+    )
+    source_error = "engine/noise.asm:40: reviewed computed destination"
+    source_report = SourceDiscoveryReport(
+        source_report.roots,
+        source_report.include_graph,
+        source_report.findings + (rejected_source,),
+        (source_error,),
+        source_report.source_sha256,
+    )
+    rom_report = RomDiscoveryReport(
+        rom_report.findings + (rejected_rom,),
+        rom_report.unresolved_destinations,
+        rom_report.visited + ((0, 0x104),),
+        rom_report.rom_sha256,
+        rom_report.sym_sha256,
+        rom_report.map_sha256,
+        rom_report.unresolved_control_flow,
+        rom_report.candidate_findings,
+        rom_report.candidate_sections,
+    )
+    review_evidence = evidence()
+
+    def rejection(row_id, subject, reason):
+        return {
+            "id": row_id,
+            "subject": subject.to_dict(),
+            "reason": reason,
+            "detail": "Reviewed exact baseline evidence proves this is not a writer.",
+            "evidence": review_evidence,
+        }
+
+    rejections = DiscoveryRejectionAuthority.from_dict(
+        {
+            "schema": REJECTION_SCHEMA,
+            "rows": [
+                rejection(
+                    "RV-ROM-NOISE",
+                    rom_finding_subject(rejected_rom),
+                    "UNREACHABLE_CODE_OR_DATA",
+                ),
+                rejection(
+                    "RV-SOURCE-ERROR",
+                    source_error_subject(source_error),
+                    "CONTROL_FLOW_PROVED_BY_REVIEW",
+                ),
+                rejection(
+                    "RV-SOURCE-NOISE",
+                    source_finding_subject(rejected_source),
+                    "NOT_A_WRITE",
+                ),
+            ],
+        }
+    )
+
+    report = reconcile(
+        writers,
+        scenes,
+        mutations,
+        source_report=source_report,
+        rom_report=rom_report,
+        rom=ROM,
+        rejections=rejections,
+    )
+
+    assert report.closed
+    assert report.matched_rejection_ids == (
+        "RV-ROM-NOISE",
+        "RV-SOURCE-ERROR",
+        "RV-SOURCE-NOISE",
+    )
+
+
+def test_distinct_rom_findings_at_one_site_are_never_collapsed() -> None:
+    writers, scenes, mutations = inventories()
+    source_report, rom_report = findings()
+    unresolved = RomFinding(
+        0,
+        0x100,
+        0x100,
+        "e046",
+        "ldh-direct",
+        0xFF46,
+        0xFF46,
+        "DISPLAY_REGISTER",
+        None,
+        None,
+        "DifferentRoot",
+        ("DifferentRoot",),
+        None,
+        False,
+        "writer",
+        None,
+        None,
+        None,
+    )
+    rom_report = RomDiscoveryReport(
+        rom_report.findings + (unresolved,),
+        rom_report.unresolved_destinations,
+        rom_report.visited,
+        rom_report.rom_sha256,
+        rom_report.sym_sha256,
+        rom_report.map_sha256,
+        rom_report.unresolved_control_flow,
+        rom_report.candidate_findings,
+        rom_report.candidate_sections,
+    )
+
+    report = reconcile(
+        writers,
+        scenes,
+        mutations,
+        source_report=source_report,
+        rom_report=rom_report,
+        rom=ROM,
+        raise_on_error=False,
+    )
+
+    assert any("ROM/candidate unresolved finding 00:0100" in e for e in report.errors)
 
 
 @pytest.mark.parametrize(

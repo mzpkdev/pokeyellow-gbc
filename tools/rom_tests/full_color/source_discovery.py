@@ -291,6 +291,7 @@ class SourceDiscoverer:
             findings.extend(
                 self._find_in_file(parsed[name], aliases, macros, constants)
             )
+        findings = sorted(set(findings))
         for finding in findings:
             if not finding.resolved and finding.resource == "COMPUTED_CONTROL_FLOW":
                 errors.append(
@@ -338,7 +339,6 @@ class SourceDiscoverer:
             errors.append(
                 f"configured lifecycle/scene/mutation symbol {symbol!r} was not discovered"
             )
-        findings.sort()
         source_digest = hashlib.sha256()
         for name in sorted(parsed):
             source_digest.update(name.encode("utf-8"))

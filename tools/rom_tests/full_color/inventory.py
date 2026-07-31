@@ -17,8 +17,18 @@ from pathlib import Path, PurePosixPath
 import re
 from typing import Any, ClassVar
 
+from .discovery_review import (
+    DiscoveryRejectionAuthority,
+    DuplicateDiscoveryConsumptionError,
+    RejectionMatcher,
+    StaleDiscoveryReviewError,
+    fingerprint_rom_finding,
+    fingerprint_source_finding,
+)
 from .enums import Owner, Phase
 from .errors import ContractError
+from .rom_discovery import RomFinding
+from .source_discovery import SourceFinding
 
 WRITER_SCHEMA = "full-color-writer-inventory-v1"
 SCENE_SCHEMA = "full-color-scene-inventory-v1"
@@ -897,6 +907,7 @@ def validate_cross_references(
 class ReconciliationReport:
     matched_source_sites: tuple[str, ...]
     matched_machine_sites: tuple[str, ...]
+    matched_rejection_ids: tuple[str, ...]
     errors: tuple[str, ...]
 
     @property
@@ -909,6 +920,7 @@ class ReconciliationReport:
             "closed": self.closed,
             "matched_source_sites": list(self.matched_source_sites),
             "matched_machine_sites": list(self.matched_machine_sites),
+            "matched_rejection_ids": list(self.matched_rejection_ids),
             "errors": list(self.errors),
         }
 
@@ -932,6 +944,7 @@ def reconcile(
     source_report: object,
     rom_report: object,
     rom: bytes,
+    rejections: DiscoveryRejectionAuthority | None = None,
     raise_on_error: bool = True,
 ) -> ReconciliationReport:
     """Reconcile complete discovery reports to all three reviewed authorities."""
@@ -997,16 +1010,12 @@ def reconcile(
         errors.append("source discovery has no roots")
     if not source_findings:
         errors.append("source discovery has no findings")
-    errors.extend(f"source discovery error: {item}" for item in source_errors)
     if not rom_findings:
         errors.append("ROM discovery has no findings")
     if not visited:
         errors.append("ROM discovery visited no instructions")
     if not candidate_sections:
         errors.append("ROM candidate scan has no linker sections")
-    errors.extend(f"ROM unresolved destination: {item}" for item in rom_unresolved)
-    errors.extend(f"ROM unresolved control flow: {item}" for item in control_unresolved)
-
     all_hashes = {"source_sha256": source_hash, **report_hashes}
     for name, value in all_hashes.items():
         if not _SHA256.fullmatch(value):
@@ -1017,6 +1026,37 @@ def reconcile(
             f"ROM report hash {report_hashes['rom_sha256']} "
             f"does not match bytes {actual_rom_hash}"
         )
+
+    rejection_matcher: RejectionMatcher | None = None
+    matched_rejections: set[str] = set()
+    if rejections is not None:
+        try:
+            rejection_matcher = rejections.matcher(**all_hashes)
+        except StaleDiscoveryReviewError as exc:
+            errors.append(str(exc))
+
+    def consume_rejection(method: str, subject: object) -> bool:
+        if rejection_matcher is None:
+            return False
+        try:
+            row_id = getattr(rejection_matcher, method)(subject)
+        except DuplicateDiscoveryConsumptionError as exc:
+            errors.append(str(exc))
+            return True
+        if row_id is None:
+            return False
+        matched_rejections.add(row_id)
+        return True
+
+    for item in source_errors:
+        if not consume_rejection("consume_source_error", item):
+            errors.append(f"source discovery error: {item}")
+    for item in rom_unresolved:
+        if not consume_rejection("consume_rom_unresolved_destination", item):
+            errors.append(f"ROM unresolved destination: {item}")
+    for item in control_unresolved:
+        if not consume_rejection("consume_rom_unresolved_control_flow", item):
+            errors.append(f"ROM unresolved control flow: {item}")
 
     section_ranges: list[tuple[int, int, int]] = []
     for index, section in enumerate(candidate_sections):
@@ -1160,11 +1200,21 @@ def reconcile(
             errors.append(f"machine authority key overwrites multiple rows: {key!r}")
 
     seen_source: list[tuple[object, ...]] = []
+    accepted_source_categories: set[str] = set()
+    seen_source_fingerprints: set[str] = set()
     matched_rows: set[str] = set()
     for finding in source_findings:
+        if isinstance(finding, SourceFinding):
+            fingerprint = fingerprint_source_finding(finding)
+            if fingerprint in seen_source_fingerprints:
+                errors.append(f"duplicate exact source finding {fingerprint}")
+            seen_source_fingerprints.add(fingerprint)
+            if consume_rejection("consume_source_finding", finding):
+                continue
         category = str(_finding_attr(finding, "category", "")).lower()
         if category in {"scene_edge", "lifecycle"}:
             category = "scene"
+        accepted_source_categories.add(category)
         path = str(_finding_attr(finding, "path", ""))
         line = int(_finding_attr(finding, "line", 0))
         symbol = str(_finding_attr(finding, "symbol", ""))
@@ -1207,8 +1257,6 @@ def reconcile(
     for key, row_ids in source_index.items():
         if key not in seen_source:
             errors.append(f"{row_ids[0]}: stale source site/authority key {key!r}")
-    if any(count > 1 for count in Counter(seen_source).values()):
-        errors.append("duplicate source findings")
 
     seen_machine: list[tuple[str, int, int]] = []
     resolved_report_sites = {
@@ -1230,19 +1278,17 @@ def reconcile(
         )
         not in resolved_report_sites
     )
-    all_rom_findings = rom_findings + unresolved_candidates
-    unique_rom_findings: dict[tuple[object, ...], object] = {}
-    for finding in all_rom_findings:
-        identity = (
-            _finding_attr(finding, "category", "writer"),
-            _finding_attr(finding, "bank", -1),
-            _finding_attr(finding, "address", -1),
-            _finding_attr(finding, "destination_low"),
-            _finding_attr(finding, "destination_high"),
-            _finding_attr(finding, "control_flow_kind"),
-        )
-        unique_rom_findings.setdefault(identity, finding)
-    for finding in unique_rom_findings.values():
+    seen_rom_fingerprints: set[str] = set()
+    for finding in rom_findings + unresolved_candidates:
+        if isinstance(finding, RomFinding):
+            fingerprint = fingerprint_rom_finding(finding)
+            if fingerprint in seen_rom_fingerprints:
+                errors.append(f"duplicate exact ROM finding {fingerprint}")
+            seen_rom_fingerprints.add(fingerprint)
+        if isinstance(finding, RomFinding) and consume_rejection(
+            "consume_rom_finding", finding
+        ):
+            continue
         category = str(_finding_attr(finding, "category", "writer")).lower()
         bank = int(_finding_attr(finding, "bank", -1))
         address = int(_finding_attr(finding, "address", -1))
@@ -1258,25 +1304,19 @@ def reconcile(
     for key, row_ids in machine_index.items():
         if key not in seen_machine:
             errors.append(f"{row_ids[0]}: stale machine site {key[1]:02x}:{key[2]:04x}")
-    if any(count > 1 for count in Counter(seen_machine).values()):
-        errors.append("multiple ROM findings cover one directed/site authority key")
-
-    source_categories = {
-        (
-            "scene"
-            if str(_finding_attr(item, "category", "")).lower()
-            in {"scene", "scene_edge", "lifecycle"}
-            else str(_finding_attr(item, "category", "")).lower()
-        )
-        for item in source_findings
-    }
     for category in authorities:
-        if category not in source_categories:
+        if category not in accepted_source_categories:
             errors.append(f"source discovery has no applicable {category} finding")
 
     for row in rows:
         if row["planned"] and row["id"] in matched_rows:
             errors.append(f"{row['id']}: planned row is reachable before review")
+
+    if rejection_matcher is not None:
+        try:
+            rejection_matcher.assert_all_consumed()
+        except StaleDiscoveryReviewError as exc:
+            errors.append(str(exc))
 
     report = ReconciliationReport(
         tuple(sorted(repr(key) for key in set(seen_source) & set(source_index))),
@@ -1286,6 +1326,7 @@ def reconcile(
                 for category, bank, address in set(seen_machine) & set(machine_index)
             )
         ),
+        tuple(sorted(matched_rejections)),
         tuple(sorted(set(errors))),
     )
     if report.errors and raise_on_error:
