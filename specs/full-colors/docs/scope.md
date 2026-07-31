@@ -14,7 +14,7 @@ The replacement owns the complete map scene:
 - dialogue and text boxes over the map;
 - transient start, list, yes/no, and field-move overlays;
 - player, follower Pikachu, NPC, and map-object OAM palette bits; and
-- entering and returning from standalone screens.
+- actual ownership boundaries between the map and Yellow-owned screens.
 
 ## Excluded
 
@@ -31,17 +31,49 @@ Yellow's existing renderer continues to own:
 
 Follower Pikachu is included because it is an overworld object.
 
-## Map-backed versus standalone
+## Classification rule
 
-An operation is map-backed when closing it should reveal the current map
-without a full map entry. It remains under full-color ownership and must use
-renderer-owned attributes.
+These labels apply only to rows in the scene-lifecycle table.
+`MAP_BACKED` means dismissal resumes the same map simulation and viewport
+without map entry; it remains full-color-owned even when opaque.
+`STANDALONE` means an independent display lifecycle owned by Yellow.
+`SCENE_BOUNDARY` means a concrete directed transition that transfers ownership
+between a map lifecycle and a Yellow-owned lifecycle. Boot and reset entry,
+Yellow-to-Yellow nesting, failure recovery, and other Yellow-to-Yellow edges
+remain Yellow-owned and are not map boundaries. Yellow is selected before
+entry to destination initialization on a full-color-to-Yellow boundary. No
+scene may be “temporarily Yellow-owned while preserving the map.” A standalone
+lifecycle does not imply a map entry or return edge; only source and built-ROM
+reachability may establish those concrete directed edges. Every unlisted
+lifecycle or directed transition must receive a reviewed `SC-…` row in
+`replacement-inventory.md` before later implementation phases touch it, as
+required by
+[R12.8](requirements.md#r12-isolation-and-removal).
 
-An operation is standalone when it rebuilds the display and has its own screen
-lifecycle. Ownership passes to Yellow before the screen initializes.
+Owner behavior is defined by
+[R1.1, R1.3, R1.4, R1.5, R1.6, and R1.7](requirements.md#r1-renderer-ownership).
+Transition and reconstruction behavior is defined by
+[R2.1, R2.2, R2.3, R2.4, R2.5, R2.6, R2.7, R2.9, R2.10, R2.11, R2.12, and R2.13](requirements.md#r2-generation-handoff-reset-and-reconstruction).
 
-Returning from a standalone screen performs a complete map reconstruction.
-Correctness cannot depend on map palettes or attributes surviving.
+## Scene-lifecycle table
+
+| Lifecycle or directed edge | Classification | Owner or transfer |
+|---|---|---|
+| map entry, reload, scrolling, connections, animations, and field replacements | `MAP_BACKED` | full-color owner |
+| dialogue and text boxes over the map | `MAP_BACKED` | full-color owner |
+| transient start, list, yes/no, and field-move overlays | `MAP_BACKED` | full-color owner |
+| battle presentation and animation lifecycle | `STANDALONE` | Yellow |
+| title, splash, Oak speech, Yellow intro, and credits lifecycle | `STANDALONE` | Yellow |
+| party, status, Pokédex, town map, trainer card, naming, and PC lifecycle | `STANDALONE` | Yellow |
+| evolution, Hall of Fame, and trade presentation lifecycle | `STANDALONE` | Yellow |
+| slots, printer, and link-room presentation lifecycle | `STANDALONE` | Yellow |
+| Pikachu front-picture and emotion-picture lifecycle | `STANDALONE` | Yellow |
+| Pikachu's Beach and Surfing Pikachu lifecycle | `STANDALONE` | Yellow |
+| any other lifecycle that replaces the map | `STANDALONE` | Yellow |
+| hard boot, soft reset, new-game, and continue entry into a Yellow lifecycle | `STANDALONE` | Yellow to Yellow; no map reconstruction |
+| nested standalone entry/return and Yellow error or disconnect recovery | `STANDALONE` | Yellow to Yellow; no map reconstruction |
+| each source-and-ROM-proven map-to-standalone edge | `SCENE_BOUNDARY` | full-color to Yellow before destination initialization |
+| each source-and-ROM-proven standalone-to-map edge | `SCENE_BOUNDARY` | Yellow to full-color reconstruction |
 
 ## Compatibility
 

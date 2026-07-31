@@ -1,197 +1,311 @@
 # Overworld renderer architecture
 
-## Ownership state machine
+This document is a conforming realization of the behavior and vocabulary in
+[requirements.md](requirements.md). It does not select a binary ABI, queue
+shape, capacity, descriptor layout, or WRAM address.
+
+## Conformance and mechanism reference
+
+The mechanism reference is Celebrations commit
+`bf823bc15d75ba8335ce2c9418d2eb65897bb878`, consulted at
+`color/{wram,vblank,super_palettes,loadpalettes,refreshmaps,sprites}.asm` and
+the relevant `color/data/` and `color/tilesets/` files. Only palette
+transforms, attribute lookup and transfer, scheduling, and OAM mechanisms are
+candidates. Donor palettes, mappings, roofs, OAM assignments, content, and
+data organization are non-authoritative candidate evidence; every Yellow value
+is independently authored and validated. Celebrations scene ownership,
+static-screen restoration, MBC1 layout, banks, WRAM representation, and
+non-overworld coloring are not part of this realization, as required by
+[R4.1, R4.2, R4.3, R4.4, and R4.5](requirements.md#r4-rom-placement),
+[R6.12](requirements.md#r6-attribute-and-overlay-model), and
+[R12.1, R12.3, R12.4, R12.5, and R12.7](requirements.md#r12-isolation-and-removal).
+
+## Ownership and phases
+
+The selected owner and phase are explicit state, not inferred from a routine
+name. The legal owner/phase combinations are the table in
+[requirements.md](requirements.md#stable-vocabulary), governed by
+[R1.1, R1.2, R1.3, R1.4, R1.5, and R1.6](requirements.md#r1-renderer-ownership).
+“Yellow” and “full-color”
+below mean `RENDERER_YELLOW` and `RENDERER_FULL_COLOR_OVERWORLD`,
+respectively.
 
 ```text
-                         standalone screen request
- FULL_COLOR_OVERWORLD  ------------------------------>  YELLOW
-          ^                                                 |
-          |                                                 |
-          +---------- complete map reconstruction ----------+
+HARD BOOT / SOFT RESET
+    |
+    | Yellow selected; Yellow destination initialized
+    v
+YELLOW_ACTIVE <----> YELLOW-OWNED NESTED / ERROR LIFECYCLES
+    |
+    | actual Yellow-to-overworld boundary only
+    v
+HANDOFF_TO_OVERWORLD
+    |
+    | full-color owner selected with a fresh generation
+    v
+OVERWORLD_RECONSTRUCTING
+    |
+    | one complete presentation barrier
+    v
+OVERWORLD_ACTIVE <----> OVERWORLD_OVERLAY
+    |
+    | standalone request
+    v
+HANDOFF_TO_YELLOW
+    |
+    | Yellow selected before destination initialization entry
+    v
+YELLOW_ACTIVE
 ```
 
-There is no state in which both renderers may write palette RAM or BG/window
-attributes.
+There is no state in which both owners may write an owner-gated resource.
+Map-backed dialogue and transient overlays use the overworld owner; a
+standalone lifecycle reached from the map receives Yellow ownership before
+destination initialization. A Yellow-to-Yellow nested, reset, or error edge
+does not reconstruct the map, and a standalone lifecycle has no implied map
+edge. Scene classification remains authoritative in [scope.md](scope.md).
 
-`FULL_COLOR_OVERWORLD` includes map-backed dialogue and transient overlays.
-`YELLOW` includes every standalone screen that replaces the map.
+## Transition and request algorithm
+
+Every transition uses this ordering to realize
+[R2.1, R2.2, R2.3, R2.4, R2.6, R2.7, R2.8, and R2.9](requirements.md#r2-generation-handoff-reset-and-reconstruction):
+
+1. Enter the applicable handoff phase and close admission for the departing
+   owner.
+2. Complete a commit unit that has become visible; otherwise cancel its job
+   before visibility. Cancel remaining `PENDING` or `PREPARED` departing work
+   with the applicable stable reason.
+3. Establish a fresh, non-aliasing generation and invalidate all older work.
+   No older job may write after this point.
+4. Select the destination owner, then enter its initialization. Yellow is
+   selected before entry to standalone destination initialization and therefore
+   before its first display write; full-color is selected before
+   reconstruction begins.
+5. Reopen admission only after destination initialization. An overworld arrival
+   enters `OVERWORLD_RECONSTRUCTING`; its normal admission opens only as
+   reconstruction establishes the current-generation scheduler state.
+
+Soft reset takes the reset path in [R2.8](requirements.md#r2-generation-handoff-reset-and-reconstruction):
+close admission, cancel all work with `RESET`, invalidate every generation,
+restore machine state, select Yellow, and resume normal boot.
+
+A request follows this exact realization of
+[R1.8, R1.9, R1.10, R1.11, R1.12, R1.13, R1.14, R1.15, R1.16, R1.17, R1.18, R1.19, R1.20, R1.21, R1.22, R1.23, R1.24, R1.25, R1.27, and R1.28](requirements.md#r1-renderer-ownership):
+
+1. Admission records desired state, declared owner and generation, all
+   resources, the destination, and the visible commit unit. Owner is checked
+   first and returns `REJECTED_WRONG_OWNER` on mismatch; generation is then
+   checked and returns `REJECTED_STALE_GENERATION` on mismatch. Neither result
+   creates or attaches work.
+2. Equivalent tracked work returns `COALESCED`. Otherwise available capacity
+   returns `ACCEPTED`; at capacity, non-equivalent work returns exactly the
+   Gate 0-selected policy for its request class. Required visible-state work
+   returns `DEFERRED` and its caller retries. `REJECTED_CAPACITY` is available
+   only to an optional or supersedable class with a documented caller fallback.
+3. Accepted work is prepared using scratch or an inactive destination only.
+   `PENDING` and `PREPARED` jobs do not alter a presented resource.
+4. At every pre-visible preparation or revalidation boundary, revalidate owner,
+   generation, destination, and the operation's numeric time budget. A state
+   validation failure cancels before visibility. A budget failure leaves the
+   entire job `PREPARED` for a later attempt.
+5. Before entering `COMMITTING` for a visible destination, reserve the measured
+   worst-case completion budget. Once `COMMITTING` begins, finish the whole
+   declared visible unit without arbitrary interruption and record `COMPLETE`
+   only after every declared resource equals the desired state. Arbitrary
+   interruption remains permissible only for an inactive destination or while
+   the LCD is off.
+
+Coalescing uses equality of final state and visible boundary, not descriptor
+identity. Accepted or coalesced work remains accounted for until completion or
+an explicit, traced cancellation; capacity pressure never silently drops it.
+Runtime conformance exercises exactly the selected policy for each request
+class. The schema and reference model additionally exercise unselected enum
+branches so their contracts do not rot.
+
+## Visible commit realization
+
+Commit units are exactly those required by
+[R2.11, R2.12, R5.8, R6.4, R7.1, R7.3, R9.2, and R9.8](requirements.md#visible-commit-units).
+At the next presentation boundary, the viewer observes the complete old unit
+or the complete new unit:
+
+- map rectangles pair every bank-0 tile ID with its bank-1 full attribute;
+- overlay changes pair every tile and attribute in the clipped changed
+  rectangle;
+- animation and field replacement include the declared tile-data dependency;
+- a palette commit is one complete requested 64-byte BG or OBJ payload;
+- overworld OAM completes its declared shadow batch before one DMA; and
+- load, reload, and return remain hidden until complete reconstruction.
+
+Preparation may occur with the LCD off or in an inactive destination. No job
+may expose an internal prefix of a commit unit. A visible-destination job
+defers before `COMMITTING` unless it has reserved its measured worst-case
+completion budget; once it begins, it completes without arbitrary
+interruption. Only an inactive-destination or LCD-off commit may be interrupted
+mid-operation
+([R7.1, R7.3, and R7.4](requirements.md#r7-paired-transfers-and-visible-commit-units)).
 
 ## Full-color overworld pipeline
 
 ```text
-map/tileset selection
+authoritative map, tileset, override, viewport, and object state
         |
-        +--> 8 base BG palettes
-        +--> 8 base OBJ palettes
-        +--> 256-byte tile attribute lookup
-        `--> dirty state
-
-BGP / OBP0 / OBP1 -------------------------+
-                                             |
-safe preparation                            v
-        +--> transformed BG buffer
-        +--> transformed OBJ buffer
-        `--> prepared overlay attributes
-
-paired transfer
-        +--> tile IDs in VRAM bank 0
-        +--> attributes in VRAM bank 1
-        +--> BG palette RAM
-        `--> OBJ palette RAM
+        +--> base BG/OBJ palettes --> transformed BG/OBJ payloads
+        +--> desired tile IDs -----> 256-entry attribute lookup/overrides
+        +--> overlay request ------> clipped tile/attribute pairs
+        `--> final object identity -> shadow-OAM palette mapping
+                                      |
+                         current-generation jobs
+                                      |
+                     revalidate owner/destination/budget
+                                      |
+             whole-unit VRAM/palette/OAM presentation
 ```
 
-Yellow's renderer is not changed into an RGB renderer. It is paused while this
-pipeline owns the scene and resumed only after a handoff.
+Gameplay requests desired state; it does not directly schedule hardware writes.
+Wrapper functions dispatch through the selected owner and generation
+([R5.6, R5.7, and R5.8](requirements.md#r5-palette-model)).
 
-## Resource ownership
+## Semantic state lifetimes
 
-| Resource | Full-color overworld owner | Yellow owner |
-|---|---|---|
-| BG palette RAM | all slots while map active | all slots in standalone scenes |
-| OBJ palette RAM | all slots while map active | all slots in standalone scenes |
-| BG/window attributes | map and map-backed overlays | standalone screens |
-| Overworld OAM palette bits | RGB-style picture assignment | never |
-| Non-overworld OAM palette bits | never | existing Yellow logic |
-| Palette dirty/deadline state | overworld scheduler | existing Yellow calls |
+Gate 0 selects storage and representation. Architecture requires these semantic
+lifetimes only:
 
-Wrapper functions that can be called in either scene must inspect the owner and
-dispatch to only that owner.
-
-## Map-backed overlays versus standalone screens
-
-The key test is restoration behavior.
-
-If closing a window should reveal the existing map without a complete map
-entry, it remains a full-color overworld operation. The renderer generates
-attributes for both the terrain and the overlay.
-
-If a screen has an independent lifecycle and rebuilds the display, ownership
-passes to Yellow. The old map is considered discarded. Returning reconstructs
-the map from map state and the active tileset table.
-
-This prevents a "save VRAM, let Yellow overwrite it, patch it back" design.
-
-## Memory model
-
-Use a named WRAMX bank-2 section. Suggested state:
-
-| Data | Size | Reason |
-|---|---:|---|
-| base BG palettes | `$40` | eight four-color palettes |
-| base OBJ palettes | `$40` | eight four-color palettes |
-| transformed BG buffer | `$40` | complete hardware payload |
-| transformed OBJ buffer | `$40` | complete hardware payload |
-| tile attributes | `$100` | direct low-byte tile indexing |
-| overlay attribute buffer | implementation-defined | map-backed windows |
-| last BGP/OBP values | 3 | change detection |
-| owner/mode/dirty state | implementation-defined | scheduling and handoff |
-
-Requirements:
-
-- callers save incoming `rSVBK`;
-- interrupts save `rSVBK`;
-- Yellow WRAM at `$d000-$dfff` is accessed only with bank 1 selected;
-- renderer calls restore the incoming bank; and
-- soft reset clears pending work and selects a safe owner before reboot.
-
-## ROM placement
-
-The donor's locations conflict with Yellow:
-
-| RGB location | Yellow use |
+| State | Lifetime and invalidation |
 |---|---|
-| bank `$2c` | Text 7 |
-| bank `$31` | Pikachu cries 6 |
-| bank `$1c` extension | not assumed free |
+| base BG and OBJ palettes | current authoritative palette state; initialized on reconstruction |
+| transformed BG and OBJ payloads | derived from base palettes and current shade remap; invalid when either changes |
+| active tileset lookup and coordinate overrides | current map/tileset identity; replaced on map identity change |
+| overlay preparation | one admitted request/current generation; discarded on cancellation |
+| request and job bookkeeping | from admission through completion/cancellation; never executable across generation invalidation |
+| owner, phase, and generation | ownership epoch; reset and handoff establish new state |
+| reconstruction state | one overworld arrival; complete only at its presentation barrier |
+| OAM mapping and prepared shadow batch | current object state/current generation; invalid on handoff, reset, or object-state change |
 
-Start in Yellow's empty bank `$3b`. Use Yellow's MBC5 `rROMB` and far-call
-conventions; do not carry over MBC1 register writes.
+Gate 0 records measured capacity, byte cost, placement, and scratch needs
+before any allocation is selected. Renderer calls and interrupts preserve ROM
+bank, `rSVBK`, `rVBK`, stack, and interrupt state at their boundaries under
+[R3.3, R3.4, R3.5, and R3.6](requirements.md#r3-cgb-and-bank-foundation).
+
+## Gate 0 representation record
+
+| Decision | Required measured evidence |
+|---|---|
+| capacity, pressure policy, and coalescing | hostile and generated high-water marks plus one selected policy per request class, required-work retry evidence, optional/supersedable fallback evidence where final rejection is selected, and schema/reference-model coverage of unselected enum branches |
+| descriptor semantics | every distinct resource and commit-unit shape, including cancellation and reconstruction |
+| WRAM location and size | link-map ranges, byte and bank cost, interrupt access, and stack margin |
+| preparation buffers | largest overlay, paired transfer, palette, OAM, and reconstruction preparation unit plus worst-case visible-commit reservation |
+
+Each selected value records its numeric evidence and named artifact. The record
+must distinguish logical limits from encoded field widths. No ring, list, slot
+count, descriptor size, index width, scratch layout, or WRAM bank is assumed.
+This is the required realization of
+[R1.26](requirements.md#r1-renderer-ownership) and
+[R3.3](requirements.md#r3-cgb-and-bank-foundation).
+
+## ROM placement and bank composition
+
+The donor locations conflict with Yellow: bank `$2c` contains Text 7, bank
+`$31` contains Pikachu cries, and the `$1c` extension is not assumed free.
+Yellow's empty bank `$3b` is only the measured starting candidate. All donor
+MBC1 behavior is converted to Yellow's MBC5 `rROMB` and far-call conventions
+([R4.1, R4.2, R4.3, R4.4, and R4.5](requirements.md#r4-rom-placement)).
+
+Yellow already uses the LCD interrupt for per-scanline `wLYOverrides`.
+Renderer preparation composes with that handler. Measured timing determines
+the exact safe start and ordering; VBlank routes work by current owner and
+generation, revalidates the job at every pre-visible boundary, and enters
+`COMMITTING` only after reserving the worst-case completion budget. Every exit
+restores temporary bank state
+([R10.1, R10.2, R10.3, R10.4, R10.5, R10.6, R10.7, R10.8, R10.9, and R10.10](requirements.md#r10-scheduling-and-timing-evidence)).
 
 ## Tile and attribute transfers
 
-The canonical primitive takes:
+A paired-transfer job semantically carries:
 
-- tile source;
-- attribute source or tile lookup;
-- VRAM destination;
-- dimensions/stride; and
-- ownership generation or token.
+- tile and authoritative attribute sources;
+- destination, dimensions, stride, and clipping;
+- declared resources and visible commit unit; and
+- owner and generation.
 
-It commits a matching attribute for every tile. If tile and attribute writes
-cannot occur in the same LCD interval, they are serialized as one renderer job
-that cannot be interleaved with another owner.
+It produces one matching full-byte attribute for every committed tile. The
+same realization serves initial load/reload, both scrolling axes, four
+connections, third-screen, row and rectangle transfers, tile reload,
+alternate BG destinations, animation and field replacements, dialogue/text,
+and transient overlays. Phase 0 supplies exhaustive baseline mutation rows;
+later rows are added atomically and reclosed before reachability under
+[replacement-inventory.md](replacement-inventory.md).
 
-Required consumers:
+## Overlay realization
 
-- initial map load;
-- row and column streaming;
-- map connections;
-- third-screen window transfer;
-- explicit row transfer;
-- tile reload;
-- dialogue/text;
-- transient menus; and
-- animated/replaced tiles.
+An overlay request supplies the authoritative destination BG/window selector,
+destination map identity, tileset identity, destination rectangle,
+world-coordinate origin or transform, complete coordinate-override set,
+`OPAQUE_OVERLAY` or `REVEALED_TERRAIN` classification for every source cell,
+desired tile IDs, and optional explicit full-byte overlay attributes. The
+implementation:
 
-## Palette transformations
+1. Clips the selected destination to its presentable bounds while retaining
+   both the source-to-destination tilemap mapping and derived world coordinate
+   for every survivor.
+2. Reads classification only from that request data.
+3. For an opaque cell, selects its explicit full-byte assignment or the
+   defined text/window default.
+4. For a revealed cell, selects the request-supplied override for its derived
+   world coordinate or the request-supplied tileset identity's 256-entry
+   lookup for the requested desired tile ID.
+5. Emits palette bits 0–2, tile-bank bit 3, flip bits 5–6, and priority bit 7,
+   with bit 4 canonicalized to zero, paired with the desired tile.
 
-Base RGB555 palettes are retained. The current `BGP`, `OBP0`, and `OBP1`
-registers select which base color appears for each 2bpp index, preserving
-Yellow's existing fade vocabulary.
+Neither VRAM bank nor ambient active-map identity is read as an oracle. The
+same steps cover ordinary, fully clipped, partially clipped, window,
+alternate-BG, alternate-map-identity, edge, and connection destinations; a
+fully clipped result commits no cell. This realizes
+[R6.4, R6.5, R6.6, R6.7, R6.8, R6.9, R6.10, R6.11, and R6.12](requirements.md#r6-attribute-and-overlay-model) without importing
+the donor's static palette-map lifecycle.
 
-During overworld ownership:
+## Reconstruction realization
 
-- BGP changes dirty the BG transformed buffer;
-- OBP changes dirty the OBJ transformed buffer;
-- palette wrappers route to the new scheduler; and
-- safe VBlank work uploads complete requested payloads.
+An overworld arrival treats old tilemaps, attributes, palettes, OAM, buffers,
+flags, and jobs as unknown. Under one fresh full-color generation it derives
+from authoritative state and completes:
 
-During Yellow ownership, the new dirty state is ignored or cleared and wrappers
-use Yellow's existing behavior.
+- map, tileset, and coordinate-override identity;
+- viewport, scroll, window, and destination state;
+- required tiles plus animation and field replacements;
+- every presentable bank-0 tilemap and freshly generated bank-1 attribute;
+- base, transformed, and hardware BG/OBJ palettes;
+- player, follower, and object shadow OAM;
+- current-generation request/scheduler state; and
+- restored ROM/WRAM/VRAM banks, stack, and interrupt state.
 
-## LCD and VBlank composition
+Only after every item is complete does one presentation barrier expose the
+result and advance to `OVERWORLD_ACTIVE`. A preparation failure remains hidden
+in `OVERWORLD_RECONSTRUCTING`; captured VRAM, palette RAM, OAM, or screen
+buffers are never inputs or completion evidence. This realizes
+[R2.10, R2.11, R2.12, and R2.13](requirements.md#r2-generation-handoff-reset-and-reconstruction).
 
-Yellow already uses the LCD interrupt for per-scanline `wLYOverrides`.
-The renderer must compose with it, not replace it.
+## Palette realization
 
-Possible implementation:
+Eight four-color RGB555 BG palettes and eight four-color RGB555 OBJ palettes
+remain authoritative base data. `BGP`, `OBP0`, and `OBP1` changes derive
+separate complete transformed payloads, preserving the base data and Yellow's
+fade vocabulary. A current-generation job uploads a complete requested
+payload only after commit revalidation
+([R5.1, R5.2, R5.3, R5.4, R5.5, R5.6, R5.7, and R5.8](requirements.md#r5-palette-model)).
 
-1. Existing scanline override behavior executes first.
-2. A renderer LYC condition runs preparation only under overworld ownership.
-3. VBlank performs paired attribute work and dirty palette uploads only for the
-   active owner.
-4. Work that cannot finish safely remains pending.
+## OAM realization
 
-Exact ordering and scanline values require cycle measurements in Yellow.
+Authoritative overworld OAM construction first completes Yellow's tile
+selection, including `hPikachuSpriteVRAMOffset`, and resolves the final picture
+identity. It then looks up the OBJ palette and replaces attribute bits 0–2
+only, preserving bits 3–7. Missing, out-of-range, or unmapped identity selects
+palette 0; diagnostic builds record the required fallback evidence.
 
-## Overworld OAM
-
-Palette bits are inserted after Yellow calculates the final tile ID, including
-`hPikachuSpriteVRAMOffset`.
-
-The colorizer must preserve:
-
-- priority;
-- X/Y flips;
-- tile VRAM bank;
-- control/end flags; and
-- all tile selection behavior.
-
-Only overworld OAM uses this path. Yellow's non-overworld OAM generation remains
-untouched.
-
-## Handoff safety
-
-Every ownership transition has a generation counter or equivalent barrier.
-Jobs created by the previous owner must not execute after the switch.
-
-On leaving the map:
-
-- block new map jobs;
-- finish or cancel queued work;
-- clear new-renderer dirty flags;
-- switch owner; and
-- let Yellow initialize the destination from scratch.
-
-On return, treat VRAM attributes and palette RAM as unknown and rebuild all
-overworld state.
+The complete declared shadow-OAM batch is prepared under the effective owner
+and generation before one declared shadow-to-hardware OAM DMA. A Yellow-named
+allocation, clear, sort/copy, DMA-launch, or wait routine is a mechanism and
+does not change effective ownership. Reset and handoff invalidate both
+prepared shadow state and any permission to launch its DMA. These steps realize
+[R9.1, R9.2, R9.3, R9.4, R9.5, R9.6, R9.7, R9.8, and R9.9](requirements.md#r9-overworld-oam); concrete shadow-OAM,
+hardware-OAM, and `rDMA` writers are closed by the inventory.

@@ -18,10 +18,13 @@ Pinned dependencies currently include PyBoy, Pillow, pytest, and pytest-xdist.
 
 Expose only state Python cannot infer reliably:
 
-- renderer owner and generation;
-- job and dirty state;
+- renderer owner, phase, and generation;
+- exact request result, job state, cancellation reason, and dirty state;
+- commit-unit, writer, and timing-row IDs;
 - last writer and assertion failure;
 - writer trace;
+- reconstruction-item and presentation-barrier status;
+- shadow/hardware OAM and fallback evidence;
 - debug checkpoints; and
 - controlled bank-torture entry points.
 
@@ -48,7 +51,8 @@ CGB timing.
 Python:
 
 - coordinates scenarios;
-- runs the reference ownership model and seeded action sequences;
+- runs the reference ownership model with the stable owner, phase,
+  request-result, job-state, and cancellation symbols;
 - resolves `.sym` addresses;
 - reads WRAM, HRAM, VRAM, OAM, and palette state;
 - writes semantic JSON;
@@ -113,29 +117,112 @@ replace semantic assertions. A plausible screenshot can still contain stale
 state, and visual differences may be ambiguous until paired with attributes,
 palettes, owner, generation, banks, and last-writer data.
 
-## Semantic artifact
+## Contract-versioned artifacts
 
-Use stable JSON with explicit versioning:
+Gate 0 implements and self-mutates this schema against deterministic Yellow
+baseline fixtures; it does not claim runtime renderer behavior. Request,
+commit, Yellow-to-overworld reconstruction, overlay, overworld OAM, and
+renderer-operation timing fields become runtime acceptance only in their
+migration activation phases.
+
+When the harness is implemented and run, every checkpoint records the contract
+schema version, ROM identity, scenario, seed, checkpoint, and frame; owner,
+phase, and generation; the exact stable request result, including wrong-owner,
+stale-generation, and every capacity-pressure result; job state and
+cancellation reason; commit-unit and writer IDs; ROM/WRAM/VRAM banks;
+reconstruction-item and presentation-barrier status; tile IDs and full
+attributes; BG and OBJ palettes; shadow and hardware OAM; OAM fallback
+evidence; a timing-row key; and linked visual and trace artifacts. Cancelled
+work remains in a bounded trace long enough to prove that it performs no later
+write.
+
+Every future collected check declares its concrete `R…` and `AC-…` IDs.
+Collection emits a machine-readable mapping to named `CHK-…` checks and fails
+on unknown or uncovered IDs.
+
+Use stable JSON with explicit contract versioning:
 
 ```json
 {
-  "schema": 1,
+  "schema": "full-color-contract-v1",
+  "rom": "pokeyellow_debug.gbc:<content-id>",
+  "scenario": "standalone_return",
+  "seed": 83421,
   "checkpoint": "return_from_party",
   "frame": 1234,
-  "owner": "FULL_COLOR_OVERWORLD",
+  "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+  "phase": "OVERWORLD_RECONSTRUCTING",
   "generation": 12,
+  "request_result": "ACCEPTED",
+  "job": {
+    "state": "COMMITTING",
+    "cancellation_reason": null,
+    "commit_unit_id": "<inventory-populated-ID>"
+  },
+  "writer_id": "<inventory-populated-WR-ID>",
   "banks": {"rom": 3, "wram": 1, "vram": 0},
   "dirty": {"bg": false, "obj": false, "attributes": false},
-  "jobs": [],
+  "reconstruction": {"items": {}, "presentation_barrier": false},
+  "bg_tile_ids": "...",
   "bg_attributes": "...",
   "bg_palettes": "...",
   "obj_palettes": "...",
-  "shadow_oam": "..."
+  "shadow_oam": "...",
+  "hardware_oam": "...",
+  "oam_fallback": null,
+  "timing_row_key": "<future-numeric-row-key>",
+  "artifacts": {"trace": "...", "screenshot": "...", "frame_strip": "..."}
 }
 ```
 
 Large byte arrays may use deterministic hex strings or separate binary files.
 Failure output must still identify differing offsets.
+
+For each concrete Yellow-to-full-color overworld boundary,
+return-reconstruction evidence must identify the actual Yellow-owned source
+lifecycle. Only when source plus built-ROM evidence proves that the boundary
+has a preceding concrete map-to-Yellow edge does it also identify the last map
+generation and prove that Yellow was selected before entry to that
+destination's initialization; the harness must not synthesize that departure.
+Initial new-game, continue, reset, and other Yellow-owned entry lifecycles
+record their actual source lifecycle without inventing a map-to-Yellow
+predecessor. Every concrete Yellow-to-overworld boundary still records poison
+installation for prior tilemaps, attributes, palettes, OAM, buffers, flags,
+and jobs, every reconstruction item completed from authoritative state, the
+presentation barrier, and at least five `OVERWORLD_ACTIVE` frames after it.
+Standalone and Yellow-to-Yellow edges that do not cross a concrete
+Yellow-to-overworld boundary require no reconstruction fixture.
+
+Request-pressure runtime evidence records the selected capacity and the
+selected policy for each request class, then submits wrong-owner,
+stale-generation, equivalent-at-capacity, and non-equivalent capacity+1 cases.
+Required visible-state classes must return `DEFERRED` and retry when they
+cannot coalesce. A class returning `REJECTED_CAPACITY` must be optional or
+supersedable and prove its documented caller fallback. Runtime tests exercise
+exactly the selected policies; schema and reference-model tests also exercise
+unselected enum branches. Evidence records whether work was created or
+attached and eventual completion of all accepted or coalesced work.
+
+The overlay expected-value generator is independent of emulator VRAM and
+ambient map state. It consumes the request's authoritative destination
+BG/window selector, map identity, tileset identity, destination rectangle,
+world-coordinate origin/transform, complete override set, per-cell
+`OPAQUE_OVERLAY`/`REVEALED_TERRAIN` classification, desired tile identity, and
+explicit/default overlay attribute. It clips the selected destination while
+preserving source-to-destination tilemap and source-to-world mappings, then
+uses the supplied world-coordinate override or supplied tileset lookup.
+Ordinary, fully clipped, partially clipped, edge, connection, alternate-BG,
+and alternate-map destinations compare every full-byte attribute bit,
+including canonical bit 4. Reading either VRAM bank or ambient map identity to
+derive classification, tile identity, coordinate, or expected attribute is a
+harness failure.
+
+Atomicity evidence forces insufficient budget at every pre-visible preparation
+and revalidation boundary. Visible-destination work must remain `PREPARED`
+unless it can reserve its measured worst-case completion budget; after it
+enters `COMMITTING`, the harness expects uninterrupted completion. Arbitrary
+mid-operation interruption is generated only for an inactive destination or
+while the LCD is off.
 
 ## Failure report
 
@@ -143,11 +230,16 @@ The primary output is concise and textual:
 
 ```text
 FAIL east_connection_after_scroll
-owner: FULL_COLOR_OVERWORLD
+owner: RENDERER_FULL_COLOR_OVERWORLD
+phase: OVERWORLD_ACTIVE
 generation: expected 14, actual 14
+request result: ACCEPTED
+job: PREPARED; cancellation: none
+commit unit: <inventory-populated-ID>
+writer: <inventory-populated-WR-ID>
+timing row: <future-numeric-row-key>
 rSVBK: expected 1, actual 2
 BG attribute $99a4: expected $03, actual $07
-last writer: FC_WRITER_STREAM_COLUMN
 artifact: test-results/.../actual-state.json
 ```
 
@@ -158,7 +250,8 @@ Also save:
 - named screenshot and annotated contact sheet;
 - bounded frame strip for temporal failures;
 - screenshot diff when applicable; and
-- decoded writer trace.
+- decoded writer trace including phase, job/cancellation, commit-unit, writer,
+  and timing-row context.
 
 ## Iteration tiers
 
