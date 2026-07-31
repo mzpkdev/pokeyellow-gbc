@@ -118,11 +118,20 @@ jobs:
     name: Gate 0 Baseline
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
+    env:
+      FULL_COLOR_RESULTS: test-results/full-color-gate0
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Initialize Gate 0 evidence root
+        run: |
+          mkdir -p "$FULL_COLOR_RESULTS"
+          printf 'run_id=%s\nrun_attempt=%s\ncommit=%s\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" \
+            > "$FULL_COLOR_RESULTS/ci-run.txt"
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -131,54 +140,20 @@ jobs:
           cache: pip
           cache-dependency-path: tools/rom_tests/requirements.txt
 
-      - name: Install ROM test dependencies
-        run: python -m pip install -r tools/rom_tests/requirements.txt
+      - name: Set up pinned RGBDS
+        uses: ./.github/actions/setup-build
 
-      - name: Download debug build
-        uses: actions/download-artifact@v7
-        with:
-          name: pokeyellow-build
-          path: release
+      - name: Install pinned ROM test dependencies
+        run: make test-full-color-setup
 
-      - name: Prepare linked debug artifacts
-        run: |
-          cp release/pokeyellow-debug.gbc pokeyellow_debug.gbc
-          cp release/pokeyellow-debug.map pokeyellow_debug.map
-          cp release/pokeyellow-debug.sym pokeyellow_debug.sym
-
-      - name: Run deterministic baseline discovery twice
-        run: |
-          python -m tools.rom_tests.full_color.baseline_discovery > gate-0-run-1.json
-          python -m tools.rom_tests.full_color.baseline_discovery > gate-0-run-2.json
-          cmp gate-0-run-1.json gate-0-run-2.json
-
-      - name: Run deterministic inventory progress twice
-        run: |
-          python -m tools.rom_tests.full_color.baseline_inventory > gate-0-inventory-progress-1.json
-          python -m tools.rom_tests.full_color.baseline_inventory > gate-0-inventory-progress-2.json
-          cmp gate-0-inventory-progress-1.json gate-0-inventory-progress-2.json
-          cp gate-0-inventory-progress-1.json gate-0-inventory-progress.json
-
-      - name: Run deterministic bank torture twice
-        run: |
-          python -m tools.rom_tests.full_color.bank_torture > gate-0-bank-torture-1.json
-          python -m tools.rom_tests.full_color.bank_torture > gate-0-bank-torture-2.json
-          cmp gate-0-bank-torture-1.json gate-0-bank-torture-2.json
-          cp gate-0-bank-torture-1.json gate-0-bank-torture.json
-
-      - name: Validate debug observability
-        run: python -m tools.rom_tests.full_color.runtime_observability --snapshot-output gate-0-semantic-snapshot.json > gate-0-observability.json
+      - name: Run lean Gate 0
+        run: make test-full-color-gate0
 
       - name: Upload Gate 0 evidence
+        if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: gate-0-baseline-discovery
-          path: |
-            gate-0-run-1.json
-            gate-0-run-2.json
-            gate-0-inventory-progress.json
-            gate-0-bank-torture.json
-            gate-0-observability.json
-            gate-0-semantic-snapshot.json
+          name: gate-0-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.FULL_COLOR_RESULTS }}/
           if-no-files-found: error
           retention-days: 14
