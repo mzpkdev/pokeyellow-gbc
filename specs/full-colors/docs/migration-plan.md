@@ -9,10 +9,9 @@ record:
 
 - **Requirements:** concrete `R…` sub-IDs changed or established by the phase.
 - **Inventory:** concrete `WR-…`, `SC-…`, and `MU-…` rows touched by the phase.
-  Phase 0 fills baseline rows from completed discovery before exit. Phases 1–9
-  cite those closed IDs and may add a concrete planned row atomically with a
-  new symbol or directed edge; the row is reviewed and source plus built-ROM
-  closure reruns before the path becomes reachable or the phase proceeds.
+  Phase 0 closes the initial map-entry slice. Phases 1–9 declare the paths they
+  touch, cite concrete IDs for that slice, and review source plus built-ROM
+  evidence before the changed path becomes reachable or the phase proceeds.
   `none`, category names, wildcards, and placeholder IDs are not permitted
   where a row is touched.
 - **Acceptance:** concrete `AC-…` IDs the phase must close.
@@ -35,56 +34,54 @@ Allowed work:
 - debug-only observability;
 - source and built-ROM writer, scene, and mutation discovery;
 - assignment of concrete `WR-…`, `SC-…`, and `MU-…` IDs;
-- complete population and review of every inventory field;
+- complete population and review of the initial map-entry inventory slice;
 - semantic snapshot and diff support;
 - model-based ownership sequences;
 - bank-torture controls;
-- deterministic hostile baseline scenario;
-- screenshot, frame-strip, and contact-sheet artifacts;
-- timing instrumentation and Yellow baselines; and
-- mutation tests for the gates.
+- lossless screenshot, bounded frame-strip, annotated contact-sheet, localized
+  image-diff, and contract-versioned manifest artifacts linked to semantic
+  snapshots and writer traces;
+- mutation tests for currently implemented harness gates.
 
 Production renderer code is not allowed in this phase.
 
-Phase 0 runs source search and built-ROM symbol/disassembly reachability until
-no reachable baseline writer, lifecycle, directed transition, or visible-map
-mutation is unclassified. It then produces only harness, schema,
-self-mutation, baseline-inventory, representation-selection, and baseline
-timing-instrument-readiness artifacts and validates them twice with identical
-semantic, trace, mapping, and visual-manifest outputs. It does not accept
-renderer request, commit, return, overlay, OAM, or operation-timing behavior.
+Phase 0 proves source and built-ROM discovery on the initial map-entry slice.
+It produces harness, schema, self-mutation, initial-inventory, semantic,
+bank-torture, visual-pipeline, and CI artifacts twice with identical semantic
+and contract-versioned artifact-manifest outputs. Writer traces remain linked
+evidence rather than an independent byte-identity contract. It does not select
+renderer representation or timing values and does not accept renderer request,
+commit, return, overlay, OAM, or operation-timing behavior.
 
-**Requirements:** The execution record cites `R1.7`, `R1.26`, `R3.3`,
-`R10.3`, `R10.8`, `R11.3`, `R11.4`, `R11.5`, `R11.6`, `R12.6`, and
-`R12.8`.
+**Requirements:** The execution record cites `R1.7`, `R11.3`, `R11.4`,
+`R11.5`, `R11.6`, `R12.6`, and `R12.8`.
 
-**Inventory:** Before Phase 0 exits, this execution record contains every baseline
-concrete `WR-…`, `SC-…`, and `MU-…` ID assigned by completed source and
-built-ROM discovery; every required field is populated and every row is
-reviewed.
+**Inventory:** Before Phase 0 exits, this execution record contains every
+concrete `WR-…`, `SC-…`, and `MU-…` ID in the initial map-entry slice; every
+required field is populated and every row is reviewed against source and
+built-ROM evidence.
 
 **Acceptance:** The execution record closes `AC-G0-01`, `AC-INV-01`,
 `AC-TRACE-01`, `AC-TECH-03`, and `AC-TECH-09`.
 
-**Evidence:** Named baseline-inventory-closure, representation-selection,
-contract-schema, baseline timing-instrument-readiness, self-mutation,
-semantic-snapshot, visual-manifest, and traceability checks; renderer oracles
-are model/schema self-tests only, and the executed record supplies their
-concrete `CHK-…` IDs.
+**Evidence:** Named initial-inventory-closure, contract-schema, bank-torture,
+self-mutation, semantic-snapshot, visual-manifest, stable-command, and CI
+checks; renderer oracles remain model/schema self-tests, and the executed
+record supplies their concrete `CHK-…` IDs.
 
-**Exit gate:** All three baseline inventories are populated, reviewed, closed
-by source and built-ROM evidence, and contain no unclassified reachable item;
-the harness/schema/self-mutation and baseline timing-instrument-readiness
-artifacts pass twice with identical output, without production renderer code
-or renderer acceptance claims.
+**Exit gate:** The initial map-entry inventory slice is populated, reviewed,
+and closed by source and built-ROM evidence; the harness, schema, bank-torture,
+visual pipeline, implemented-gate mutations, stable commands, and CI artifacts
+pass twice with identical semantic and contract-versioned artifact-manifest
+outputs, without production renderer code or renderer acceptance claims.
 
 ## Phase 1: ownership foundation
 
-Phase 0 baseline inventory closure is green. Closed baseline IDs and concrete
-planned IDs added atomically under the execution evidence rule are permitted.
+Lean Gate 0 is green. This phase declares and closes every inventory row it
+touches before the changed path becomes reachable.
 
 - Make the ROM CGB-only.
-- Add renderer WRAM at the placement selected by Gate 0 evidence.
+- Select renderer WRAM placement from current Phase 1 measurements, then add it.
 - Add both renderer owners and ownership generation.
 - Preserve banks in renderer-capable interrupts.
 - Add job cancellation behavior.
@@ -114,8 +111,8 @@ is green for every cited closed-inventory row.
 
 ## Phase 2: diagnostic vertical slice
 
-Phase 0 baseline inventory closure is green. Closed baseline IDs and concrete
-planned IDs added atomically under the execution evidence rule are permitted.
+Lean Gate 0 is green. This phase declares and closes every inventory row it
+touches before the changed path becomes reachable.
 
 - Add the unmistakable eight-palette canary mode.
 - Add transformed buffers and shade remapping.
@@ -124,11 +121,14 @@ planned IDs added atomically under the execution evidence rule are permitted.
 - Route wrappers by owner.
 - Exercise follower Pikachu, several NPCs, and animated terrain.
 - Implement one real standalone-screen handoff and return.
-- Run runtime pressure tests for exactly the Gate 0-selected policy of each
-  request class; required visible-state work defers and retries, and any final
-  capacity rejection proves its optional/supersedable caller fallback.
+- Measure and select the pressure policy of each implemented request class,
+  then run its runtime pressure tests; required visible-state work defers and
+  retries, and any final capacity rejection proves its optional/supersedable
+  caller fallback.
 - Run with non-default banks and representative interrupt pressure.
-- Capture semantic checkpoints, screenshots, and bounded frame strips.
+- Run the complete visual pipeline for the hostile slice: semantic-linked
+  screenshots, bounded frame strips, annotated contact sheets, localized image
+  diffs, and its versioned manifest.
 - Measure LCD, VBlank, transfer, palette, and OAM work.
 - Exercise missing, out-of-range, and unmapped overworld picture identities;
   prove OBJ palette 0, preserved attribute bits 3–7, and required diagnostic
@@ -140,9 +140,9 @@ planned IDs added atomically under the execution evidence rule are permitted.
 `R2.10`, `R2.11`, `R2.12`, `R2.13`, `R5.1`, `R5.2`, `R5.3`, `R5.4`,
 `R5.6`, `R5.7`, `R5.8`, `R6.4`, `R6.5`, `R6.6`, `R6.7`, `R6.8`, `R6.9`,
 `R6.10`, `R6.11`, `R9.1`, `R9.2`, `R9.3`, `R9.4`, `R10.3`, `R10.4`,
-`R11.1`, and `R11.2`.
+`R11.1`, `R11.2`, `R11.3`, `R11.4`, and `R11.5`.
 
-**Inventory:** When executed, list every concrete baseline or atomically added
+**Inventory:** When executed, declare and close every concrete
 `WR-…`, `SC-…`, and `MU-…` row exercised by the hostile diagnostic slice,
 including its one proven map-to-Yellow edge, proven Yellow-to-map edge, and
 OAM fallback writers/mutations; rerun source plus built-ROM closure before
@@ -170,8 +170,8 @@ Do not expand the architecture until this gate is green.
 
 ## Phase 3: complete palette and transfer architecture
 
-Phase 0 baseline inventory closure is green. Closed baseline IDs and concrete
-planned IDs added atomically under the execution evidence rule are permitted.
+Lean Gate 0 is green. This phase declares and closes every inventory row it
+touches before the changed path becomes reachable.
 
 - Generalize the tile attribute lookup.
 - Complete the overworld palette/shade pipeline for fades, flashes, white,
@@ -214,8 +214,8 @@ pass.
 
 ## Phase 4: overworld OAM
 
-Phase 0 baseline inventory closure is green. Closed baseline IDs and concrete
-planned IDs added atomically under the execution evidence rule are permitted.
+Lean Gate 0 is green. This phase declares and closes every inventory row it
+touches before the changed path becomes reachable.
 
 - Add picture-ID palette assignments.
 - Insert palette bits after Yellow's final tile calculation.
@@ -244,8 +244,8 @@ and numeric timing evidence passes.
 
 ## Phase 5: architecture stress gate
 
-Phase 0 baseline inventory closure is green. Closed baseline IDs and concrete
-planned IDs added atomically under the execution evidence rule are permitted.
+Lean Gate 0 is green. This phase declares and closes every inventory row it
+touches before the changed path becomes reachable.
 
 Prove these cases before scaling real color content:
 
@@ -295,8 +295,8 @@ Do not begin tileset content expansion until this gate is green.
 
 ## Phase 6: tileset content
 
-Phase 0 baseline inventory closure is green. Closed baseline IDs and concrete
-planned IDs added atomically under the execution evidence rule are permitted.
+Lean Gate 0 is green. This phase declares and closes every inventory row it
+touches before the changed path becomes reachable.
 
 - Independently author and validate all 25 Yellow palette sets and `$60`
   assignment tables; donor content is candidate organizational or artistic
@@ -331,8 +331,8 @@ evidence passes.
 
 ## Phase 7: complete handoff coverage
 
-Phase 0 baseline inventory closure is green. Closed baseline IDs and concrete
-planned IDs added atomically under the execution evidence rule are permitted.
+Lean Gate 0 is green. This phase declares and closes every inventory row it
+touches before the changed path becomes reachable.
 
 - Handoff before destination initialization on every concrete map-to-Yellow
   edge.
@@ -374,8 +374,8 @@ return-reconstruction, and 100-cycle soak evidence passes.
 
 ## Phase 8: delete old overworld ownership
 
-Phase 0 baseline inventory closure is green. Closed baseline IDs and concrete
-planned IDs added atomically under the execution evidence rule are permitted.
+Lean Gate 0 is green. This phase declares and closes every inventory row it
+touches before the changed path becomes reachable.
 
 - Remove Yellow's old overworld tint and attribute path.
 - Remove transitional overworld adapters.
@@ -404,8 +404,8 @@ and removed, while every retained excluded-scene row remains green.
 
 ## Phase 9: timing and release hardening
 
-Phase 0 baseline inventory closure is green. Closed baseline IDs and concrete
-planned IDs added atomically under the execution evidence rule are permitted.
+Lean Gate 0 is green. This phase declares and closes every inventory row it
+touches before the changed path becomes reachable.
 
 - Reconfirm LCD, VBlank, map streaming, palette upload, and OAM budgets.
 - Verify safe missed-deadline behavior.

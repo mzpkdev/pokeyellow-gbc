@@ -82,15 +82,22 @@ Gate 0 includes:
 - semantic state snapshots;
 - model-generated ownership sequences;
 - renderer-owner and writer tracing;
-- hardware-writer inventory checks;
+- source and built-ROM inventory tooling proven on the initial map-entry slice;
 - bank-torture tests;
-- an LLM-viewable screenshot and frame-strip artifact pipeline;
-- mutation tests proving the gates fail when invariants are violated; and
-- a hostile diagnostic vertical slice ready to receive the new renderer.
+- a complete LLM-viewable pipeline for lossless screenshots, bounded frame
+  strips, annotated contact sheets, localized image diffs, and a versioned
+  manifest linked to semantic snapshots and writer traces;
+- mutation tests proving the implemented gates fail when invariants are violated;
+- stable local commands and blocking CI execution.
 
-The first renderer slice must then activate an unmistakable canary palette,
-pass early timing checks, and clear the three architecture stress cases before
-content expansion.
+Gate 0 does not exhaustively inventory untouched Yellow paths, select a future
+queue ABI or WRAM layout, produce renderer timing rows, or execute the hostile
+renderer slice. Each renderer phase closes the inventory rows it touches before
+the path becomes reachable and records representation and timing evidence when
+the corresponding implementation exists. The first renderer slice activates
+the unmistakable canary palette and hostile scenario, then applies canary
+visual acceptance and evidence through the visual pipeline completed by Gate 0
+before content expansion.
 
 Details:
 

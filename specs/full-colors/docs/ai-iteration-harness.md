@@ -102,9 +102,10 @@ only receive a pass/fail result. At named checkpoints, save:
 - the matching semantic snapshot and decoded writer trace; and
 - a compact text summary linking visual and semantic artifacts.
 
-Write an artifact manifest containing relative file paths, checkpoint names,
-frame numbers, scenario seed, and artifact types. Prefer directly viewable PNG
-files for screenshots and contact sheets.
+Write a contract-versioned artifact manifest containing relative file paths,
+checkpoint names, frame numbers, scenario seed, artifact types, and explicit
+links to the matching semantic snapshots and decoded writer traces. Prefer
+directly viewable PNG files for screenshots and contact sheets.
 
 Use screenshots to inspect palette selection, seams, missing attributes,
 incorrect priority, follower/NPC OAM, overlay damage, stale return frames, and
@@ -260,12 +261,12 @@ Also save:
 - build/debug symbols as needed;
 - unit tests for snapshots, traces, and writer audit;
 - Gate 0 bank/ownership smoke;
-- one hostile-slice checkpoint; and
-- its LLM-viewable screenshot.
+- deterministic baseline screenshot, frame-strip, annotated-contact-sheet,
+  localized-image-diff, and versioned-manifest checks.
 
 ### Focused: transfer or handoff change
 
-- complete vertical slice;
+- complete hostile vertical slice after Phase 2 activates it;
 - affected connection/overlay/handoff cases;
 - semantic comparisons and LLM visual review; and
 - current timing measurements.
