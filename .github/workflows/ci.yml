@@ -139,6 +139,13 @@ jobs:
           python -m tools.rom_tests.full_color.baseline_discovery > gate-0-run-2.json
           cmp gate-0-run-1.json gate-0-run-2.json
 
+      - name: Run deterministic inventory progress twice
+        run: |
+          python -m tools.rom_tests.full_color.baseline_inventory > gate-0-inventory-progress-1.json
+          python -m tools.rom_tests.full_color.baseline_inventory > gate-0-inventory-progress-2.json
+          cmp gate-0-inventory-progress-1.json gate-0-inventory-progress-2.json
+          cp gate-0-inventory-progress-1.json gate-0-inventory-progress.json
+
       - name: Validate debug observability
         run: python -m tools.rom_tests.full_color.runtime_observability --snapshot-output gate-0-semantic-snapshot.json > gate-0-observability.json
 
@@ -149,6 +156,7 @@ jobs:
           path: |
             gate-0-run-1.json
             gate-0-run-2.json
+            gate-0-inventory-progress.json
             gate-0-observability.json
             gate-0-semantic-snapshot.json
           if-no-files-found: error
