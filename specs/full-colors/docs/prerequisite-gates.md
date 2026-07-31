@@ -69,8 +69,12 @@ only its documented `CHK-…` identity set.
 Trace predicates declare complete commits only for paired tile/attribute
 transfers, palette uploads, reconstruction presentation, overlays with at
 least one surviving cell, and the completing replacement in an ownership/job
-supersession. Each such predicate requires a concrete commit-unit ID. A fully
-clipped overlay, OAM fallback attribute rewrite, and machine-restoration
+supersession. The independent oracle names the required phase and canonical
+written-resource identities for each predicate. Trace-local numeric resource
+IDs are debug encodings only: the observation carrier maps them to canonical
+identities, including distinct `bg_palettes` and `obj_palettes` identities,
+before comparison. Each such predicate requires a concrete commit-unit ID. A
+fully clipped overlay, OAM fallback attribute rewrite, and machine-restoration
 boundary are not commit units and explicitly set `require_complete_commit` to
 false; their fixture commit-unit ID is null. The fully clipped overlay alone
 sets `require_no_writes` true, forbidding every `wrote=true` trace entry even

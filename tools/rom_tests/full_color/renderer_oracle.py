@@ -29,6 +29,7 @@ from .enums import (
     OverlayCell,
     OverlayDestination,
     Owner,
+    Phase,
     ReconstructionProvenance,
 )
 from .errors import RendererConformanceError
@@ -231,6 +232,9 @@ class TracePredicate:
     commit_unit_id: str | None
     require_complete_commit: bool
     require_no_writes: bool
+    required_phase: Phase
+    required_written_resources: tuple[str, ...]
+    allow_unbound_observations: bool
 
     def __post_init__(self) -> None:
         if not self.permitted_writer_ids:
@@ -252,6 +256,20 @@ class TracePredicate:
         if self.require_no_writes and self.commit_unit_id is not None:
             raise RendererConformanceError(
                 "trace predicate: no-write requirement cannot name a commit unit"
+            )
+        if self.require_complete_commit and not self.required_written_resources:
+            raise RendererConformanceError(
+                "trace predicate: complete commit requires canonical written resources"
+            )
+        if self.require_no_writes and self.required_written_resources:
+            raise RendererConformanceError(
+                "trace predicate: no-write requirement cannot name written resources"
+            )
+        if len(set(self.required_written_resources)) != len(
+            self.required_written_resources
+        ):
+            raise RendererConformanceError(
+                "trace predicate: canonical written resources must be unique"
             )
 
     def accepts_observed_writes(self, wrote_flags: Iterable[bool]) -> bool:
@@ -716,9 +734,20 @@ def _trace(
     jobs: tuple[TraceJobPredicate, ...] = (),
     complete: bool = True,
     no_writes: bool,
+    resources: tuple[str, ...] = (),
+    allow_unbound_observations: bool = False,
 ) -> TracePredicate:
     writers, _, _, commit = _common(inputs)
-    return TracePredicate(writers, jobs, commit, complete, no_writes)
+    return TracePredicate(
+        writers,
+        jobs,
+        commit,
+        complete,
+        no_writes,
+        Phase.OVERWORLD_ACTIVE,
+        resources,
+        allow_unbound_observations,
+    )
 
 
 def _require_writer(inputs: Mapping[str, object]) -> None:
@@ -857,7 +886,12 @@ def _paired_transfer(case: ConformanceCase) -> OracleExpectation:
         case.checks,
         tuple(patches),
         (("transfer_state", kind),),
-        TracePredicate(writers, (job,), _common(inputs)[3], True, False),
+        _trace(
+            inputs,
+            jobs=(job,),
+            no_writes=False,
+            resources=("bg_tile_ids", "bg_attributes"),
+        ),
         None,
     )
 
@@ -1102,7 +1136,13 @@ def _overlay(case: ConformanceCase) -> OracleExpectation:
             ("overlay_request.clipped_mappings", mappings),
             ("overlay_request.oracle_sources", ["REQUEST_DATA"]),
         ),
-        TracePredicate(writers, jobs, commit, bool(mappings), not mappings),
+        _trace(
+            inputs,
+            jobs=jobs,
+            complete=bool(mappings),
+            no_writes=not mappings,
+            resources=("bg_tile_ids", "bg_attributes") if mappings else (),
+        ),
         None,
     )
 
@@ -1355,7 +1395,12 @@ def _palette_upload(case: ConformanceCase) -> OracleExpectation:
         case.checks,
         (ResourcePatch("bg_palettes" if kind == "BG" else "obj_palettes", 0, payload),),
         (),
-        _trace(inputs, jobs=(job,), no_writes=False),
+        _trace(
+            inputs,
+            jobs=(job,),
+            no_writes=False,
+            resources=("bg_palettes" if kind == "BG" else "obj_palettes",),
+        ),
         None,
     )
 
@@ -1424,7 +1469,12 @@ def _oam_fallback(case: ConformanceCase) -> OracleExpectation:
             ("oam_fallback.before_attributes", before),
             ("oam_fallback.after_attributes", after),
         ),
-        _trace(inputs, complete=False, no_writes=False),
+        _trace(
+            inputs,
+            complete=False,
+            no_writes=False,
+            allow_unbound_observations=True,
+        ),
         None,
     )
 
@@ -1467,7 +1517,12 @@ def _reconstruction(case: ConformanceCase) -> OracleExpectation:
             ("reconstruction.unknown_prior_state", True),
             ("reconstruction.presentation_barrier_count", 1),
         ),
-        _trace(inputs, jobs=(job,), no_writes=False),
+        _trace(
+            inputs,
+            jobs=(job,),
+            no_writes=False,
+            resources=("reconstructed_scene",),
+        ),
         None,
     )
 
@@ -1540,7 +1595,12 @@ def _ownership_job(case: ConformanceCase) -> OracleExpectation:
         case.checks,
         (),
         (("owner", current_owner.value), ("generation", current_generation)),
-        _trace(inputs, jobs=jobs, no_writes=False),
+        _trace(
+            inputs,
+            jobs=jobs,
+            no_writes=False,
+            resources=("ownership_generation",),
+        ),
         None,
     )
 
@@ -1579,6 +1639,11 @@ def _machine_restore(case: ConformanceCase) -> OracleExpectation:
             ("case.event", event),
             ("case.entry_banks", {"rom": entry[0], "wram": entry[1], "vram": entry[2]}),
         ),
-        _trace(inputs, complete=False, no_writes=False),
+        _trace(
+            inputs,
+            complete=False,
+            no_writes=False,
+            allow_unbound_observations=True,
+        ),
         predicate,
     )

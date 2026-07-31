@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import struct
 from types import MappingProxyType
@@ -50,6 +50,7 @@ class TraceSymbols:
     commit_unit_ids: Mapping[int, str | None]
     job_ids: Mapping[int, str]
     request_ids: Mapping[int, str]
+    resource_identities: Mapping[int, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -90,6 +91,28 @@ class TraceSymbols:
             "request_ids",
             _freeze_map(self.request_ids, name="request_ids", maximum=0xFFFF),
         )
+        object.__setattr__(
+            self,
+            "resource_identities",
+            _freeze_map(
+                self.resource_identities,
+                name="resource_identities",
+                maximum=0xFFFF,
+            ),
+        )
+        if any(
+            not isinstance(name, str) or not name
+            for name in self.resource_identities.values()
+        ):
+            raise TraceDecodeError(
+                "trace symbols.resource_identities: expected stable non-empty canonical names"
+            )
+        if len(set(self.resource_identities.values())) != len(
+            self.resource_identities
+        ):
+            raise TraceDecodeError(
+                "trace symbols.resource_identities: canonical names must be unique"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,6 +289,7 @@ class WriterTrace:
     capacity: int
     entries: tuple[WriterTraceEntry, ...]
     permitted_writer_ids: tuple[str, ...]
+    resource_identities: Mapping[int, str] = field(default_factory=dict)
     schema: str = TRACE_SCHEMA
 
     def __post_init__(self) -> None:
@@ -288,6 +312,28 @@ class WriterTrace:
         ):
             raise TraceDecodeError(
                 "trace.permitted_writer_ids: expected stable non-empty writer IDs"
+            )
+        object.__setattr__(
+            self,
+            "resource_identities",
+            _freeze_map(
+                self.resource_identities,
+                name="resource_identities",
+                maximum=0xFFFF,
+            ),
+        )
+        if any(
+            not isinstance(name, str) or not name
+            for name in self.resource_identities.values()
+        ):
+            raise TraceDecodeError(
+                "trace.resource_identities: expected stable non-empty canonical names"
+            )
+        if len(set(self.resource_identities.values())) != len(
+            self.resource_identities
+        ):
+            raise TraceDecodeError(
+                "trace.resource_identities: canonical names must be unique"
             )
         if len(set(self.permitted_writer_ids)) != len(self.permitted_writer_ids):
             raise TraceDecodeError("trace.permitted_writer_ids: duplicate writer ID")
@@ -336,6 +382,7 @@ class WriterTrace:
             raw,
             path="trace",
             required={"schema", "capacity", "permitted_writer_ids", "entries"},
+            optional={"resource_identities"},
             error=TraceDecodeError,
         )
         if obj["schema"] != TRACE_SCHEMA:
@@ -359,6 +406,26 @@ class WriterTrace:
         permitted_raw = obj["permitted_writer_ids"]
         if not isinstance(permitted_raw, list):
             raise TraceDecodeError("trace.permitted_writer_ids: expected an array")
+        identities_raw = obj.get("resource_identities", {})
+        if not isinstance(identities_raw, dict):
+            raise TraceDecodeError("trace.resource_identities: expected an object")
+        resource_identities: dict[int, str] = {}
+        for raw_id, raw_name in identities_raw.items():
+            try:
+                resource_id = int(raw_id)
+            except (TypeError, ValueError) as exc:
+                raise TraceDecodeError(
+                    "trace.resource_identities: keys must be integer strings"
+                ) from exc
+            if str(resource_id) != raw_id:
+                raise TraceDecodeError(
+                    "trace.resource_identities: keys must use canonical decimal form"
+                )
+            resource_identities[resource_id] = require_str(
+                raw_name,
+                path=f"trace.resource_identities.{raw_id}",
+                error=TraceDecodeError,
+            )
         return cls(
             capacity=capacity,
             permitted_writer_ids=tuple(
@@ -373,6 +440,7 @@ class WriterTrace:
                 WriterTraceEntry.from_dict(entry, path=f"trace.entries[{index}]")
                 for index, entry in enumerate(entries_raw)
             ),
+            resource_identities=resource_identities,
         )
 
     @classmethod
@@ -388,6 +456,10 @@ class WriterTrace:
             "schema": self.schema,
             "capacity": self.capacity,
             "permitted_writer_ids": list(self.permitted_writer_ids),
+            "resource_identities": {
+                str(resource_id): name
+                for resource_id, name in sorted(self.resource_identities.items())
+            },
             "entries": [entry.to_dict() for entry in self.entries],
         }
 
@@ -479,6 +551,7 @@ def decode_writer_ring(
         capacity=capacity,
         entries=tuple(decoded),
         permitted_writer_ids=tuple(permitted_writer_ids),
+        resource_identities=symbols.resource_identities,
     )
 
 
