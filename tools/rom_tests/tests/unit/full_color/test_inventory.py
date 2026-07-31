@@ -365,7 +365,7 @@ def test_reviewed_rejections_are_exact_consumed_and_reported() -> None:
     )
 
 
-def test_distinct_rom_findings_at_one_site_are_never_collapsed() -> None:
+def test_reviewed_machine_row_can_classify_distinct_unresolved_path() -> None:
     writers, scenes, mutations = inventories()
     source_report, rom_report = findings()
     unresolved = RomFinding(
@@ -374,9 +374,9 @@ def test_distinct_rom_findings_at_one_site_are_never_collapsed() -> None:
         0x100,
         "e046",
         "ldh-direct",
-        0xFF46,
-        0xFF46,
-        "DISPLAY_REGISTER",
+        None,
+        None,
+        "UNKNOWN_DESTINATION",
         None,
         None,
         "DifferentRoot",
@@ -410,7 +410,96 @@ def test_distinct_rom_findings_at_one_site_are_never_collapsed() -> None:
         raise_on_error=False,
     )
 
-    assert any("ROM/candidate unresolved finding 00:0100" in e for e in report.errors)
+    assert report.closed
+
+
+def test_reviewed_writer_row_must_cover_resolved_rom_resource_and_range() -> None:
+    writers, scenes, mutations = inventories()
+    source_report, rom_report = findings()
+    wrong_resource = RomFinding(
+        0,
+        0x100,
+        0x100,
+        "e046",
+        "ldh-direct",
+        0xFF46,
+        0xFF46,
+        "DISPLAY_REGISTER",
+        None,
+        None,
+        "Writer",
+        ("Writer",),
+        None,
+        True,
+        "writer",
+        None,
+        None,
+        None,
+    )
+    rom_report = RomDiscoveryReport(
+        (wrong_resource,) + rom_report.findings[1:],
+        rom_report.unresolved_destinations,
+        rom_report.visited,
+        rom_report.rom_sha256,
+        rom_report.sym_sha256,
+        rom_report.map_sha256,
+        rom_report.unresolved_control_flow,
+        rom_report.candidate_findings,
+        rom_report.candidate_sections,
+    )
+
+    report = reconcile(
+        writers,
+        scenes,
+        mutations,
+        source_report=source_report,
+        rom_report=rom_report,
+        rom=ROM,
+        raise_on_error=False,
+    )
+
+    assert any("DISPLAY_REGISTER ff46-ff46 is not reviewed" in e for e in report.errors)
+
+
+def test_reviewed_writer_row_must_cover_resolved_source_address() -> None:
+    raw_writer = writer_row()
+    raw_writer["resources"][0]["start"] = 0xFF4E
+    raw_writer["resources"][0]["end"] = 0xFF4E
+    writers = WriterInventory.from_dict(
+        {"schema": "full-color-writer-inventory-v1", "rows": [raw_writer]}
+    )
+    _, scenes, mutations = inventories()
+    source_report, rom_report = findings()
+    source_writer = SourceFinding(
+        "writer",
+        "engine/test.asm",
+        10,
+        "Writer",
+        "direct",
+        "ff4f",
+        "VRAM_BANK",
+        resolved=True,
+        evidence_sha256="4" * 64,
+    )
+    source_report = SourceDiscoveryReport(
+        source_report.roots,
+        source_report.include_graph,
+        (source_writer,) + source_report.findings[1:],
+        source_report.errors,
+        source_report.source_sha256,
+    )
+
+    report = reconcile(
+        writers,
+        scenes,
+        mutations,
+        source_report=source_report,
+        rom_report=rom_report,
+        rom=ROM,
+        raise_on_error=False,
+    )
+
+    assert any("VRAM_BANK ff4f is not reviewed" in e for e in report.errors)
 
 
 @pytest.mark.parametrize(

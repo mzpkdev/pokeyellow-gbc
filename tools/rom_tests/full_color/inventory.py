@@ -955,6 +955,11 @@ def reconcile(
         "scene": scenes.rows,
         "mutation": mutations.rows,
     }
+    authority_by_id = {
+        row["id"]: row
+        for authority_rows in authorities.values()
+        for row in authority_rows
+    }
     for name, authority_rows in authorities.items():
         if not authority_rows:
             errors.append(f"{name} authority is empty")
@@ -1245,15 +1250,48 @@ def reconcile(
         seen_source.append(key)
         if category not in authorities:
             errors.append(f"source finding has missing/unknown category {category!r}")
-        if _finding_attr(finding, "resolved", False) is not True:
-            errors.append(f"source unresolved finding {path}:{line}:{symbol}")
         row_ids = source_index.get(key, ())
         if len(row_ids) != 1:
+            if _finding_attr(finding, "resolved", False) is not True:
+                errors.append(f"source unresolved finding {path}:{line}:{symbol}")
             errors.append(
                 f"source orphan finding or ambiguous key {path}:{line}:{symbol}"
             )
         else:
-            matched_rows.add(row_ids[0])
+            row_id = row_ids[0]
+            matched_rows.add(row_id)
+            resource = str(_finding_attr(finding, "resource", ""))
+            destination = str(_finding_attr(finding, "destination", ""))
+            destination_address = (
+                int(destination, 16)
+                if re.fullmatch(r"[0-9a-f]{1,4}", destination)
+                else None
+            )
+            if (
+                category == "writer"
+                and _finding_attr(finding, "resolved", False) is True
+                and resource
+                and resource
+                not in {
+                    "COMPUTED_HIGH_MEMORY",
+                    "COMPUTED_POINTER",
+                    "MIXED_OR_UNKNOWN",
+                    "SYMBOLIC_SINK",
+                    "UNKNOWN_DESTINATION",
+                }
+                and not any(
+                    item["resource"] == resource
+                    and (
+                        destination_address is None
+                        or item["start"] <= destination_address <= item["end"]
+                    )
+                    for item in authority_by_id[row_id]["resources"]
+                )
+            ):
+                errors.append(
+                    f"{row_id}: source resource/range {resource} "
+                    f"{destination} is not reviewed"
+                )
     for key, row_ids in source_index.items():
         if key not in seen_source:
             errors.append(f"{row_ids[0]}: stale source site/authority key {key!r}")
@@ -1294,13 +1332,40 @@ def reconcile(
         address = int(_finding_attr(finding, "address", -1))
         key = (category, bank, address)
         seen_machine.append(key)
-        if _finding_attr(finding, "resolved", False) is not True:
-            errors.append(f"ROM/candidate unresolved finding {bank:02x}:{address:04x}")
         row_ids = machine_index.get(key, ())
         if len(row_ids) != 1:
+            if _finding_attr(finding, "resolved", False) is not True:
+                errors.append(
+                    f"ROM/candidate unresolved finding {bank:02x}:{address:04x}"
+                )
             errors.append(f"ROM orphan/ambiguous finding {bank:02x}:{address:04x}")
         else:
-            matched_rows.add(row_ids[0])
+            row_id = row_ids[0]
+            matched_rows.add(row_id)
+            if category == "writer":
+                resource = str(_finding_attr(finding, "resource", ""))
+                low = _finding_attr(finding, "destination_low")
+                high = _finding_attr(finding, "destination_high")
+                if (
+                    resource
+                    not in {
+                        "MIXED_OR_UNKNOWN",
+                        "NON_AUDITED_DESTINATION",
+                        "UNKNOWN_DESTINATION",
+                    }
+                    and low is not None
+                    and high is not None
+                    and not any(
+                        item["resource"] == resource
+                        and item["start"] <= int(low)
+                        and int(high) <= item["end"]
+                        for item in authority_by_id[row_id]["resources"]
+                    )
+                ):
+                    errors.append(
+                        f"{row_id}: ROM resource/range {resource} "
+                        f"{int(low):04x}-{int(high):04x} is not reviewed"
+                    )
     for key, row_ids in machine_index.items():
         if key not in seen_machine:
             errors.append(f"{row_ids[0]}: stale machine site {key[1]:02x}:{key[2]:04x}")
