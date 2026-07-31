@@ -5,7 +5,9 @@ from copy import deepcopy
 import pytest
 
 from tools.rom_tests.full_color.artifacts import (
+    Artifact,
     ArtifactManifest,
+    MANIFEST_SCHEMA,
     ManifestValidationError,
 )
 
@@ -120,3 +122,18 @@ def test_frame_strip_numbers_are_bounded_ordered_and_linked_to_checkpoint(
 
     with pytest.raises(ManifestValidationError, match=message):
         ArtifactManifest.from_dict(raw)
+
+
+def test_visual_manifest_contract_stays_separate_from_renderer_conformance() -> None:
+    assert MANIFEST_SCHEMA == "full-color-artifact-manifest-v1"
+    with pytest.raises(ManifestValidationError, match="unknown artifact type"):
+        Artifact.from_dict(
+            {
+                "type": "expected_snapshot",
+                "path": "expected.json",
+                "frame_numbers": None,
+                "size_bytes": 1,
+                "sha256": "0" * 64,
+            },
+            path="artifact",
+        )
