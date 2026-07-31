@@ -23,3 +23,7 @@ class ManifestValidationError(ContractError):
 
 class TraceabilityError(ContractError):
     """A requirement/acceptance/check mapping is not closed."""
+
+
+class BankTortureError(ContractError):
+    """A synthetic bank-boundary fixture is malformed or leaks machine state."""
