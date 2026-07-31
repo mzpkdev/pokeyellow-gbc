@@ -254,6 +254,24 @@ Also save:
 - decoded writer trace including phase, job/cancellation, commit-unit, writer,
   and timing-row context.
 
+## Independent renderer-conformance checker
+
+Run `make test-full-color-renderer-conformance`. The checker executes its
+hand-authored corpus twice and byte-compares every stable report and manifest.
+Each invocation creates a new numbered attempt beneath
+`test-results/full-color-renderer-conformance`; override that root with
+`FULL_COLOR_CONFORMANCE_RESULTS` when needed.
+
+Read failures in this order: the attempt `summary.json`, the case
+`compact-summary.txt`, `structured-diff.json`, `expected-patches.json`, then
+the linked actual semantic snapshot and writer trace.
+
+The shipped provider is synthetic and records
+`synthetic_checker_self_test`. A later renderer phase supplies the same
+`ObservationProvider` interface from ROM checkpoints and records `rom_runtime`;
+only that mode contributes activated renderer evidence. Synthetic checker
+success proves checker sensitivity and determinism, not renderer correctness.
+
 ## Iteration tiers
 
 ### Fast: every change

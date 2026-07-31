@@ -12,6 +12,7 @@ def _recipes() -> dict[str, str]:
     names = (
         "test-full-color-setup",
         "test-full-color-gate0",
+        "test-full-color-renderer-conformance",
         "test-full-color-smoke",
         "test-full-color-handoffs",
         "test-full-color-soak",
@@ -38,9 +39,10 @@ def test_required_full_color_commands_are_concrete() -> None:
     assert "runtime_observability" in recipes["test-full-color-smoke"]
     assert "test_model.py" in recipes["test-full-color-handoffs"]
     assert "test_model.py" in recipes["test-full-color-soak"]
-    assert "test-full-color-gate0 test-full-color-handoffs test-full-color-soak" in (
-        ROOT / "Makefile"
-    ).read_text(encoding="utf-8")
+    assert (
+        "test-full-color-gate0 test-full-color-renderer-conformance "
+        "test-full-color-handoffs test-full-color-soak"
+    ) in (ROOT / "Makefile").read_text(encoding="utf-8")
 
 
 def test_gate0_artifacts_use_one_overridable_results_root() -> None:
@@ -57,3 +59,26 @@ def test_gate0_artifacts_use_one_overridable_results_root() -> None:
 def test_python_prefers_the_repo_virtualenv_when_present() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert "$(wildcard .venv/bin/python)" in makefile
+
+
+def test_renderer_conformance_has_a_stable_separate_command() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    target = _recipes()["test-full-color-renderer-conformance"]
+    assert (
+        "$(PYTHON) -m tools.rom_tests.full_color.renderer_conformance_runner" in target
+    )
+    assert '--results "$(FULL_COLOR_CONFORMANCE_RESULTS)"' in target
+    assert (
+        "FULL_COLOR_CONFORMANCE_RESULTS ?= "
+        "test-results/full-color-renderer-conformance"
+    ) in makefile
+    gate0_header = re.search(
+        r"^test-full-color-gate0:[^\n]*$", makefile, re.MULTILINE
+    )
+    aggregate_header = re.search(
+        r"^test-full-color-all:[^\n]*$", makefile, re.MULTILINE
+    )
+    assert gate0_header is not None
+    assert aggregate_header is not None
+    assert "test-full-color-renderer-conformance" not in gate0_header.group(0)
+    assert "test-full-color-renderer-conformance" in aggregate_header.group(0)
