@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 from PIL import Image
+import pytest
 
 from tools.rom_tests.emulator import Emulator, screen_difference
 
@@ -53,40 +54,150 @@ def test_symbol_parser_ignores_exported_numeric_constants() -> None:
 
 
 class RecordingMemory:
-    def __init__(self, initial: dict[int, int]) -> None:
+    def __init__(self, initial: dict[int | tuple[int, int], int]) -> None:
         self.values = dict(initial)
         self.writes: list[tuple[int, int]] = []
+        self.reads: list[int | slice | tuple[int, int | slice]] = []
 
-    def __getitem__(self, address: int) -> int:
-        return self.values.get(address, 0)
+    def __getitem__(
+        self, address: int | slice | tuple[int, int | slice]
+    ) -> int | list[int]:
+        self.reads.append(address)
+        bank: int | None = None
+        selection: int | slice = address  # type: ignore[assignment]
+        if isinstance(address, tuple):
+            bank, selection = address
+        if isinstance(selection, slice):
+            assert selection.start is not None
+            assert selection.stop is not None
+            return [
+                self.values.get(
+                    offset if bank is None else (bank, offset),
+                    0,
+                )
+                for offset in range(selection.start, selection.stop)
+            ]
+        return self.values.get(
+            selection if bank is None else (bank, selection),
+            0,
+        )
 
     def __setitem__(self, address: int, value: int) -> None:
         self.values[address] = value
         self.writes.append((address, value))
 
 
-def test_banked_sram_read_restores_declared_quiescent_state() -> None:
+def test_banked_sram_read_uses_direct_view_without_mbc_writes() -> None:
     emulator = Emulator.__new__(Emulator)
     emulator.symbols = {"debug": 0xA100}
     emulator.symbol_banks = {"debug": 3}
-    memory = RecordingMemory({0xA100: 0x12, 0xA101: 0x34})
+    memory = RecordingMemory({(3, 0xA100): 0x12, (3, 0xA101): 0x34})
     emulator.pyboy = SimpleNamespace(memory=memory)
 
     assert emulator.read_bytes("debug", 2) == b"\x12\x34"
-    assert memory.writes == [
-        (0x0000, 0x0A),
-        (0x4000, 3),
-        (0x4000, 0),
-        (0x0000, 0),
-    ]
+    assert memory.reads == [(3, 0xA100), (3, 0xA101)]
+    assert memory.writes == []
 
 
-def test_banked_wram_read_restores_observed_svbk_value() -> None:
+def test_banked_wram_read_uses_direct_view_without_svbk_writes() -> None:
     emulator = Emulator.__new__(Emulator)
     emulator.symbols = {"debug": 0xD100}
     emulator.symbol_banks = {"debug": 6}
-    memory = RecordingMemory({0xD100: 0x56, 0xFF70: 0xFA})
+    memory = RecordingMemory({(6, 0xD100): 0x56, 0xFF70: 0xFA})
     emulator.pyboy = SimpleNamespace(memory=memory)
 
     assert emulator.read("debug") == 0x56
-    assert memory.writes == [(0xFF70, 6), (0xFF70, 0xFA)]
+    assert memory.reads == [(6, 0xD100)]
+    assert memory.writes == []
+
+
+@pytest.mark.parametrize(
+    ("address", "bank", "boundary_name"),
+    (
+        (0xBFFF, 3, "SRAM"),
+        (0xDFFF, 6, "banked WRAM"),
+    ),
+)
+def test_banked_symbol_read_rejects_crossing_memory_aperture(
+    address: int,
+    bank: int,
+    boundary_name: str,
+) -> None:
+    emulator = Emulator.__new__(Emulator)
+    emulator.symbols = {"debug": address}
+    emulator.symbol_banks = {"debug": bank}
+    memory = RecordingMemory({})
+    emulator.pyboy = SimpleNamespace(memory=memory)
+
+    with pytest.raises(ValueError, match=rf"crosses {boundary_name} boundary"):
+        emulator.read_bytes("debug", 2)
+
+    assert memory.reads == []
+
+
+def test_vram_read_uses_bounded_direct_bank_access_through_end_of_vram() -> None:
+    emulator = Emulator.__new__(Emulator)
+    memory = RecordingMemory({(1, 0x9800): 0x12, (1, 0x9FFF): 0x34})
+    emulator.pyboy = SimpleNamespace(memory=memory)
+
+    result = emulator.read_vram_bank(1, 0x9800, 0x800)
+
+    assert len(result) == 0x800
+    assert result[0] == 0x12
+    assert result[-1] == 0x34
+    assert len(memory.reads) == 0x800
+    assert memory.reads[0] == (1, 0x9800)
+    assert memory.reads[-1] == (1, 0x9FFF)
+    assert memory.writes == []
+
+
+def test_unbanked_read_uses_one_slice() -> None:
+    emulator = Emulator.__new__(Emulator)
+    memory = RecordingMemory({0xC100: 0xAB, 0xC101: 0xCD})
+    emulator.pyboy = SimpleNamespace(memory=memory)
+
+    assert emulator.read_memory(0xC100, 2) == b"\xab\xcd"
+    assert memory.reads == [slice(0xC100, 0xC102)]
+
+
+def test_palette_read_restores_exact_index_value() -> None:
+    emulator = Emulator.__new__(Emulator)
+    memory = RecordingMemory({0xFF68: 0xA7, 0xFF69: 0x5A})
+    emulator.pyboy = SimpleNamespace(memory=memory)
+
+    assert emulator.read_palette_ram() == bytes([0x5A] * 64)
+    assert memory.writes[-1] == (0xFF68, 0xA7)
+
+
+class FailingPaletteMemory(RecordingMemory):
+    def __getitem__(
+        self, address: int | slice | tuple[int, int | slice]
+    ) -> int | list[int]:
+        if address == 0xFF6B:
+            raise RuntimeError("palette data read failed")
+        return super().__getitem__(address)
+
+
+def test_palette_read_restores_index_after_data_exception() -> None:
+    emulator = Emulator.__new__(Emulator)
+    memory = FailingPaletteMemory({0xFF6A: 0xD3})
+    emulator.pyboy = SimpleNamespace(memory=memory)
+
+    try:
+        emulator.read_palette_ram(object_palettes=True)
+    except RuntimeError as exc:
+        assert str(exc) == "palette data read failed"
+    else:
+        raise AssertionError("expected palette read failure")
+
+    assert memory.writes == [(0xFF6A, 0), (0xFF6A, 0xD3)]
+
+
+def test_frame_counts_only_successful_ticks() -> None:
+    emulator = Emulator.__new__(Emulator)
+    emulator.frame = 0
+    emulator.pyboy = SimpleNamespace(tick=lambda: True)
+
+    emulator.tick(3)
+
+    assert emulator.frame == 3

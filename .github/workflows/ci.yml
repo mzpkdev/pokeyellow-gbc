@@ -140,7 +140,7 @@ jobs:
           cmp gate-0-run-1.json gate-0-run-2.json
 
       - name: Validate debug observability
-        run: python -m tools.rom_tests.full_color.runtime_observability > gate-0-observability.json
+        run: python -m tools.rom_tests.full_color.runtime_observability --snapshot-output gate-0-semantic-snapshot.json > gate-0-observability.json
 
       - name: Upload Gate 0 evidence
         uses: actions/upload-artifact@v7
@@ -150,5 +150,6 @@ jobs:
             gate-0-run-1.json
             gate-0-run-2.json
             gate-0-observability.json
+            gate-0-semantic-snapshot.json
           if-no-files-found: error
           retention-days: 14

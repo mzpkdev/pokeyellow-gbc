@@ -38,6 +38,8 @@ class Emulator:
         *,
         cgb: bool = False,
     ) -> None:
+        self.rom = rom
+        self.frame = 0
         self.results = results
         self.results.mkdir(parents=True, exist_ok=True)
         symbol_lines = symbols.read_text(encoding="utf-8").splitlines()
@@ -93,6 +95,52 @@ class Emulator:
     def read(self, symbol: str) -> int:
         return self.read_bytes(symbol, 1)[0]
 
+    def read_memory(
+        self,
+        address: int,
+        size: int,
+        *,
+        bank: int | None = None,
+    ) -> bytes:
+        """Read a bounded memory block without changing the selected bank."""
+        if size < 0:
+            raise ValueError(f"Negative read size: {size}")
+        if not 0 <= address <= 0xFFFF or address + size > 0x10000:
+            raise ValueError(
+                f"Read crosses address-space boundary: {address:#06x} + {size}"
+            )
+        if bank is not None:
+            if bank < 0:
+                raise ValueError(f"Negative memory bank: {bank}")
+            return bytes(
+                self.pyboy.memory[bank, address + offset] for offset in range(size)
+            )
+        return bytes(self.pyboy.memory[address : address + size])
+
+    def read_vram_bank(self, bank: int, address: int, size: int) -> bytes:
+        """Read CGB VRAM through PyBoy's direct bank view."""
+        if bank not in {0, 1}:
+            raise ValueError(f"VRAM bank must be 0 or 1, got {bank}")
+        if not 0x8000 <= address <= 0x9FFF or address + size > 0xA000:
+            raise ValueError(
+                f"VRAM read outside 0x8000..0x9fff: {address:#06x} + {size}"
+            )
+        return self.read_memory(address, size, bank=bank)
+
+    def read_palette_ram(self, *, object_palettes: bool = False) -> bytes:
+        """Read all CGB BG or OBJ palette bytes and restore the index exactly."""
+        index_register = 0xFF6A if object_palettes else 0xFF68
+        data_register = index_register + 1
+        prior_index = self.pyboy.memory[index_register]
+        try:
+            values = bytearray()
+            for index in range(64):
+                self.pyboy.memory[index_register] = index
+                values.append(self.pyboy.memory[data_register])
+            return bytes(values)
+        finally:
+            self.pyboy.memory[index_register] = prior_index
+
     def write(self, symbol: str, value: int) -> None:
         if not 0 <= value <= 0xFF:
             raise ValueError(f"Byte value out of range: {value}")
@@ -100,18 +148,28 @@ class Emulator:
             self.pyboy.memory[self.symbols[symbol]] = value
 
     def read_bytes(self, symbol: str, size: int) -> bytes:
-        """Read a symbol-relative block with bounded bank selection."""
+        """Read a symbol-relative block through an observational bank view."""
         if size < 0:
             raise ValueError(f"Negative read size: {size}")
         address = self.symbols[symbol]
         if address + size > 0x10000:
             raise ValueError(f"Read crosses address-space boundary: {symbol} + {size}")
-        with self._select_symbol_bank(symbol):
-            return bytes(self.pyboy.memory[address + offset] for offset in range(size))
+        bank = self.symbol_banks[symbol]
+        if 0xA000 <= address <= 0xBFFF:
+            if address + size > 0xC000:
+                raise ValueError(f"Read crosses SRAM boundary: {symbol} + {size}")
+            return self.read_memory(address, size, bank=bank)
+        if 0xD000 <= address <= 0xDFFF and bank != 0:
+            if address + size > 0xE000:
+                raise ValueError(
+                    f"Read crosses banked WRAM boundary: {symbol} + {size}"
+                )
+            return self.read_memory(address, size, bank=bank)
+        return self.read_memory(address, size)
 
     @contextmanager
     def _select_symbol_bank(self, symbol: str) -> Iterator[None]:
-        """Select banked SRAM/WRAM for one access, then restore baseline state."""
+        """Select banked SRAM/WRAM for one write, then restore baseline state."""
         address = self.symbols[symbol]
         bank = self.symbol_banks[symbol]
         if 0xA000 <= address <= 0xBFFF:
@@ -148,6 +206,7 @@ class Emulator:
                 raise RuntimeError(
                     f"Emulator stopped with {frames - frame} frames left"
                 )
+            self.frame += 1
 
     def press(self, button: str, wait_frames: int = 120) -> None:
         self.pyboy.button(button, delay=2)
