@@ -99,6 +99,9 @@ jobs:
           cache: pip
           cache-dependency-path: tools/rom_tests/requirements.txt
 
+      - name: Set up pinned RGBDS
+        uses: ./.github/actions/setup-build
+
       - name: Install ROM test dependencies
         run: python -m pip install -r tools/rom_tests/requirements.txt
 
@@ -119,6 +122,9 @@ jobs:
           cp release/pokeyellow-vc.gbc    pokeyellow_vc.gbc
           cp release/pokeyellow-vc.map    pokeyellow_vc.map
           cp release/pokeyellow-vc.sym    pokeyellow_vc.sym
+
+      - name: Build Phase 2 audit ROM
+        run: make -j"$(nproc)" yellow_phase2_audit
 
       - name: Run unit tests
         run: python -m pytest tools/rom_tests/tests/unit
@@ -154,6 +160,9 @@ jobs:
 
       - name: Install pinned ROM test dependencies
         run: make test-full-color-setup
+
+      - name: Build Phase 2 audit ROM
+        run: make -j"$(nproc)" yellow_phase2_audit
 
       - name: Run lean Gate 0
         run: make test-full-color-gate0
