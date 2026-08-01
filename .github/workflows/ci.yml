@@ -157,3 +157,43 @@ jobs:
           path: ${{ env.FULL_COLOR_RESULTS }}/
           if-no-files-found: error
           retention-days: 14
+
+  renderer-conformance-checker:
+    name: Renderer Conformance Checker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FULL_COLOR_CONFORMANCE_RESULTS: test-results/full-color-renderer-conformance
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Initialize renderer checker evidence root
+        run: |
+          mkdir -p "$FULL_COLOR_CONFORMANCE_RESULTS"
+          printf 'run_id=%s\nrun_attempt=%s\ncommit=%s\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" \
+            > "$FULL_COLOR_CONFORMANCE_RESULTS/ci-run.txt"
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/rom_tests/requirements.txt
+
+      - name: Install pinned ROM test dependencies
+        run: make test-full-color-setup
+
+      - name: Run renderer conformance checker
+        run: make test-full-color-renderer-conformance
+
+      - name: Upload renderer checker evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: renderer-conformance-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.FULL_COLOR_CONFORMANCE_RESULTS }}/
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,1242 @@
+{
+  "schema": "full-color-renderer-conformance-corpus-v1",
+  "authoritative_mapped_picture_identities": [1, 2, 3, 7],
+  "cases": [
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OVERLAY-OPAQUE-EXPLICIT",
+      "requirements": [
+        "R6.4",
+        "R6.5",
+        "R6.6",
+        "R6.7",
+        "R6.8",
+        "R6.9",
+        "R6.10",
+        "R6.11"
+      ],
+      "checks": [
+        "CHK-OVERLAY-01"
+      ],
+      "operation": "OVERLAY",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-OVERLAY-OPAQUE-EXPLICIT"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 2,
+        "commit_unit_id": "MU-RC-OVERLAY-OPAQUE-EXPLICIT",
+        "matrix_key": "OVERLAY-ORDINARY-OPAQUE-EXPLICIT",
+        "clip_edge": null,
+        "destination_selector": "BG_MAP_9800",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": 4,
+          "y": 4,
+          "width": 1,
+          "height": 1
+        },
+        "world_transform": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "map_id": "PALLET_TOWN",
+        "tileset_id": "OVERWORLD",
+        "classifications": [
+          "OPAQUE_OVERLAY"
+        ],
+        "tile_ids": "10",
+        "explicit_attributes": {
+          "0": 255
+        },
+        "text_window_default": 18,
+        "coordinate_overrides": {},
+        "tileset_attributes": "00010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607"
+      },
+      "observation_snapshot": "observations/RC-OVERLAY-OPAQUE-EXPLICIT.snapshot.json",
+      "observation_trace": "observations/RC-OVERLAY-OPAQUE-EXPLICIT.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OVERLAY-OPAQUE-DEFAULT",
+      "requirements": [
+        "R6.4",
+        "R6.5",
+        "R6.6",
+        "R6.7",
+        "R6.8",
+        "R6.9",
+        "R6.10",
+        "R6.11"
+      ],
+      "checks": [
+        "CHK-OVERLAY-01"
+      ],
+      "operation": "OVERLAY",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-OVERLAY-OPAQUE-DEFAULT"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 2,
+        "commit_unit_id": "MU-RC-OVERLAY-OPAQUE-DEFAULT",
+        "matrix_key": "OVERLAY-ORDINARY-OPAQUE-DEFAULT",
+        "clip_edge": null,
+        "destination_selector": "BG_MAP_9800",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": 5,
+          "y": 4,
+          "width": 1,
+          "height": 1
+        },
+        "world_transform": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "map_id": "PALLET_TOWN",
+        "tileset_id": "OVERWORLD",
+        "classifications": [
+          "OPAQUE_OVERLAY"
+        ],
+        "tile_ids": "10",
+        "explicit_attributes": {},
+        "text_window_default": 18,
+        "coordinate_overrides": {},
+        "tileset_attributes": "00010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607"
+      },
+      "observation_snapshot": "observations/RC-OVERLAY-OPAQUE-DEFAULT.snapshot.json",
+      "observation_trace": "observations/RC-OVERLAY-OPAQUE-DEFAULT.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OVERLAY-REVEALED-LOOKUP",
+      "requirements": [
+        "R6.4",
+        "R6.5",
+        "R6.6",
+        "R6.7",
+        "R6.8",
+        "R6.9",
+        "R6.10",
+        "R6.11"
+      ],
+      "checks": [
+        "CHK-OVERLAY-01"
+      ],
+      "operation": "OVERLAY",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-OVERLAY-REVEALED-LOOKUP"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 2,
+        "commit_unit_id": "MU-RC-OVERLAY-REVEALED-LOOKUP",
+        "matrix_key": "OVERLAY-ORDINARY-REVEALED-LOOKUP",
+        "clip_edge": null,
+        "destination_selector": "BG_MAP_9800",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": 6,
+          "y": 4,
+          "width": 1,
+          "height": 1
+        },
+        "world_transform": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "map_id": "PALLET_TOWN",
+        "tileset_id": "OVERWORLD",
+        "classifications": [
+          "REVEALED_TERRAIN"
+        ],
+        "tile_ids": "17",
+        "explicit_attributes": {
+          "0": 255
+        },
+        "text_window_default": 18,
+        "coordinate_overrides": {},
+        "tileset_attributes": "00010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607"
+      },
+      "observation_snapshot": "observations/RC-OVERLAY-REVEALED-LOOKUP.snapshot.json",
+      "observation_trace": "observations/RC-OVERLAY-REVEALED-LOOKUP.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OVERLAY-REVEALED-OVERRIDE",
+      "requirements": [
+        "R6.4",
+        "R6.5",
+        "R6.6",
+        "R6.7",
+        "R6.8",
+        "R6.9",
+        "R6.10",
+        "R6.11"
+      ],
+      "checks": [
+        "CHK-OVERLAY-01"
+      ],
+      "operation": "OVERLAY",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-OVERLAY-REVEALED-OVERRIDE"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 2,
+        "commit_unit_id": "MU-RC-OVERLAY-REVEALED-OVERRIDE",
+        "matrix_key": "OVERLAY-ORDINARY-REVEALED-OVERRIDE",
+        "clip_edge": null,
+        "destination_selector": "BG_MAP_9800",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": 7,
+          "y": 4,
+          "width": 1,
+          "height": 1
+        },
+        "world_transform": [
+          1,
+          0,
+          0,
+          1,
+          100,
+          200
+        ],
+        "map_id": "PALLET_TOWN",
+        "tileset_id": "OVERWORLD",
+        "classifications": [
+          "REVEALED_TERRAIN"
+        ],
+        "tile_ids": "10",
+        "explicit_attributes": {
+          "0": 255
+        },
+        "text_window_default": 18,
+        "coordinate_overrides": {
+          "100,200": 151
+        },
+        "tileset_attributes": "00010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607"
+      },
+      "observation_snapshot": "observations/RC-OVERLAY-REVEALED-OVERRIDE.snapshot.json",
+      "observation_trace": "observations/RC-OVERLAY-REVEALED-OVERRIDE.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OVERLAY-FULLY-CLIPPED",
+      "requirements": [
+        "R6.4",
+        "R6.5",
+        "R6.6",
+        "R6.7",
+        "R6.8",
+        "R6.9",
+        "R6.10",
+        "R6.11"
+      ],
+      "checks": [
+        "CHK-OVERLAY-01"
+      ],
+      "operation": "OVERLAY",
+      "inputs": {
+      "writer_ids": [
+        "WR-NONE"
+      ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 2,
+        "commit_unit_id": null,
+        "matrix_key": "OVERLAY-FULLY-CLIPPED",
+        "clip_edge": null,
+        "destination_selector": "BG_MAP_9800",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": -2,
+          "y": 0,
+          "width": 2,
+          "height": 2
+        },
+        "world_transform": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "map_id": "PALLET_TOWN",
+        "tileset_id": "OVERWORLD",
+        "classifications": [
+          "OPAQUE_OVERLAY",
+          "REVEALED_TERRAIN",
+          "OPAQUE_OVERLAY",
+          "REVEALED_TERRAIN"
+        ],
+        "tile_ids": "10111213",
+        "explicit_attributes": {
+          "0": 255
+        },
+        "text_window_default": 18,
+        "coordinate_overrides": {
+          "1,0": 7
+        },
+        "tileset_attributes": "00010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607"
+      },
+      "observation_snapshot": "observations/RC-OVERLAY-FULLY-CLIPPED.snapshot.json",
+      "observation_trace": "observations/RC-OVERLAY-FULLY-CLIPPED.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OVERLAY-PARTIAL-CLIP",
+      "requirements": [
+        "R6.4",
+        "R6.5",
+        "R6.6",
+        "R6.7",
+        "R6.8",
+        "R6.9",
+        "R6.10",
+        "R6.11"
+      ],
+      "checks": [
+        "CHK-OVERLAY-01"
+      ],
+      "operation": "OVERLAY",
+      "inputs": {
+        "writer_ids": [
+          "WR-SYNTH-OVERLAY"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 2,
+        "commit_unit_id": "MU-SYNTH-OVERLAY",
+        "matrix_key": "OVERLAY-PARTIALLY-CLIPPED",
+        "clip_edge": "left",
+        "destination_selector": "WINDOW_MAP_9C00",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": -1,
+          "y": 30,
+          "width": 2,
+          "height": 2
+        },
+        "world_transform": [
+          1,
+          0,
+          0,
+          1,
+          100,
+          200
+        ],
+        "map_id": "PALLET_TOWN",
+        "tileset_id": "OVERWORLD",
+        "classifications": [
+          "OPAQUE_OVERLAY",
+          "REVEALED_TERRAIN",
+          "OPAQUE_OVERLAY",
+          "REVEALED_TERRAIN"
+        ],
+        "tile_ids": "10111213",
+        "explicit_attributes": {
+          "0": 31
+        },
+        "text_window_default": 2,
+        "coordinate_overrides": {
+          "101,200": 7
+        },
+        "tileset_attributes": "00010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607"
+      },
+      "observation_snapshot": "observations/RC-OVERLAY-PARTIAL-CLIP.snapshot.json",
+      "observation_trace": "observations/RC-OVERLAY-PARTIAL-CLIP.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OVERLAY-PARTIAL-RIGHT",
+      "requirements": [
+        "R6.4",
+        "R6.5",
+        "R6.6",
+        "R6.7",
+        "R6.8",
+        "R6.9",
+        "R6.10",
+        "R6.11"
+      ],
+      "checks": [
+        "CHK-OVERLAY-01"
+      ],
+      "operation": "OVERLAY",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-OVERLAY-PARTIAL-RIGHT"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 2,
+        "commit_unit_id": "MU-RC-OVERLAY-PARTIAL-RIGHT",
+        "matrix_key": "OVERLAY-PARTIALLY-CLIPPED",
+        "clip_edge": "right",
+        "destination_selector": "BG_MAP_9800",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": 31,
+          "y": 3,
+          "width": 2,
+          "height": 2
+        },
+        "world_transform": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "map_id": "PALLET_TOWN",
+        "tileset_id": "OVERWORLD",
+        "classifications": [
+          "OPAQUE_OVERLAY",
+          "REVEALED_TERRAIN",
+          "OPAQUE_OVERLAY",
+          "REVEALED_TERRAIN"
+        ],
+        "tile_ids": "10111213",
+        "explicit_attributes": {
+          "0": 255
+        },
+        "text_window_default": 18,
+        "coordinate_overrides": {
+          "1,0": 7
+        },
+        "tileset_attributes": "00010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607"
+      },
+      "observation_snapshot": "observations/RC-OVERLAY-PARTIAL-RIGHT.snapshot.json",
+      "observation_trace": "observations/RC-OVERLAY-PARTIAL-RIGHT.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OVERLAY-PARTIAL-TOP",
+      "requirements": [
+        "R6.4",
+        "R6.5",
+        "R6.6",
+        "R6.7",
+        "R6.8",
+        "R6.9",
+        "R6.10",
+        "R6.11"
+      ],
+      "checks": [
+        "CHK-OVERLAY-01"
+      ],
+      "operation": "OVERLAY",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-OVERLAY-PARTIAL-TOP"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 2,
+        "commit_unit_id": "MU-RC-OVERLAY-PARTIAL-TOP",
+        "matrix_key": "OVERLAY-PARTIALLY-CLIPPED",
+        "clip_edge": "top",
+        "destination_selector": "BG_MAP_9800",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": 3,
+          "y": -1,
+          "width": 2,
+          "height": 2
+        },
+        "world_transform": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "map_id": "PALLET_TOWN",
+        "tileset_id": "OVERWORLD",
+        "classifications": [
+          "OPAQUE_OVERLAY",
+          "REVEALED_TERRAIN",
+          "OPAQUE_OVERLAY",
+          "REVEALED_TERRAIN"
+        ],
+        "tile_ids": "10111213",
+        "explicit_attributes": {
+          "0": 255
+        },
+        "text_window_default": 18,
+        "coordinate_overrides": {
+          "1,0": 7
+        },
+        "tileset_attributes": "00010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607"
+      },
+      "observation_snapshot": "observations/RC-OVERLAY-PARTIAL-TOP.snapshot.json",
+      "observation_trace": "observations/RC-OVERLAY-PARTIAL-TOP.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OVERLAY-PARTIAL-BOTTOM",
+      "requirements": [
+        "R6.4",
+        "R6.5",
+        "R6.6",
+        "R6.7",
+        "R6.8",
+        "R6.9",
+        "R6.10",
+        "R6.11"
+      ],
+      "checks": [
+        "CHK-OVERLAY-01"
+      ],
+      "operation": "OVERLAY",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-OVERLAY-PARTIAL-BOTTOM"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 2,
+        "commit_unit_id": "MU-RC-OVERLAY-PARTIAL-BOTTOM",
+        "matrix_key": "OVERLAY-PARTIALLY-CLIPPED",
+        "clip_edge": "bottom",
+        "destination_selector": "BG_MAP_9800",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": 3,
+          "y": 31,
+          "width": 2,
+          "height": 2
+        },
+        "world_transform": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "map_id": "PALLET_TOWN",
+        "tileset_id": "OVERWORLD",
+        "classifications": [
+          "OPAQUE_OVERLAY",
+          "REVEALED_TERRAIN",
+          "OPAQUE_OVERLAY",
+          "REVEALED_TERRAIN"
+        ],
+        "tile_ids": "10111213",
+        "explicit_attributes": {
+          "0": 255
+        },
+        "text_window_default": 18,
+        "coordinate_overrides": {
+          "1,0": 7
+        },
+        "tileset_attributes": "00010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607"
+      },
+      "observation_snapshot": "observations/RC-OVERLAY-PARTIAL-BOTTOM.snapshot.json",
+      "observation_trace": "observations/RC-OVERLAY-PARTIAL-BOTTOM.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OVERLAY-MAP-EDGE",
+      "requirements": [
+        "R6.4",
+        "R6.5",
+        "R6.6",
+        "R6.7",
+        "R6.8",
+        "R6.9",
+        "R6.10",
+        "R6.11"
+      ],
+      "checks": [
+        "CHK-OVERLAY-01"
+      ],
+      "operation": "OVERLAY",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-OVERLAY-MAP-EDGE"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 2,
+        "commit_unit_id": "MU-RC-OVERLAY-MAP-EDGE",
+        "matrix_key": "OVERLAY-MAP-EDGE",
+        "clip_edge": null,
+        "destination_selector": "BG_MAP_9800",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": 30,
+          "y": 30,
+          "width": 2,
+          "height": 2
+        },
+        "world_transform": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "map_id": "PALLET_TOWN",
+        "tileset_id": "OVERWORLD",
+        "classifications": [
+          "OPAQUE_OVERLAY",
+          "OPAQUE_OVERLAY",
+          "REVEALED_TERRAIN",
+          "REVEALED_TERRAIN"
+        ],
+        "tile_ids": "10111213",
+        "explicit_attributes": {
+          "0": 255
+        },
+        "text_window_default": 18,
+        "coordinate_overrides": {
+          "1,1": 151
+        },
+        "tileset_attributes": "00010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607"
+      },
+      "observation_snapshot": "observations/RC-OVERLAY-MAP-EDGE.snapshot.json",
+      "observation_trace": "observations/RC-OVERLAY-MAP-EDGE.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OVERLAY-CONNECTION",
+      "requirements": [
+        "R6.4",
+        "R6.5",
+        "R6.6",
+        "R6.7",
+        "R6.8",
+        "R6.9",
+        "R6.10",
+        "R6.11"
+      ],
+      "checks": [
+        "CHK-OVERLAY-01"
+      ],
+      "operation": "OVERLAY",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-OVERLAY-CONNECTION"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 2,
+        "commit_unit_id": "MU-RC-OVERLAY-CONNECTION",
+        "matrix_key": "OVERLAY-CONNECTION",
+        "clip_edge": null,
+        "destination_selector": "BG_MAP_9800",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": 0,
+          "y": 0,
+          "width": 2,
+          "height": 2
+        },
+        "world_transform": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "map_id": "ROUTE_1",
+        "tileset_id": "OVERWORLD",
+        "classifications": [
+          "OPAQUE_OVERLAY",
+          "OPAQUE_OVERLAY",
+          "REVEALED_TERRAIN",
+          "REVEALED_TERRAIN"
+        ],
+        "tile_ids": "10111213",
+        "explicit_attributes": {
+          "0": 255
+        },
+        "text_window_default": 18,
+        "coordinate_overrides": {
+          "1,1": 151
+        },
+        "tileset_attributes": "00010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607"
+      },
+      "observation_snapshot": "observations/RC-OVERLAY-CONNECTION.snapshot.json",
+      "observation_trace": "observations/RC-OVERLAY-CONNECTION.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OVERLAY-WINDOW",
+      "requirements": [
+        "R6.4",
+        "R6.5",
+        "R6.6",
+        "R6.7",
+        "R6.8",
+        "R6.9",
+        "R6.10",
+        "R6.11"
+      ],
+      "checks": [
+        "CHK-OVERLAY-01"
+      ],
+      "operation": "OVERLAY",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-OVERLAY-WINDOW"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 2,
+        "commit_unit_id": "MU-RC-OVERLAY-WINDOW",
+        "matrix_key": "OVERLAY-WINDOW",
+        "clip_edge": null,
+        "destination_selector": "WINDOW_MAP_9C00",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": 1,
+          "y": 1,
+          "width": 2,
+          "height": 2
+        },
+        "world_transform": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "map_id": "PALLET_TOWN",
+        "tileset_id": "OVERWORLD",
+        "classifications": [
+          "OPAQUE_OVERLAY",
+          "OPAQUE_OVERLAY",
+          "REVEALED_TERRAIN",
+          "REVEALED_TERRAIN"
+        ],
+        "tile_ids": "10111213",
+        "explicit_attributes": {
+          "0": 255
+        },
+        "text_window_default": 18,
+        "coordinate_overrides": {
+          "1,1": 151
+        },
+        "tileset_attributes": "00010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607"
+      },
+      "observation_snapshot": "observations/RC-OVERLAY-WINDOW.snapshot.json",
+      "observation_trace": "observations/RC-OVERLAY-WINDOW.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OVERLAY-ALTERNATE-BG",
+      "requirements": [
+        "R6.4",
+        "R6.5",
+        "R6.6",
+        "R6.7",
+        "R6.8",
+        "R6.9",
+        "R6.10",
+        "R6.11"
+      ],
+      "checks": [
+        "CHK-OVERLAY-01"
+      ],
+      "operation": "OVERLAY",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-OVERLAY-ALTERNATE-BG"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 2,
+        "commit_unit_id": "MU-RC-OVERLAY-ALTERNATE-BG",
+        "matrix_key": "OVERLAY-ALTERNATE-BG",
+        "clip_edge": null,
+        "destination_selector": "BG_MAP_9C00",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": 1,
+          "y": 1,
+          "width": 2,
+          "height": 2
+        },
+        "world_transform": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "map_id": "PALLET_TOWN",
+        "tileset_id": "OVERWORLD",
+        "classifications": [
+          "OPAQUE_OVERLAY",
+          "OPAQUE_OVERLAY",
+          "REVEALED_TERRAIN",
+          "REVEALED_TERRAIN"
+        ],
+        "tile_ids": "10111213",
+        "explicit_attributes": {
+          "0": 255
+        },
+        "text_window_default": 18,
+        "coordinate_overrides": {
+          "1,1": 151
+        },
+        "tileset_attributes": "00010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607"
+      },
+      "observation_snapshot": "observations/RC-OVERLAY-ALTERNATE-BG.snapshot.json",
+      "observation_trace": "observations/RC-OVERLAY-ALTERNATE-BG.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OVERLAY-ALTERNATE-MAP",
+      "requirements": [
+        "R6.4",
+        "R6.5",
+        "R6.6",
+        "R6.7",
+        "R6.8",
+        "R6.9",
+        "R6.10",
+        "R6.11"
+      ],
+      "checks": [
+        "CHK-OVERLAY-01"
+      ],
+      "operation": "OVERLAY",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-OVERLAY-ALTERNATE-MAP"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 2,
+        "commit_unit_id": "MU-RC-OVERLAY-ALTERNATE-MAP",
+        "matrix_key": "OVERLAY-ALTERNATE-MAP",
+        "clip_edge": null,
+        "destination_selector": "BG_MAP_9800",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": 1,
+          "y": 1,
+          "width": 2,
+          "height": 2
+        },
+        "world_transform": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "map_id": "VIRIDIAN_CITY",
+        "tileset_id": "OVERWORLD",
+        "classifications": [
+          "OPAQUE_OVERLAY",
+          "OPAQUE_OVERLAY",
+          "REVEALED_TERRAIN",
+          "REVEALED_TERRAIN"
+        ],
+        "tile_ids": "10111213",
+        "explicit_attributes": {
+          "0": 255
+        },
+        "text_window_default": 18,
+        "coordinate_overrides": {
+          "1,1": 151
+        },
+        "tileset_attributes": "00010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607000102030405060700010203040506070001020304050607"
+      },
+      "observation_snapshot": "observations/RC-OVERLAY-ALTERNATE-MAP.snapshot.json",
+      "observation_trace": "observations/RC-OVERLAY-ALTERNATE-MAP.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-TRANSFER-ROW",
+      "requirements": [
+        "R7.1",
+        "R7.3",
+        "R7.4"
+      ],
+      "checks": [
+        "CHK-TRANSFER-01",
+        "CHK-COMMIT-01"
+      ],
+      "operation": "PAIRED_TRANSFER",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-TRANSFER-ROW"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 3,
+        "commit_unit_id": "MU-RC-TRANSFER-ROW",
+        "transfer_kind": "ROW",
+        "destination_selector": "BG_MAP_9800",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": 2,
+          "y": 3,
+          "width": 3,
+          "height": 1
+        },
+        "tile_ids": "102030",
+        "attributes": "8192a3"
+      },
+      "observation_snapshot": "observations/RC-TRANSFER-ROW.snapshot.json",
+      "observation_trace": "observations/RC-TRANSFER-ROW.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-TRANSFER-COLUMN",
+      "requirements": [
+        "R7.1",
+        "R7.3",
+        "R7.4"
+      ],
+      "checks": [
+        "CHK-TRANSFER-01",
+        "CHK-COMMIT-01"
+      ],
+      "operation": "PAIRED_TRANSFER",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-TRANSFER-COLUMN"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 3,
+        "commit_unit_id": "MU-RC-TRANSFER-COLUMN",
+        "transfer_kind": "COLUMN",
+        "destination_selector": "BG_MAP_9800",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": 31,
+          "y": 2,
+          "width": 1,
+          "height": 3
+        },
+        "tile_ids": "405060",
+        "attributes": "b4c5d6"
+      },
+      "observation_snapshot": "observations/RC-TRANSFER-COLUMN.snapshot.json",
+      "observation_trace": "observations/RC-TRANSFER-COLUMN.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-TRANSFER-CONNECTION",
+      "requirements": [
+        "R7.1",
+        "R7.3",
+        "R7.4"
+      ],
+      "checks": [
+        "CHK-TRANSFER-01",
+        "CHK-COMMIT-01"
+      ],
+      "operation": "PAIRED_TRANSFER",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-TRANSFER-CONNECTION"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 3,
+        "commit_unit_id": "MU-RC-TRANSFER-CONNECTION",
+        "transfer_kind": "CONNECTION",
+        "destination_selector": "BG_MAP_9800",
+        "destination_width": 32,
+        "destination_height": 32,
+        "rectangle": {
+          "x": 0,
+          "y": 0,
+          "width": 2,
+          "height": 2
+        },
+        "tile_ids": "708090a0",
+        "attributes": "e7f8091a"
+      },
+      "observation_snapshot": "observations/RC-TRANSFER-CONNECTION.snapshot.json",
+      "observation_trace": "observations/RC-TRANSFER-CONNECTION.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-PALETTE-BG",
+      "requirements": [
+        "R5.1",
+        "R5.2",
+        "R5.8"
+      ],
+      "checks": [
+        "CHK-PALETTE-01",
+        "CHK-COMMIT-01"
+      ],
+      "operation": "PALETTE_UPLOAD",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-PALETTE-BG"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 4,
+        "commit_unit_id": "MU-RC-PALETTE-BG",
+        "palette_kind": "BG",
+        "payload": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+      },
+      "observation_snapshot": "observations/RC-PALETTE-BG.snapshot.json",
+      "observation_trace": "observations/RC-PALETTE-BG.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-PALETTE-OBJ",
+      "requirements": [
+        "R5.1",
+        "R5.2",
+        "R5.8"
+      ],
+      "checks": [
+        "CHK-PALETTE-01",
+        "CHK-COMMIT-01"
+      ],
+      "operation": "PALETTE_UPLOAD",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-PALETTE-OBJ"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 4,
+        "commit_unit_id": "MU-RC-PALETTE-OBJ",
+        "palette_kind": "OBJ",
+        "payload": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+      },
+      "observation_snapshot": "observations/RC-PALETTE-OBJ.snapshot.json",
+      "observation_trace": "observations/RC-PALETTE-OBJ.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OAM-MISSING_IDENTITY",
+      "requirements": [
+        "R9.1",
+        "R9.2",
+        "R9.3",
+        "R9.4"
+      ],
+      "checks": [
+        "CHK-OAM-01"
+      ],
+      "operation": "OAM_FALLBACK",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-OAM-MISSING_IDENTITY"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 5,
+        "commit_unit_id": null,
+        "final_picture_identity": null,
+        "final_tile_id": 37,
+        "object_id": "OBJECT-1",
+        "attribute_offset": 3,
+        "attribute_before": 253
+      },
+      "observation_snapshot": "observations/RC-OAM-MISSING_IDENTITY.snapshot.json",
+      "observation_trace": "observations/RC-OAM-MISSING_IDENTITY.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OAM-OUT_OF_RANGE_IDENTITY",
+      "requirements": [
+        "R9.1",
+        "R9.2",
+        "R9.3",
+        "R9.4"
+      ],
+      "checks": [
+        "CHK-OAM-01"
+      ],
+      "operation": "OAM_FALLBACK",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-OAM-OUT_OF_RANGE_IDENTITY"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 5,
+        "commit_unit_id": null,
+        "final_picture_identity": 300,
+        "final_tile_id": 37,
+        "object_id": "OBJECT-1",
+        "attribute_offset": 3,
+        "attribute_before": 253
+      },
+      "observation_snapshot": "observations/RC-OAM-OUT_OF_RANGE_IDENTITY.snapshot.json",
+      "observation_trace": "observations/RC-OAM-OUT_OF_RANGE_IDENTITY.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OAM-UNMAPPED_IDENTITY",
+      "requirements": [
+        "R9.1",
+        "R9.2",
+        "R9.3",
+        "R9.4"
+      ],
+      "checks": [
+        "CHK-OAM-01"
+      ],
+      "operation": "OAM_FALLBACK",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-OAM-UNMAPPED_IDENTITY"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 5,
+        "commit_unit_id": null,
+        "final_picture_identity": 42,
+        "final_tile_id": 37,
+        "object_id": "OBJECT-1",
+        "attribute_offset": 3,
+        "attribute_before": 253
+      },
+      "observation_snapshot": "observations/RC-OAM-UNMAPPED_IDENTITY.snapshot.json",
+      "observation_trace": "observations/RC-OAM-UNMAPPED_IDENTITY.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-RECONSTRUCTION",
+      "requirements": [
+        "R2.10",
+        "R2.11",
+        "R2.12",
+        "R2.13"
+      ],
+      "checks": [
+        "CHK-RETURN-01"
+      ],
+      "operation": "RECONSTRUCTION",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-RECONSTRUCTION"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 6,
+        "commit_unit_id": "MU-RC-RECONSTRUCTION",
+        "prior_resource_state": "POISONED_UNKNOWN",
+        "action": "RECONSTRUCT_AND_PRESENT"
+      },
+      "observation_snapshot": "observations/RC-RECONSTRUCTION.snapshot.json",
+      "observation_trace": "observations/RC-RECONSTRUCTION.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": null,
+      "case_id": "RC-OWNERSHIP-REPLACEMENT",
+      "requirements": [
+        "R1.5",
+        "R1.6",
+        "R1.19",
+        "R1.20",
+        "R1.24",
+        "R1.25"
+      ],
+      "checks": [
+        "CHK-OWN-01",
+        "CHK-JOB-01",
+        "CHK-COMMIT-01"
+      ],
+      "operation": "OWNERSHIP_JOB",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-OWNERSHIP-REPLACEMENT"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 8,
+        "commit_unit_id": "MU-RC-OWNERSHIP-REPLACEMENT",
+        "old_job_id": "JOB-OLD",
+        "replacement_job_id": "JOB-REPLACEMENT",
+        "previous_generation": 7,
+        "action": "SUPERSEDE_WITH_REPLACEMENT"
+      },
+      "observation_snapshot": "observations/RC-OWNERSHIP-REPLACEMENT.snapshot.json",
+      "observation_trace": "observations/RC-OWNERSHIP-REPLACEMENT.trace.json"
+    },
+    {
+      "schema": "full-color-renderer-conformance-case-v1",
+      "observation_boundary": "observations/RC-MACHINE-FAR-CALL.boundary.json",
+      "case_id": "RC-MACHINE-FAR-CALL",
+      "requirements": [
+        "R3.5",
+        "R3.6",
+        "R10.1",
+        "R10.6"
+      ],
+      "checks": [
+        "CHK-BANK-01"
+      ],
+      "operation": "MACHINE_RESTORE",
+      "inputs": {
+        "writer_ids": [
+          "WR-RC-MACHINE-FAR-CALL"
+        ],
+        "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+        "generation": 9,
+        "commit_unit_id": null,
+        "event": "FAR_CALL_INTERRUPT",
+        "entry_banks": {
+          "rom": 257,
+          "wram": 7,
+          "vram": 1
+        }
+      },
+      "observation_snapshot": "observations/RC-MACHINE-FAR-CALL.snapshot.json",
+      "observation_trace": "observations/RC-MACHINE-FAR-CALL.trace.json"
+    }
+  ]
+}

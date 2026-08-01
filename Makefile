@@ -60,6 +60,7 @@ RGBGFXFLAGS  ?= -Weverything
 	tools \
 	test-full-color-setup \
 	test-full-color-gate0 \
+	test-full-color-renderer-conformance \
 	test-full-color-smoke \
 	test-full-color-handoffs \
 	test-full-color-soak \
@@ -102,6 +103,7 @@ tools:
 	$(MAKE) -C tools/
 
 FULL_COLOR_RESULTS ?= test-results/full-color-gate0
+FULL_COLOR_CONFORMANCE_RESULTS ?= test-results/full-color-renderer-conformance
 
 test-full-color-setup:
 	python3 -m venv .venv
@@ -109,6 +111,9 @@ test-full-color-setup:
 
 test-full-color-gate0: yellow_debug
 	$(PYTHON) -m tools.rom_tests.full_color.gate0_runner --root . --results "$(FULL_COLOR_RESULTS)"
+
+test-full-color-renderer-conformance:
+	$(PYTHON) -m tools.rom_tests.full_color.renderer_conformance_runner --root . --results "$(FULL_COLOR_CONFORMANCE_RESULTS)"
 
 test-full-color-smoke: yellow_debug
 	$(PYTHON) -m tools.rom_tests.full_color.runtime_observability --root . --results "$(FULL_COLOR_RESULTS)/smoke"
@@ -119,7 +124,7 @@ test-full-color-handoffs:
 test-full-color-soak:
 	$(PYTHON) -m pytest tools/rom_tests/tests/unit/full_color/test_model.py -k seeded_valid_sequences
 
-test-full-color-all: test-full-color-gate0 test-full-color-handoffs test-full-color-soak
+test-full-color-all: test-full-color-gate0 test-full-color-renderer-conformance test-full-color-handoffs test-full-color-soak
 
 
 RGBASMFLAGS += -Q8 -P includes.asm

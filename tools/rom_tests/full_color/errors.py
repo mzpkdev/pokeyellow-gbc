@@ -27,3 +27,7 @@ class TraceabilityError(ContractError):
 
 class BankTortureError(ContractError):
     """A synthetic bank-boundary fixture is malformed or leaks machine state."""
+
+
+class RendererConformanceError(ContractError):
+    """A renderer-conformance case, observation, or result is invalid."""

@@ -43,11 +43,66 @@ Yellow-to-overworld reconstruction, overlay, overworld OAM, representation,
 and renderer timing become acceptance only when their implementation phase
 activates them. Production renderer code remains prohibited during Gate 0.
 
+## Renderer-conformance checker readiness
+
+After Gate 0, a checker-only PR may make future renderer checks executable
+against `SCHEMA_FIXTURE` evidence. Its oracle derives expected values only from
+versioned authoritative inputs and its positive observations are authored
+independently. Passing proves checker sensitivity and deterministic evidence;
+it closes no renderer acceptance criterion.
+
+A later phase activates a behavior only by providing `RENDERER_RUNTIME`
+snapshots and writer traces with a nonzero activation phase. The activated
+path then blocks on its existing `CHK-…` IDs. Screenshots remain linked review
+evidence and never replace semantic or trace assertions.
+
+Oracle fixture inputs are causal request configuration, initial state, and
+actions only. Job state sequences and cancellation reasons, reconstruction
+ledgers/provenance/poison/barrier results, fallback classifications, and
+machine-restoration results are derived expectations and are forbidden as
+fixture inputs. Every derived field uses an exact dotted path exposed by
+`SemanticSnapshot.to_dict()`, `OverlayRequestState`, `OAMFallbackState`, or
+`BankTortureResult`; job and writer assertions use decoded `WriterTrace`
+predicates instead of invented snapshot fields. Each operation also admits
+only its documented `CHK-…` identity set.
+
+Trace predicates declare complete commits only for paired tile/attribute
+transfers, palette uploads, reconstruction presentation, overlays with at
+least one surviving cell, and the completing replacement in an ownership/job
+supersession. The independent oracle names the required phase and canonical
+written-resource identities for each predicate. Trace-local numeric resource
+IDs are debug encodings only: the observation carrier maps them to canonical
+identities, including distinct `bg_palettes` and `obj_palettes` identities,
+before comparison. Each such predicate requires a concrete commit-unit ID. A
+fully clipped overlay, OAM fallback attribute rewrite, and machine-restoration
+boundary are not commit units and explicitly set `require_complete_commit` to
+false; their fixture commit-unit ID is null. The fully clipped overlay alone
+sets `require_no_writes` true, forbidding every `wrote=true` trace entry even
+when its writer is the canonical `WR-NONE`; its positive evidence is an empty
+trace with that non-writing permitted-writer allowlist. OAM fallback and
+machine-restoration predicates keep `require_no_writes` false because their
+empty job sets do not preclude observational trace evidence.
+
+Case IDs and every observation carrier path, including optional boundary
+paths, have case-insensitive uniqueness and exact canonical case ownership.
+This prevents distinct fixture aliases from resolving to the same evidence on
+case-insensitive filesystems.
+
 The overlay schema carries destination BG/window selector, map identity,
 tileset identity, rectangle, world-coordinate origin/transform, override set,
 per-cell classification, tile IDs, and attributes. Its independent model
 preserves source-to-destination tilemap and world-coordinate mappings through
-clipping and never reads VRAM or ambient map state. Runtime ordinary, clipped,
+clipping, rejects singular affine transforms, and never reads VRAM or ambient
+map state. Each matrix label is validated from destination, clipping geometry,
+map and the declared canonical tileset identity, alternating classification,
+all four explicit/default/lookup/override precedence branches, and meaningful
+attribute bits. Across those four attribute sources, the corpus must set palette bits
+0–2, bank bit 3, flip bits 5–6, and priority bit 7 while canonicalizing bit 4
+to zero; the label is not itself oracle authority. The checker schema fixes the
+complete synthetic mapped-picture authority to `[1, 2, 3, 7]`, shared by every
+OAM case, and validates all three fallback classifications against it. Per-case
+mapping authority is rejected so a mapped identity cannot be relabelled as
+fallback. Runtime ordinary, clipped,
 edge, connection, alternate-BG, and alternate-map coverage activates in
 Phases 2–3. Runtime OAM fallback coverage activates in Phases 2 and 4.
 
