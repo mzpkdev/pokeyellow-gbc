@@ -191,6 +191,14 @@ class Phase1Emulator(SnapshotEmulator):
                 "wFullColorDebugPhase": b"\x03",
                 "wFullColorDebugGeneration": (8).to_bytes(4, "little"),
                 "wFullColorDebugCheckpoint": b"\x01",
+                "wFullColorDebugAdmissionOpen": b"\x01",
+                "wFullColorDebugJobState": b"\x03",
+                "wFullColorDebugJobGeneration": (8).to_bytes(4, "little"),
+                "wFullColorDebugCancellationReason": b"\xff",
+                "wFullColorDebugCommitUnitID": b"\x01\x00",
+                "wFullColorDebugWriterID": b"\x01\x00",
+                "wFullColorDebugLastWriterID": b"\x01\x00",
+                "wFullColorDebugLastResourceID": b"\x01\x00",
             }
         )
         records = [

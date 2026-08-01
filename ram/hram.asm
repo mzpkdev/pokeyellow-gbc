@@ -389,7 +389,10 @@ hLCDCPointer:: db
 
 hJoyInput:: db
 
-	ds 2
+; Stackless renderer-state bank-switch scratch. Each ownership entry masks IE
+; before selecting WRAM bank 2, so these bytes cannot be nested or clobbered.
+hRendererStateSavedIE:: db
+hRendererStateSavedSVBK:: db
 
 hDisableJoypadPolling:: db
 
@@ -404,7 +407,13 @@ hFieldMoveMonMenuTopMenuItemX:: db
 
 hPikachuSpriteVRAMOffset:: db
 
+IF DEF(_DEBUG)
+; SRAM mailbox producer writes its command first, then arms this byte. VBlank
+; consumes and clears the trigger before it touches the cartridge RAM gates.
+hFullColorDebugCommandPending:: db
+ELSE
 	ds 1
+ENDC
 
 ; 0 if DMG, != 0 if CGB
 hOnCGB:: db

@@ -2,15 +2,15 @@
   "inputs": {
     "map": {
       "path": "pokeyellow_debug.map",
-      "sha256": "68287e80109dbbbfeda1cdbb1acc53b48a036538af58e034a285ef99f07108d0"
+      "sha256": "6913cec747495d98b2807237c6bdeee9d6cdb23f2614d48ceeae4ee013b70e1d"
     },
     "rom": {
       "path": "pokeyellow_debug.gbc",
-      "sha256": "c31b78787ede31b189acd662af2039eca9973029473ee4841433809ff30e1121"
+      "sha256": "03d45b77e7e92d7c9bd4ff2478bd7b490db9f50e71af8e000f0111e9ab78e38b"
     },
     "sym": {
       "path": "pokeyellow_debug.sym",
-      "sha256": "3f29af5e08304717b1502c0fb88f0f9ca211b12a7efce9f3eb4bb7f0d464e09c"
+      "sha256": "f05fd7d25cbf1acbd946d3e919906b48dacb706e0ca554eea658b00b8b09c95c"
     }
   },
   "ownership_state": {
@@ -62,7 +62,7 @@
       "end": 32767,
       "kind": "ROM",
       "reason": "lower-ranked by the deterministic measured selection rule",
-      "start": 31862
+      "start": 31865
     },
     {
       "bank": 2,
@@ -454,7 +454,7 @@
       "end": 32767,
       "kind": "ROM",
       "reason": "lower-ranked by the deterministic measured selection rule",
-      "start": 17303
+      "start": 18260
     },
     {
       "bank": 60,
@@ -537,8 +537,8 @@
   "rom": {
     "allocation_status": "linked",
     "selected_bank": 59,
-    "selected_free_bytes": 919,
-    "selected_free_end": 17302,
+    "selected_free_bytes": 1876,
+    "selected_free_end": 18259,
     "selected_free_start": 16384
   },
   "schema": "full-color-phase1-ownership-placement-v1",

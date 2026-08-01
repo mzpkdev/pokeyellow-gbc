@@ -198,6 +198,8 @@ class Phase1Rom:
         a: int = 0,
         c: int = 0,
         capture_visible: bool = False,
+        stack_pointer: int = 0xCFFE,
+        disable_ime: bool = False,
     ) -> Phase1CallObservation:
         """Call a production routine without a debug mailbox.
 
@@ -213,13 +215,22 @@ class Phase1Rom:
         register_file = emulator.pyboy.register_file
         register_file.A = a
         register_file.C = c
-        register_file.SP = 0xFFFC
-        emulator.pyboy.memory[0xFFFC] = return_address & 0xFF
-        emulator.pyboy.memory[0xFFFD] = return_address >> 8
+        register_file.SP = stack_pointer
+        emulator.pyboy.memory[stack_pointer] = return_address & 0xFF
+        emulator.pyboy.memory[stack_pointer + 1] = return_address >> 8
         if bank:
             emulator.pyboy.memory[0x2000] = bank & 0xFF
             emulator.pyboy.memory[0x3000] = bank >> 8
-        register_file.PC = address
+        if disable_ime:
+            # Enter through a temporary HRAM DI/JP trampoline. This models an
+            # ISR body with IME already clear while leaving raw IE/IF pending.
+            emulator.pyboy.memory[0xFF80] = 0xF3  # di
+            emulator.pyboy.memory[0xFF81] = 0xC3  # jp address
+            emulator.pyboy.memory[0xFF82] = address & 0xFF
+            emulator.pyboy.memory[0xFF83] = address >> 8
+            register_file.PC = 0xFF80
+        else:
+            register_file.PC = address
         returned_to_host = False
         observation: Phase1CallObservation | None = None
 
@@ -252,7 +263,7 @@ class Phase1Rom:
         assert returned_to_host, f"{routine} did not return within one frame"
         assert observation is not None
         assert observation.program_counter == return_address
-        assert observation.stack_pointer == 0xFFFE
+        assert observation.stack_pointer == stack_pointer + 2
         checkpoint.seek(0)
         emulator.pyboy.load_state(checkpoint)
         self.write_ownership_state(observation.ownership_state)
@@ -552,6 +563,141 @@ def test_every_ownership_entry_restores_wram_bank(
     assert observation.rvbk == entry_vram_bank
     assert observation.interrupt_enable == entry_ie
     assert observation.interrupt_flags == entry_if
+
+
+@pytest.mark.parametrize("routine", PUBLIC_ROUTINES)
+def test_every_ownership_entry_returns_with_yellows_banked_stack(
+    phase1_rom: Phase1Rom, routine: str
+) -> None:
+    """Exercise the real Yellow stack placement in switchable WRAM bank 1."""
+    phase1_rom.wait_for_hard_boot()
+    phase1_rom.emulator.pyboy.memory[0xFF70] = 1
+
+    observation = phase1_rom.call(routine, stack_pointer=0xDFE0)
+
+    assert observation.rsvbk == 1
+    assert observation.stack_pointer == 0xDFE2
+
+
+@pytest.mark.parametrize("routine", PUBLIC_ROUTINES)
+def test_every_ownership_entry_is_atomic_with_pending_interrupts(
+    phase1_rom: Phase1Rom, routine: str
+) -> None:
+    """An ISR-context call preserves raw IE/IF, stack, bank, and semantics."""
+    phase1_rom.wait_for_hard_boot()
+    before = phase1_rom.ownership_state()
+    phase1_rom.emulator.pyboy.memory[0xFF70] = 1
+    phase1_rom.emulator.pyboy.memory[0xFFFF] = 0x1F
+    phase1_rom.emulator.pyboy.memory[0xFF0F] = 0x1F
+
+    pending = phase1_rom.call(
+        routine, stack_pointer=0xDFE0, disable_ime=True
+    )
+
+    assert pending.rsvbk == 1
+    assert pending.interrupt_enable == 0x1F
+    assert pending.interrupt_flags == 0x1F
+    assert pending.stack_pointer == 0xDFE2
+
+    phase1_rom.write_ownership_state(before)
+    phase1_rom.emulator.pyboy.memory[0xFF70] = 1
+    phase1_rom.emulator.pyboy.memory[0xFFFF] = 0
+    phase1_rom.emulator.pyboy.memory[0xFF0F] = 0
+    control = phase1_rom.call(
+        routine, stack_pointer=0xDFE0, disable_ime=True
+    )
+    assert pending.ownership_state == control.ownership_state
+
+
+def test_every_wram2_switch_masks_ie_and_restores_bank_before_ie(
+    phase1_rom: Phase1Rom,
+) -> None:
+    """Prove instruction ordering for every WRAM2 write in the built core."""
+    emulator = phase1_rom.emulator
+    bank = emulator.symbol_banks["InitRendererOwnership"]
+    assert bank == emulator.symbol_banks["RecordRendererAssertion"]
+    start = emulator.symbols["InitRendererOwnership"]
+    end = emulator.symbols["RecordRendererAssertion"]
+    rom = Path(emulator.rom).read_bytes()
+    file_start = bank * 0x4000 + start - 0x4000
+    code = rom[file_start : file_start + end - start]
+    saved_ie = emulator.symbols["hRendererStateSavedIE"] & 0xFF
+    saved_svbk = emulator.symbols["hRendererStateSavedSVBK"] & 0xFF
+    enter = bytes(
+        (0xF0, 0xFF, 0xE0, saved_ie, 0xAF, 0xE0, 0xFF,
+         0xF0, 0x70, 0xE0, saved_svbk, 0x3E, 0x02, 0xE0, 0x70)
+    )
+    leave = bytes(
+        (0xF0, saved_svbk, 0xE0, 0x70,
+         0xF0, saved_ie, 0xE0, 0xFF)
+    )
+
+    svbk_writes = [
+        index for index in range(len(code) - 1)
+        if code[index : index + 2] == b"\xE0\x70"
+    ]
+    assert svbk_writes
+    for index in svbk_writes:
+        is_enter = code[index - len(enter) + 2 : index + 2] == enter
+        is_leave = code[index - 2 : index - 2 + len(leave)] == leave
+        assert is_enter or is_leave, (
+            f"unprotected rSVBK write at ROM {bank:02x}:{start + index:04x}"
+        )
+
+
+def test_soft_reset_reaches_atomic_reset_with_pending_interrupts(
+    phase1_rom: Phase1Rom,
+) -> None:
+    """Stop at SoftResetRendererOwnership's first post-Reset instruction."""
+    phase1_rom.wait_for_hard_boot()
+    emulator = phase1_rom.emulator
+    routine = "SoftResetRendererOwnership"
+    bank = emulator.symbol_banks[routine]
+    address = emulator.symbols[routine]
+    rom = Path(emulator.rom).read_bytes()
+    file_offset = bank * 0x4000 + address - 0x4000
+    assert rom[file_offset] == 0xCD  # call ResetRendererOwnership
+    after_reset = address + 3
+    observed: dict[str, int] = {}
+
+    emulator.pyboy.memory[0xFF70] = 1
+    emulator.pyboy.memory[0xFFFF] = 0x1F
+    emulator.pyboy.memory[0xFF0F] = 0x1F
+    emulator.pyboy.memory[0x2000] = bank & 0xFF
+    emulator.pyboy.memory[0x3000] = bank >> 8
+    emulator.pyboy.register_file.SP = 0xDFE0
+    emulator.pyboy.memory[0xFF80] = 0xF3  # di
+    emulator.pyboy.memory[0xFF81] = 0xC3  # jp routine
+    emulator.pyboy.memory[0xFF82] = address & 0xFF
+    emulator.pyboy.memory[0xFF83] = address >> 8
+    emulator.pyboy.register_file.PC = 0xFF80
+
+    def after_atomic_reset(_: object) -> None:
+        observed.update(
+            ie=emulator.pyboy.memory[0xFFFF],
+            interrupt_flags=emulator.pyboy.memory[0xFF0F],
+            rsvbk=emulator.pyboy.memory[0xFF70],
+            stack_pointer=emulator.pyboy.register_file.SP,
+        )
+        emulator.pyboy.memory[0xFFFF] = 0
+        emulator.pyboy.memory[0xFF84] = 0x76
+        emulator.pyboy.register_file.PC = 0xFF84
+
+    emulator.pyboy.hook_register(bank, after_reset, after_atomic_reset, None)
+    try:
+        emulator.pyboy.tick(1, render=False, sound=False)
+    finally:
+        emulator.pyboy.hook_deregister(bank, after_reset)
+
+    assert observed == {
+        "ie": 0x1F,
+        "interrupt_flags": 0x1F,
+        "rsvbk": 1,
+        "stack_pointer": 0xDFE0,
+    }
+    assert phase1_rom.owner is Owner.RENDERER_YELLOW
+    assert phase1_rom.phase is Phase.YELLOW_ACTIVE
+    assert phase1_rom.generation == 2
 
 
 @pytest.mark.parametrize("routine", PUBLIC_ROUTINES)

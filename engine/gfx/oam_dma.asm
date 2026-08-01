@@ -42,6 +42,8 @@ InitFullColorDebugState::
 	ldh a, [hOnCGB]
 	and a
 	ret z
+	xor a
+	ldh [hFullColorDebugCommandPending], a
 
 	ld a, RAMG_SRAM_ENABLE
 	ld [rRAMG], a

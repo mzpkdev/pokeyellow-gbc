@@ -1,26 +1,73 @@
 ; Phase 1 renderer ownership core.
-; This module is the sole bank-selection ABI for wRenderer* production state.
-; It intentionally performs no palette, tilemap, attribute, OAM, or other
-; visible-resource write.
+; Yellow's stack lives in switchable WRAM bank 1. Every ownership entry masks
+; IE before selecting bank 2 and remains a leaf until the caller's WRAM bank is
+; restored. The exact raw IE value is restored last, so the same primitive is
+; safe in mainline code and inside an ISR whose IME is already clear.
 
-MACRO open_renderer_state
+MACRO select_renderer_state_e
+	ldh a, [rIE]
+	ldh [hRendererStateSavedIE], a
+	xor a
+	ldh [rIE], a
 	ldh a, [rSVBK]
-	push af
+	ldh [hRendererStateSavedSVBK], a
 	ld a, PHASE1_SELECTED_WRAM_BANK
 	ldh [rSVBK], a
 ENDM
 
-MACRO close_renderer_state
-	pop af
+MACRO restore_renderer_state_e
+	ldh a, [hRendererStateSavedSVBK]
 	ldh [rSVBK], a
+	ldh a, [hRendererStateSavedIE]
+	ldh [rIE], a
+ENDM
+
+MACRO clear_renderer_job
+	ld a, RENDERER_JOB_NONE
+	ld [wRendererJobState], a
+	ld a, CANCELLATION_NONE
+	ld [wRendererJobCancellationReason], a
+	xor a
+	ld [wRendererJobGeneration], a
+	ld [wRendererJobGeneration + 1], a
+	ld [wRendererJobGeneration + 2], a
+	ld [wRendererJobGeneration + 3], a
+ENDM
+
+; Jumps to the supplied exhaustion label on zero or 32-bit wrap.
+MACRO advance_renderer_generation
+	ld a, [wRendererGeneration]
+	ld b, a
+	ld a, [wRendererGeneration + 1]
+	or b
+	ld b, a
+	ld a, [wRendererGeneration + 2]
+	or b
+	ld b, a
+	ld a, [wRendererGeneration + 3]
+	or b
+	jp z, \1
+	ld hl, wRendererGeneration
+	ld b, 4
+.increment\@
+	inc [hl]
+	jr nz, .advanced\@
+	inc hl
+	dec b
+	jr nz, .increment\@
+	jp \1
+.advanced\@
 ENDM
 
 InitRendererOwnership::
-	open_renderer_state
+	select_renderer_state_e
 	xor a
 	ld hl, wRendererStateStart
-	ld bc, PHASE1_OWNERSHIP_STATE_BYTES
-	call FillMemory
+	ld b, PHASE1_OWNERSHIP_STATE_BYTES
+.clear
+	ld [hli], a
+	dec b
+	jr nz, .clear
 	ld a, RENDERER_YELLOW
 	ld [wRendererOwner], a
 	ld a, YELLOW_ACTIVE
@@ -28,19 +75,14 @@ InitRendererOwnership::
 	ld a, 1
 	ld [wRendererGeneration], a
 	ld [wRendererAdmissionOpen], a
-	ld a, RENDERER_JOB_NONE
-	ld [wRendererJobState], a
-	ld a, CANCELLATION_NONE
-	ld [wRendererJobCancellationReason], a
-	close_renderer_state
+	clear_renderer_job
+	restore_renderer_state_e
 	and a
 	ret
 
 SoftResetRendererOwnership::
 	call ResetRendererOwnership
 	jr c, .commit_in_progress
-	; Init preserves this one HRAM byte until WriteDMACodeToHRAM. That hook
-	; therefore keeps the fresh reset generation instead of reinitializing it.
 	ld a, 1
 	ldh [hSoftReset], a
 	call StopAllSounds
@@ -51,49 +93,56 @@ SoftResetRendererOwnership::
 .commit_in_progress
 	jr .commit_in_progress
 
-; Reset is atomic with respect to visible commits: a COMMITTING job makes the
-; reset fail with carry before any ownership state is changed.
 ResetRendererOwnership::
-	open_renderer_state
+	select_renderer_state_e
 	ld a, [wRendererJobState]
 	cp COMMITTING
 	jr z, .commit_in_progress
 	xor a
 	ld [wRendererAdmissionOpen], a
+	ld a, [wRendererJobState]
+	cp PENDING
+	jr z, .cancel
+	cp PREPARED
+	jr nz, .advance
+.cancel
+	ld a, CANCELLED
+	ld [wRendererJobState], a
 	ld a, RESET
-	call CancelRendererJobInOpenState
-	call AdvanceRendererGenerationInOpenState
-	jr c, .generation_exhausted
+	ld [wRendererJobCancellationReason], a
+.advance
+	advance_renderer_generation .generation_exhausted
 	ld a, RENDERER_YELLOW
 	ld [wRendererOwner], a
 	ld a, YELLOW_ACTIVE
 	ld [wRendererPhase], a
-	call ClearRendererJobInOpenState
+	clear_renderer_job
 	ld a, TRUE
 	ld [wRendererAdmissionOpen], a
-.done
-	close_renderer_state
+	restore_renderer_state_e
 	and a
 	ret
 .generation_exhausted
-	close_renderer_state
-	scf
-	ret
+	xor a
+	ld [wRendererAdmissionOpen], a
+	ld b, FULL_COLOR_ASSERT_GENERATION_EXHAUSTED
+	jr .assert
 .commit_in_progress
-	ld a, FULL_COLOR_ASSERT_COMMIT_IN_PROGRESS
+	ld b, FULL_COLOR_ASSERT_COMMIT_IN_PROGRESS
+.assert
+	restore_renderer_state_e
+	ld a, b
 	call RecordRendererAssertion
-	close_renderer_state
 	scf
 	ret
 
 ; Input: A = HANDOFF_TO_OVERWORLD or HANDOFF_TO_YELLOW.
-; Closes admission, cancels cancellable work, then establishes a fresh token.
 BeginRendererHandoff::
 	ld c, a
-	open_renderer_state
+	select_renderer_state_e
 	ld a, c
 	cp HANDOFF_TO_OVERWORLD
-	jr z, .validate_overworld
+	jr z, .to_overworld
 	cp HANDOFF_TO_YELLOW
 	jr nz, .invalid
 	ld a, [wRendererOwner]
@@ -105,7 +154,7 @@ BeginRendererHandoff::
 	cp OVERWORLD_OVERLAY
 	jr nz, .invalid
 	jr .validated
-.validate_overworld
+.to_overworld
 	ld a, [wRendererOwner]
 	cp RENDERER_YELLOW
 	jr nz, .invalid
@@ -118,59 +167,61 @@ BeginRendererHandoff::
 	jr z, .commit_in_progress
 	xor a
 	ld [wRendererAdmissionOpen], a
-	push bc
+	ld a, [wRendererJobState]
+	cp PENDING
+	jr z, .cancel
+	cp PREPARED
+	jr nz, .set_phase
+.cancel
+	ld a, CANCELLED
+	ld [wRendererJobState], a
 	ld a, HANDOFF
-	call CancelRendererJobInOpenState
-	pop bc
+	ld [wRendererJobCancellationReason], a
+.set_phase
 	ld a, c
 	ld [wRendererPhase], a
-	call AdvanceRendererGenerationInOpenState
-	jr c, .generation_exhausted
-	close_renderer_state
+	advance_renderer_generation .generation_exhausted
+	restore_renderer_state_e
 	and a
 	ret
 .generation_exhausted
-	close_renderer_state
-	scf
-	ret
+	xor a
+	ld [wRendererAdmissionOpen], a
+	ld b, FULL_COLOR_ASSERT_GENERATION_EXHAUSTED
+	jr .assert
 .invalid
-	ld a, FULL_COLOR_ASSERT_ILLEGAL_JOB_TRANSITION
-	call RecordRendererAssertion
-	close_renderer_state
-	scf
-	ret
+	ld b, FULL_COLOR_ASSERT_ILLEGAL_JOB_TRANSITION
+	jr .assert
 .commit_in_progress
-	ld a, FULL_COLOR_ASSERT_COMMIT_IN_PROGRESS
+	ld b, FULL_COLOR_ASSERT_COMMIT_IN_PROGRESS
+.assert
+	restore_renderer_state_e
+	ld a, b
 	call RecordRendererAssertion
-	close_renderer_state
 	scf
 	ret
 
 ; Input: A = arriving owner, C = arriving phase.
-; The generation has already been invalidated by BeginRendererHandoff.
 CompleteRendererHandoff::
 	ld b, a
-	open_renderer_state
+	select_renderer_state_e
 	ld a, [wRendererAdmissionOpen]
 	and a
 	jr nz, .invalid
-	; Generation zero is permanently exhausted. A delayed selector must never
-	; reopen admission after BeginRendererHandoff wrapped the token space.
-	ld hl, wRendererGeneration
-	ld a, [hli]
+	ld a, [wRendererGeneration]
 	ld d, a
-	ld a, [hli]
+	ld a, [wRendererGeneration + 1]
 	or d
 	ld d, a
-	ld a, [hli]
+	ld a, [wRendererGeneration + 2]
 	or d
 	ld d, a
-	ld a, [hl]
+	ld a, [wRendererGeneration + 3]
 	or d
 	jr z, .invalid
 	ld a, b
 	cp RENDERER_YELLOW
-	jr z, .validate_yellow
+	jr z, .yellow
 	cp RENDERER_FULL_COLOR_OVERWORLD
 	jr nz, .invalid
 	ld a, [wRendererOwner]
@@ -182,8 +233,8 @@ CompleteRendererHandoff::
 	ld a, c
 	cp OVERWORLD_RECONSTRUCTING
 	jr nz, .invalid
-	jr .validated
-.validate_yellow
+	jr .selected
+.yellow
 	ld a, [wRendererOwner]
 	cp RENDERER_FULL_COLOR_OVERWORLD
 	jr nz, .invalid
@@ -193,32 +244,29 @@ CompleteRendererHandoff::
 	ld a, c
 	cp YELLOW_ACTIVE
 	jr nz, .invalid
-.validated
+.selected
 	ld a, b
 	ld [wRendererOwner], a
 	ld a, c
 	ld [wRendererPhase], a
-	push bc
-	call ClearRendererJobInOpenState
-	pop bc
+	clear_renderer_job
 	ld a, c
 	cp OVERWORLD_RECONSTRUCTING
-	jr z, .keep_admission_closed
+	jr z, .closed
 	ld a, TRUE
 	ld [wRendererAdmissionOpen], a
-	close_renderer_state
-	and a
-	ret
-.keep_admission_closed
+	jr .done
+.closed
 	xor a
 	ld [wRendererAdmissionOpen], a
-	close_renderer_state
+.done
+	restore_renderer_state_e
 	and a
 	ret
 .invalid
+	restore_renderer_state_e
 	ld a, FULL_COLOR_ASSERT_ILLEGAL_JOB_TRANSITION
 	call RecordRendererAssertion
-	close_renderer_state
 	scf
 	ret
 
@@ -232,11 +280,8 @@ SelectFullColorOwnerForDiagnostic::
 	ld c, OVERWORLD_RECONSTRUCTING
 	jp CompleteRendererHandoff
 
-; Phase 1 has no reconstruction writer. This diagnostic boundary represents
-; the later renderer's completed initialization and is the only path that
-; opens admission after an overworld arrival.
 ActivateFullColorOwnerForDiagnostic::
-	open_renderer_state
+	select_renderer_state_e
 	ld a, [wRendererOwner]
 	cp RENDERER_FULL_COLOR_OVERWORLD
 	jr nz, .invalid
@@ -246,57 +291,6 @@ ActivateFullColorOwnerForDiagnostic::
 	ld a, [wRendererAdmissionOpen]
 	and a
 	jr nz, .invalid
-	ld hl, wRendererGeneration
-	ld a, [hli]
-	ld c, a
-	ld a, [hli]
-	or c
-	ld c, a
-	ld a, [hli]
-	or c
-	ld c, a
-	ld a, [hl]
-	or c
-	jr z, .invalid
-	ld a, OVERWORLD_ACTIVE
-	ld [wRendererPhase], a
-	ld a, TRUE
-	ld [wRendererAdmissionOpen], a
-	close_renderer_state
-	and a
-	ret
-.invalid
-	ld a, FULL_COLOR_ASSERT_ILLEGAL_JOB_TRANSITION
-	call RecordRendererAssertion
-	close_renderer_state
-	scf
-	ret
-
-AdvanceRendererGeneration::
-	open_renderer_state
-	ld a, [wRendererJobState]
-	cp COMMITTING
-	jr z, .commit_in_progress
-	ld a, STALE_GENERATION
-	call CancelRendererJobInOpenState
-	call AdvanceRendererGenerationInOpenState
-	jr c, .generation_exhausted
-	close_renderer_state
-	and a
-	ret
-.generation_exhausted
-	close_renderer_state
-	scf
-	ret
-.commit_in_progress
-	ld a, FULL_COLOR_ASSERT_COMMIT_IN_PROGRESS
-	call RecordRendererAssertion
-	close_renderer_state
-	scf
-	ret
-
-AdvanceRendererGenerationInOpenState:
-; Generation zero is the permanent exhaustion sentinel.
 	ld a, [wRendererGeneration]
 	ld c, a
 	ld a, [wRendererGeneration + 1]
@@ -307,31 +301,56 @@ AdvanceRendererGenerationInOpenState:
 	ld c, a
 	ld a, [wRendererGeneration + 3]
 	or c
-	jr z, .exhausted
-
-	ld hl, wRendererGeneration
-	ld b, 4
-.increment
-	inc [hl]
-	jr nz, .advanced
-	inc hl
-	dec b
-	jr nz, .increment
-.exhausted
-	xor a
+	jr z, .invalid
+	ld a, OVERWORLD_ACTIVE
+	ld [wRendererPhase], a
+	ld a, TRUE
 	ld [wRendererAdmissionOpen], a
-	ld a, FULL_COLOR_ASSERT_GENERATION_EXHAUSTED
+	restore_renderer_state_e
+	and a
+	ret
+.invalid
+	restore_renderer_state_e
+	ld a, FULL_COLOR_ASSERT_ILLEGAL_JOB_TRANSITION
 	call RecordRendererAssertion
 	scf
 	ret
-.advanced
+
+AdvanceRendererGeneration::
+	select_renderer_state_e
+	ld a, [wRendererJobState]
+	cp COMMITTING
+	jr z, .commit_in_progress
+	cp PENDING
+	jr z, .cancel
+	cp PREPARED
+	jr nz, .advance
+.cancel
+	ld a, CANCELLED
+	ld [wRendererJobState], a
+	ld a, STALE_GENERATION
+	ld [wRendererJobCancellationReason], a
+.advance
+	advance_renderer_generation .generation_exhausted
+	restore_renderer_state_e
 	and a
 	ret
+.generation_exhausted
+	xor a
+	ld [wRendererAdmissionOpen], a
+	ld b, FULL_COLOR_ASSERT_GENERATION_EXHAUSTED
+	jr .assert
+.commit_in_progress
+	ld b, FULL_COLOR_ASSERT_COMMIT_IN_PROGRESS
+.assert
+	restore_renderer_state_e
+	ld a, b
+	call RecordRendererAssertion
+	scf
+	ret
 
-; Creates the single Phase 1 diagnostic job under the active generation.
-; Returns carry when admission is closed or nonterminal work already exists.
 AdmitRendererDiagnosticJob::
-	open_renderer_state
+	select_renderer_state_e
 	ld a, [wRendererAdmissionOpen]
 	and a
 	jr z, .rejected
@@ -343,166 +362,169 @@ AdmitRendererDiagnosticJob::
 	cp CANCELLED
 	jr nz, .rejected
 .admit
-	ld hl, wRendererGeneration
-	ld de, wRendererJobGeneration
-	ld b, 4
-.copy_generation
-	ld a, [hli]
-	ld [de], a
-	inc de
-	dec b
-	jr nz, .copy_generation
+	ld a, [wRendererGeneration]
+	ld [wRendererJobGeneration], a
+	ld a, [wRendererGeneration + 1]
+	ld [wRendererJobGeneration + 1], a
+	ld a, [wRendererGeneration + 2]
+	ld [wRendererJobGeneration + 2], a
+	ld a, [wRendererGeneration + 3]
+	ld [wRendererJobGeneration + 3], a
 	ld a, PENDING
 	ld [wRendererJobState], a
 	ld a, CANCELLATION_NONE
 	ld [wRendererJobCancellationReason], a
-	close_renderer_state
+	restore_renderer_state_e
 	ld a, ACCEPTED
 	and a
 	ret
 .rejected
-	close_renderer_state
+	restore_renderer_state_e
 	ld a, DEFERRED
 	scf
 	ret
 
 SetRendererJobPrepared::
-	ld a, PENDING
+	ld b, PENDING
 	ld c, PREPARED
-	jp TransitionRendererJob
+	jr TransitionRendererJob
 
 SetRendererJobCommitting::
-	ld a, PREPARED
+	ld b, PREPARED
 	ld c, COMMITTING
-	jp TransitionRendererJob
+	jr TransitionRendererJob
 
 CompleteRendererJob::
-	ld a, COMMITTING
+	ld b, COMMITTING
 	ld c, COMPLETE
-	jp TransitionRendererJob
-
-; Input: A = required current state, C = next state.
+	; fallthrough
 TransitionRendererJob:
-	ld b, a
-	open_renderer_state
-	push bc
-	call CompareRendererJobGenerationInOpenState
-	pop bc
+	select_renderer_state_e
+	ld a, [wRendererJobGeneration]
+	ld d, a
+	ld a, [wRendererGeneration]
+	cp d
+	jr nz, .stale
+	ld a, [wRendererJobGeneration + 1]
+	ld d, a
+	ld a, [wRendererGeneration + 1]
+	cp d
+	jr nz, .stale
+	ld a, [wRendererJobGeneration + 2]
+	ld d, a
+	ld a, [wRendererGeneration + 2]
+	cp d
+	jr nz, .stale
+	ld a, [wRendererJobGeneration + 3]
+	ld d, a
+	ld a, [wRendererGeneration + 3]
+	cp d
 	jr nz, .stale
 	ld a, [wRendererJobState]
 	cp b
 	jr nz, .invalid
 	ld a, c
 	ld [wRendererJobState], a
-	close_renderer_state
+	restore_renderer_state_e
 	and a
 	ret
 .stale
+	ld a, [wRendererJobState]
+	cp PENDING
+	jr z, .cancel_stale
+	cp PREPARED
+	jr nz, .invalid
+.cancel_stale
+	ld a, CANCELLED
+	ld [wRendererJobState], a
 	ld a, STALE_GENERATION
-	call CancelRendererJobInOpenState
-	jr .invalid
+	ld [wRendererJobCancellationReason], a
 .invalid
+	restore_renderer_state_e
 	ld a, FULL_COLOR_ASSERT_ILLEGAL_JOB_TRANSITION
 	call RecordRendererAssertion
-	close_renderer_state
 	scf
 	ret
 
-; Input: A = cancellation reason. Only PENDING/PREPARED may cancel.
+; Input: A = cancellation reason.
 CancelRendererJob::
 	ld c, a
-	open_renderer_state
-	ld a, c
-	call CancelRendererJobInOpenState
-	jr c, .not_cancelled
-	close_renderer_state
-	and a
-	ret
-.not_cancelled
-	close_renderer_state
-	scf
-	ret
-
-CancelRendererJobInOpenState:
-	ld c, a
+	select_renderer_state_e
 	ld a, [wRendererJobState]
 	cp PENDING
 	jr z, .cancel
 	cp PREPARED
-	jr z, .cancel
-	scf
-	ret
+	jr nz, .not_cancelled
 .cancel
 	ld a, CANCELLED
 	ld [wRendererJobState], a
 	ld a, c
 	ld [wRendererJobCancellationReason], a
+	restore_renderer_state_e
 	and a
 	ret
-
-ClearRendererJobInOpenState:
-	ld a, RENDERER_JOB_NONE
-	ld [wRendererJobState], a
-	ld a, CANCELLATION_NONE
-	ld [wRendererJobCancellationReason], a
-	xor a
-	ld hl, wRendererJobGeneration
-	ld bc, 4
-	jp FillMemory
-
-CompareRendererJobGenerationInOpenState:
-	ld hl, wRendererGeneration
-	ld de, wRendererJobGeneration
-	ld b, 4
-.compare
-	ld a, [de]
-	cp [hl]
-	ret nz
-	inc de
-	inc hl
-	dec b
-	jr nz, .compare
+.not_cancelled
+	restore_renderer_state_e
+	scf
 	ret
 
-; Input: A = expected owner. Checks owner before all four generation bytes.
+; Input: A = expected owner.
 AssertRendererWriteAllowed::
 	ld c, a
-	open_renderer_state
+	select_renderer_state_e
 	ld a, [wRendererOwner]
 	cp c
 	jr nz, .violation
-	call CompareRendererJobGenerationInOpenState
+	ld a, [wRendererJobGeneration]
+	ld d, a
+	ld a, [wRendererGeneration]
+	cp d
 	jr nz, .violation
-	close_renderer_state
+	ld a, [wRendererJobGeneration + 1]
+	ld d, a
+	ld a, [wRendererGeneration + 1]
+	cp d
+	jr nz, .violation
+	ld a, [wRendererJobGeneration + 2]
+	ld d, a
+	ld a, [wRendererGeneration + 2]
+	cp d
+	jr nz, .violation
+	ld a, [wRendererJobGeneration + 3]
+	ld d, a
+	ld a, [wRendererGeneration + 3]
+	cp d
+	jr nz, .violation
+	restore_renderer_state_e
 	and a
 	ret
 .violation
+	restore_renderer_state_e
 	ld a, FULL_COLOR_ASSERT_OWNER_OR_GENERATION
 	call RecordRendererAssertion
-	close_renderer_state
 	scf
 	ret
 
 GetRendererOwner::
-	open_renderer_state
+	select_renderer_state_e
 	ld a, [wRendererOwner]
 	ld b, a
-	close_renderer_state
+	restore_renderer_state_e
 	ld a, b
 	ret
 
-; Phase 1 deliberately has no renderer work to perform during VBlank.
 RunFullColorOwnershipVBlank::
 	ret
 
 RouteRendererOwnershipVBlank::
+IF DEF(_DEBUG)
+	call PollFullColorDebugCommand
+ENDC
 	call GetRendererOwner
 	cp RENDERER_FULL_COLOR_OVERWORLD
 	ret nz
 	jp RunFullColorOwnershipVBlank
 
-; Banked copy of the original Home helper, moved only to keep the fixed bank
-; within its pre-existing bound after the ownership hooks were added.
 ClearVramBanked::
 	ld hl, STARTOF(VRAM)
 	ld bc, SIZEOF(VRAM)
@@ -510,10 +532,10 @@ ClearVramBanked::
 	jp FillMemory
 
 IF DEF(_DEBUG)
-; Caller has enabled and selected the debug SRAM carrier bank. This routine
-; mirrors production ownership state; it never synthesizes observed values.
+; Caller has selected SRAM bank 3. This uses the same atomic, stackless WRAM2
+; primitive as the production ABI.
 CopyRendererStateToDebugCarrier::
-	open_renderer_state
+	select_renderer_state_e
 	ld a, [wRendererOwner]
 	ld [wFullColorDebugOwner], a
 	ld a, [wRendererPhase]
@@ -531,9 +553,18 @@ CopyRendererStateToDebugCarrier::
 	ld [wFullColorDebugAdmissionOpen], a
 	ld a, [wRendererJobState]
 	ld [wFullColorDebugJobState], a
+	ld hl, wRendererJobGeneration
+	ld de, wFullColorDebugJobGeneration
+	ld b, 4
+.job_generation
+	ld a, [hli]
+	ld [de], a
+	inc de
+	dec b
+	jr nz, .job_generation
 	ld a, [wRendererJobCancellationReason]
 	ld [wFullColorDebugCancellationReason], a
-	close_renderer_state
+	restore_renderer_state_e
 	ret
 
 RecordRendererAssertion:

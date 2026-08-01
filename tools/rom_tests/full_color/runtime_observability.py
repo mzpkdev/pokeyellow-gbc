@@ -12,9 +12,8 @@ from typing import Sequence, TYPE_CHECKING
 
 from tools.rom_tests.emulator import Emulator
 
-from .enums import CancellationReason, JobState, Owner, Phase
+from .enums import CancellationReason, JobState, Owner, Phase, RequestResult
 from .snapshots import (
-    RECONSTRUCTION_ITEM_PROVENANCE,
     REQUIRED_RECONSTRUCTION_ITEMS,
     SemanticSnapshot,
 )
@@ -37,6 +36,8 @@ DEBUG_TRACE_RECORD_SIZE = 33
 DIRTY_BITS = {"bg": 0x01, "obj": 0x02, "attributes": 0x04}
 PHASE1_OWNERSHIP_REPLACEMENT_COMMAND = 1
 PHASE1_OWNERSHIP_REPLACEMENT_CHECKPOINT = 1
+PHASE1_RESTORE_YELLOW_COMMAND = 2
+PHASE1_RESTORE_YELLOW_CHECKPOINT = 2
 PHASE1_MAX_COMMAND_FRAMES = 120
 PHASE1_CASE_ID = "RC-OWNERSHIP-REPLACEMENT"
 PHASE1_CHECKPOINT = "phase1-ownership-replacement"
@@ -61,6 +62,15 @@ _UNSUPPORTED_BASELINE_SCALARS = {
     "wFullColorDebugTimingRowKey": 2,
     "wFullColorDebugAssertionCode": 2,
 }
+_RETAINED_PHASE1_DIAGNOSTIC_SCALARS = frozenset(
+    {
+        "wFullColorDebugLastRequestResult",
+        "wFullColorDebugCommitUnitID",
+        "wFullColorDebugWriterID",
+        "wFullColorDebugLastWriterID",
+        "wFullColorDebugLastResourceID",
+    }
+)
 
 REQUIRED_DEBUG_SYMBOLS = (
     "wFullColorDebugStateStart",
@@ -73,6 +83,7 @@ REQUIRED_DEBUG_SYMBOLS = (
     "wFullColorDebugLastRequestResult",
     "wFullColorDebugAdmissionOpen",
     "wFullColorDebugJobState",
+    "wFullColorDebugJobGeneration",
     "wFullColorDebugCancellationReason",
     "wFullColorDebugDirtyFlags",
     "wFullColorDebugCommitUnitID",
@@ -104,6 +115,7 @@ PHASE1_COMMAND_SYMBOLS = (
     "wFullColorDebugCommand",
     "wFullColorDebugCheckpoint",
 )
+PHASE1_COMMAND_PENDING_SYMBOL = "hFullColorDebugCommandPending"
 
 PHASE1_TRACE_SYMBOLS = TraceSymbols(
     owners={
@@ -214,6 +226,14 @@ def wait_until_debug_ready(emulator: Emulator, *, max_frames: int = 600) -> None
     raise AssertionError(f"debug state did not initialize within {max_frames} frames")
 
 
+def wait_until_phase1_capture_ready(emulator: Emulator) -> None:
+    """Reach the first stable visual checkpoint after debug initialization."""
+
+    wait_until_debug_ready(emulator)
+    # Debug magic is published one DMA before hardware OAM catches its shadow.
+    emulator.tick(3)
+
+
 def read_baseline_debug_state(emulator: Emulator) -> BaselineDebugState:
     wait_until_debug_ready(emulator)
 
@@ -319,11 +339,18 @@ def capture_yellow_baseline_snapshot(
     scenario: str,
     seed: int,
     checkpoint: str,
+    retained_phase1_diagnostics: bool = False,
 ) -> SemanticSnapshot:
     """Capture one observational, schema-valid Yellow-owned CGB checkpoint."""
     wait_until_debug_ready(emulator)
     guards_before = _read_capture_guards(emulator)
-    trace = read_writer_trace(emulator)
+    trace = read_writer_trace(
+        emulator,
+        symbols=PHASE1_TRACE_SYMBOLS if retained_phase1_diagnostics else None,
+        permitted_writer_ids=("WR-RC-OWNERSHIP-REPLACEMENT",)
+        if retained_phase1_diagnostics
+        else None,
+    )
 
     layout_version = emulator.read("wFullColorDebugLayoutVersion")
     owner_code = emulator.read("wFullColorDebugOwner")
@@ -340,7 +367,15 @@ def capture_yellow_baseline_snapshot(
         symbol: _read_little_endian(emulator, symbol, size)
         for symbol, size in _UNSUPPORTED_BASELINE_SCALARS.items()
     }
-    nonzero = {symbol: value for symbol, value in unsupported.items() if value}
+    nonzero = {
+        symbol: value
+        for symbol, value in unsupported.items()
+        if value
+        and not (
+            retained_phase1_diagnostics
+            and symbol in _RETAINED_PHASE1_DIAGNOSTIC_SCALARS
+        )
+    }
     if nonzero:
         details = ", ".join(
             f"{symbol}={value}" for symbol, value in sorted(nonzero.items())
@@ -445,12 +480,15 @@ def run_debug_command(
     *,
     command: int = PHASE1_OWNERSHIP_REPLACEMENT_COMMAND,
     checkpoint: int = PHASE1_OWNERSHIP_REPLACEMENT_CHECKPOINT,
+    prior_checkpoint: int = 0,
     max_frames: int = PHASE1_MAX_COMMAND_FRAMES,
 ) -> None:
     """Submit one bounded mailbox command and wait for its exact checkpoint."""
 
     wait_until_debug_ready(emulator)
     missing = sorted(set(PHASE1_COMMAND_SYMBOLS) - emulator.symbols.keys())
+    if PHASE1_COMMAND_PENDING_SYMBOL not in emulator.symbols:
+        missing.append(PHASE1_COMMAND_PENDING_SYMBOL)
     if missing:
         raise AssertionError(
             "debug ROM is missing Phase 1 command symbols: " + ", ".join(missing)
@@ -465,21 +503,27 @@ def run_debug_command(
             "Phase 1 command symbols are outside reserved SRAM bank 3: "
             + ", ".join(wrong_bank)
         )
+    if emulator.symbol_banks[PHASE1_COMMAND_PENDING_SYMBOL] != 0:
+        raise AssertionError("Phase 1 pending trigger must reside in fixed HRAM")
     if emulator.read("wFullColorDebugLayoutVersion") != DEBUG_LAYOUT_VERSION:
         raise AssertionError("Phase 1 command requires debug layout version 2")
     if emulator.read("wFullColorDebugActivationPhase") != 1:
         raise AssertionError("Phase 1 command requires activation phase 1")
-    prior_checkpoint = emulator.read("wFullColorDebugCheckpoint")
-    if prior_checkpoint != 0:
+    actual_prior_checkpoint = emulator.read("wFullColorDebugCheckpoint")
+    if actual_prior_checkpoint != prior_checkpoint:
         raise AssertionError(
-            f"Phase 1 command requires a fresh checkpoint mailbox; got {prior_checkpoint}"
+            "Phase 1 command requires checkpoint "
+            f"{prior_checkpoint}; got {actual_prior_checkpoint}"
         )
     emulator.write("wFullColorDebugCommand", command)
+    emulator.write(PHASE1_COMMAND_PENDING_SYMBOL, 1)
     for _ in range(max_frames + 1):
         actual = emulator.read("wFullColorDebugCheckpoint")
         if actual == checkpoint:
+            if emulator.read("wFullColorDebugCommand") != 0:
+                raise AssertionError("Phase 1 debug command was not acknowledged")
             return
-        if actual not in {0, checkpoint}:
+        if actual not in {prior_checkpoint, checkpoint}:
             raise AssertionError(
                 f"Phase 1 command reached unexpected checkpoint {actual}; expected {checkpoint}"
             )
@@ -489,17 +533,39 @@ def run_debug_command(
     )
 
 
+def restore_phase1_to_yellow(
+    emulator: Emulator,
+    *,
+    scenario: str = "phase1-baseline",
+    seed: int = 0,
+    checkpoint: str = "after-phase1-restore",
+) -> SemanticSnapshot:
+    """Run the shared production handoff back to Yellow and capture its state."""
+
+    run_debug_command(
+        emulator,
+        command=PHASE1_RESTORE_YELLOW_COMMAND,
+        checkpoint=PHASE1_RESTORE_YELLOW_CHECKPOINT,
+        prior_checkpoint=PHASE1_OWNERSHIP_REPLACEMENT_CHECKPOINT,
+    )
+    return capture_yellow_baseline_snapshot(
+        emulator,
+        scenario=scenario,
+        seed=seed,
+        checkpoint=checkpoint,
+        retained_phase1_diagnostics=True,
+    )
+
+
 def _runtime_reconstruction() -> dict[str, object]:
     items = sorted(REQUIRED_RECONSTRUCTION_ITEMS)
     return {
         "required_items": items,
-        "completed_items": items,
-        "item_provenance": {
-            item: RECONSTRUCTION_ITEM_PROVENANCE[item].value for item in items
-        },
-        "poisoned_items": items,
-        "unknown_prior_state": True,
-        "presentation_barrier_count": 1,
+        "completed_items": [],
+        "item_provenance": {},
+        "poisoned_items": [],
+        "unknown_prior_state": False,
+        "presentation_barrier_count": 0,
     }
 
 
@@ -508,6 +574,7 @@ def capture_phase1_runtime_observation(
     case: ConformanceCase,
     *,
     execute_command: bool = True,
+    settle_debug_ready: bool = True,
 ) -> RuntimeObservation:
     """Capture the sole activated Phase 1 case from one real ROM checkpoint."""
 
@@ -515,12 +582,16 @@ def capture_phase1_runtime_observation(
         raise AssertionError(
             f"Phase 1 runtime capture only supports {PHASE1_CASE_ID}; got {case.case_id}"
         )
+    if execute_command and settle_debug_ready:
+        wait_until_phase1_capture_ready(emulator)
+    else:
+        wait_until_debug_ready(emulator)
+    guards_before = _read_capture_guards(emulator)
     if execute_command:
         run_debug_command(emulator)
     elif emulator.read("wFullColorDebugCheckpoint") != PHASE1_OWNERSHIP_REPLACEMENT_CHECKPOINT:
         raise AssertionError("Phase 1 runtime checkpoint has not been reached")
 
-    guards_before = _read_capture_guards(emulator)
     layout_version = emulator.read("wFullColorDebugLayoutVersion")
     activation_phase = emulator.read("wFullColorDebugActivationPhase")
     if layout_version != DEBUG_LAYOUT_VERSION:
@@ -547,6 +618,30 @@ def capture_phase1_runtime_observation(
             f"Phase 1 runtime carrier has wrong generation: {generation}; "
             f"expected {expected_generation}"
         )
+    exact_scalars = {
+        "wFullColorDebugLastRequestResult": 0,
+        "wFullColorDebugAdmissionOpen": 1,
+        "wFullColorDebugJobState": 3,
+        "wFullColorDebugCancellationReason": 0xFF,
+        "wFullColorDebugCommitUnitID": 1,
+        "wFullColorDebugWriterID": 1,
+        "wFullColorDebugLastWriterID": 1,
+        "wFullColorDebugLastResourceID": 1,
+    }
+    observed_scalars: dict[str, int] = {}
+    for symbol, expected in exact_scalars.items():
+        size = 2 if symbol in {
+            "wFullColorDebugCommitUnitID",
+            "wFullColorDebugWriterID",
+            "wFullColorDebugLastWriterID",
+            "wFullColorDebugLastResourceID",
+        } else 1
+        actual = _read_little_endian(emulator, symbol, size)
+        observed_scalars[symbol] = actual
+        if actual != expected:
+            raise AssertionError(
+                f"Phase 1 runtime carrier {symbol}={actual}; expected {expected}"
+            )
     assertion_code = _read_little_endian(
         emulator, "wFullColorDebugAssertionCode", 2
     )
@@ -576,8 +671,23 @@ def capture_phase1_runtime_observation(
             "owner": Owner.RENDERER_FULL_COLOR_OVERWORLD.value,
             "phase": Phase.OVERWORLD_ACTIVE.value,
             "generation": generation,
-            "request_result": None,
-            "job": None,
+            "request_result": {
+                0: RequestResult.ACCEPTED.value,
+            }[observed_scalars["wFullColorDebugLastRequestResult"]],
+            "job": {
+                "job_id": "JOB-REPLACEMENT",
+                "request_ids": ["REQ-RC-OWNERSHIP-REPLACEMENT"],
+                "resources": ["ownership_generation"],
+                "state": {
+                    3: JobState.COMPLETE.value,
+                }[observed_scalars["wFullColorDebugJobState"]],
+                "cancellation_reason": None,
+                "commit_unit_id": "MU-RC-OWNERSHIP-REPLACEMENT",
+                "owner": Owner.RENDERER_FULL_COLOR_OVERWORLD.value,
+                "generation": _read_little_endian(
+                    emulator, "wFullColorDebugJobGeneration", 4
+                ),
+            },
             "writer_id": writer_id,
             "traced_writer_ids": list(
                 _stable_unique([entry.writer_id for entry in trace.entries])
@@ -626,7 +736,9 @@ def capture_phase1_runtime_observation(
             for name in guards_before
             if guards_after[name] != guards_before[name]
         )
-        raise AssertionError("runtime observation capture changed guard state: " + changed)
+        raise AssertionError(
+            "Phase 1 command or runtime observation changed guard state: " + changed
+        )
     return RuntimeObservation(case.case_id, rom_identity, snapshot, trace)
 
 

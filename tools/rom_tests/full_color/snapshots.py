@@ -1107,7 +1107,17 @@ class SemanticSnapshot:
                 raise SnapshotValidationError(
                     "snapshot.reconstruction: every prior resource must be poisoned"
                 )
-        if snapshot.phase in {Phase.OVERWORLD_ACTIVE, Phase.OVERWORLD_OVERLAY}:
+        phase1_ownership_diagnostic = (
+            snapshot.evidence_kind == "RENDERER_RUNTIME"
+            and snapshot.activation_phase == 1
+            and snapshot.scenario == "RC-OWNERSHIP-REPLACEMENT"
+            and snapshot.checkpoint == "phase1-ownership-replacement"
+            and snapshot.phase is Phase.OVERWORLD_ACTIVE
+        )
+        if (
+            snapshot.phase in {Phase.OVERWORLD_ACTIVE, Phase.OVERWORLD_OVERLAY}
+            and not phase1_ownership_diagnostic
+        ):
             if not snapshot.reconstruction.unknown_prior_state:
                 raise SnapshotValidationError(
                     "snapshot.reconstruction: active overworld requires poisoned/unknown prior state"
@@ -1126,6 +1136,16 @@ class SemanticSnapshot:
                 raise SnapshotValidationError(
                     "snapshot.reconstruction: active overworld requires exactly one presentation barrier"
                 )
+        if phase1_ownership_diagnostic and (
+            snapshot.reconstruction.completed_items
+            or snapshot.reconstruction.item_provenance
+            or snapshot.reconstruction.poisoned_items
+            or snapshot.reconstruction.unknown_prior_state
+            or snapshot.reconstruction.presentation_barrier_count
+        ):
+            raise SnapshotValidationError(
+                "snapshot.reconstruction: Phase 1 ownership diagnostic cannot claim reconstruction"
+            )
         return snapshot
 
     @classmethod

@@ -60,8 +60,6 @@ SECTION "Full Color Gate 0 Debug State", SRAM, BANK[3]
 IF DEF(_DEBUG)
 DEF FULL_COLOR_DEBUG_LAYOUT_VERSION EQU 2
 DEF FULL_COLOR_DEBUG_ACTIVATION_PHASE EQU 1
-DEF FULL_COLOR_DEBUG_WRITER_OWNERSHIP EQU 1
-DEF FULL_COLOR_DEBUG_COMMIT_OWNERSHIP_REPLACEMENT EQU 1
 DEF FULL_COLOR_DEBUG_TRACE_LAYOUT_VERSION EQU 2
 DEF FULL_COLOR_DEBUG_TRACE_CAPACITY EQU 32
 DEF FULL_COLOR_DEBUG_TRACE_RECORD_SIZE EQU 33
@@ -72,6 +70,7 @@ EXPORT FULL_COLOR_DEBUG_WRITER_OWNERSHIP
 EXPORT FULL_COLOR_DEBUG_COMMIT_OWNERSHIP_REPLACEMENT
 EXPORT FULL_COLOR_DEBUG_TRACE_LAYOUT_VERSION
 EXPORT FULL_COLOR_DEBUG_TRACE_CAPACITY
+EXPORT FULL_COLOR_DEBUG_TRACE_RECORD_SIZE
 
 wFullColorDebugStateStart::
 wFullColorDebugMagic:: ds 4
@@ -85,6 +84,7 @@ wFullColorDebugGeneration:: ds 4
 wFullColorDebugLastRequestResult:: db
 wFullColorDebugAdmissionOpen:: db
 wFullColorDebugJobState:: db
+wFullColorDebugJobGeneration:: ds 4
 wFullColorDebugCancellationReason:: db
 wFullColorDebugDirtyFlags:: db
 wFullColorDebugCommitUnitID:: dw
@@ -101,6 +101,13 @@ wFullColorDebugOAMFallbackObjectID:: dw
 wFullColorDebugOAMFallbackTileID:: db
 wFullColorDebugTimingRowKey:: dw
 wFullColorDebugAssertionCode:: dw
+
+; Private bounded trace-writer scratch; host code consumes named carrier fields
+; and the trace header/records, never these implementation bytes.
+wFullColorDebugTraceScratchState:: db
+wFullColorDebugTraceScratchJobID:: db
+wFullColorDebugTraceScratchCancellation:: db
+wFullColorDebugTraceScratchFlags:: db
 
 ; Binary layout consumed by tools/rom_tests/full_color/trace.py:
 ; magic, layout version, capacity, count, next write, then physical slots.
