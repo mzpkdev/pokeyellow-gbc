@@ -14,6 +14,7 @@ def _recipes() -> dict[str, str]:
         "measure-full-color-phase1",
         "test-full-color-gate0",
         "test-full-color-renderer-conformance",
+        "test-full-color-renderer-runtime",
         "test-full-color-smoke",
         "test-full-color-handoffs",
         "test-full-color-soak",
@@ -32,6 +33,16 @@ def _recipes() -> dict[str, str]:
     return recipes
 
 
+def _dependencies() -> dict[str, tuple[str, ...]]:
+    text = (ROOT / "Makefile").read_text(encoding="utf-8")
+    return {
+        name: tuple(dependencies.split())
+        for name, dependencies in re.findall(
+            r"^(test-full-color-[a-z0-9-]+):([^\n]*)$", text, re.MULTILINE
+        )
+    }
+
+
 def test_required_full_color_commands_are_concrete() -> None:
     recipes = _recipes()
     assert "python3 -m venv .venv" in recipes["test-full-color-setup"]
@@ -42,7 +53,8 @@ def test_required_full_color_commands_are_concrete() -> None:
     assert "test_model.py" in recipes["test-full-color-soak"]
     assert (
         "test-full-color-gate0 test-full-color-renderer-conformance "
-        "test-full-color-handoffs test-full-color-soak"
+        "test-full-color-renderer-runtime test-full-color-handoffs "
+        "test-full-color-soak"
     ) in (ROOT / "Makefile").read_text(encoding="utf-8")
 
 
@@ -109,3 +121,29 @@ def test_renderer_conformance_has_a_stable_separate_command() -> None:
     assert aggregate_header is not None
     assert "test-full-color-renderer-conformance" not in gate0_header.group(0)
     assert "test-full-color-renderer-conformance" in aggregate_header.group(0)
+
+
+def test_phase1_runtime_has_a_stable_separate_command() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    recipes = _recipes()
+    dependencies = _dependencies()
+    assert (
+        "FULL_COLOR_RUNTIME_RESULTS ?= test-results/full-color-renderer-runtime"
+        in makefile
+    )
+    assert dependencies["test-full-color-renderer-runtime"] == ("yellow_debug",)
+    target = recipes["test-full-color-renderer-runtime"]
+    assert (
+        "$(PYTHON) -m tools.rom_tests.full_color.renderer_runtime_runner --root ."
+        in target
+    )
+    assert target.count("$(FULL_COLOR_RUNTIME_RESULTS)") == 1
+    assert '--results "$(FULL_COLOR_RUNTIME_RESULTS)"' in target
+
+    for sibling in (
+        "test-full-color-gate0",
+        "test-full-color-renderer-conformance",
+    ):
+        assert "test-full-color-renderer-runtime" not in dependencies[sibling]
+        assert "renderer_runtime_runner" not in recipes[sibling]
+    assert "test-full-color-renderer-runtime" in dependencies["test-full-color-all"]
