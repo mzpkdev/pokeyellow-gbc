@@ -2,9 +2,10 @@
 
 ## Execution evidence rule
 
-This documentation revision defines future execution records; it does not
-claim that Gate 0 artifacts, measurements, concrete inventory rows, or checks
-already exist. Every phase retains the evidence block below in its execution
+This plan defines the execution record required at every migration gate.
+Gate 0 and Phase 1 now have retained evidence where explicitly described
+below; later phases remain plans and gain no acceptance credit from the Phase 1
+diagnostic. Every phase retains the evidence block below in its execution
 record:
 
 - **Requirements:** concrete `R…` sub-IDs changed or established by the phase.
@@ -92,9 +93,11 @@ touches before the changed path becomes reachable.
 `R2.4`, `R2.8`, `R2.9`, `R3.1`, `R3.2`, `R3.3`, `R3.4`, `R3.5`, `R3.6`,
 `R4.1`, `R4.2`, `R4.3`, `R4.4`, and `R4.5`.
 
-**Inventory:** When executed, list every concrete closed-inventory writer,
-scene-boundary, reset, handoff, bank, startup, and job-lifecycle `WR-…`,
-`SC-…`, and `MU-…` row touched by the foundation.
+**Inventory:** The executed Phase 1 visible-resource slice closes
+`WR-YELLOW-LCDC-DISABLE`, `WR-YELLOW-MAP-VIEW-TILE-COPY`,
+`SC-YELLOW-MAP-ENTRY`, and `MU-YELLOW-MAP-VIEW-INITIAL` against current source
+and built-ROM evidence. Startup rejection and ownership-core control flow do
+not touch the visible-resource schema and require no artificial rows.
 
 **Acceptance:** The execution record closes `AC-OWN-01`, `AC-JOB-01`,
 `AC-TECH-02`, `AC-TECH-04`, `AC-TECH-06`, and `AC-TECH-07`.
@@ -108,6 +111,51 @@ directed-edge coverage.
 **Exit gate:** Ownership-model sequences agree with debug-ROM traces, and
 bank-torture, cancellation, mutation, handoff, and baseline semantic evidence
 is green for every cited closed-inventory row.
+
+### Executed Phase 1 record
+
+The stable command is `make test-full-color-renderer-runtime`. It creates a
+new numbered attempt under `test-results/full-color-renderer-runtime` (or
+`FULL_COLOR_RUNTIME_RESULTS`), runs two fresh CGB emulator captures, validates
+both closed manifests, and requires their stable files to be byte-identical.
+Read `summary.json` first; for each run read `run-summary.json`,
+`manifest.json`, `baseline-semantic-report.json`, `baseline-before.json`, and
+`baseline-after.json`; then read the activated case's `compact-summary.txt`,
+`structured-diff.json`, `expected-patches.json`,
+`actual-semantic-snapshot.json`, and `actual-writer-trace.json`.
+
+Only `RC-OWNERSHIP-REPLACEMENT` is activated. Its snapshots declare
+`RENDERER_RUNTIME` at activation phase 1, and its exact check set is
+`CHK-OWN-01`, `CHK-JOB-01`, and `CHK-COMMIT-01`. The case proves that the old
+generation is cancelled with `SUPERSEDED`, cannot write afterward, and is
+replaced by a job that completes under the fresh generation. This is real-ROM
+evidence for that ownership-job operation only, not colored-resource commit
+coverage and not closure of Phase 2 color acceptance.
+
+The measured 13-byte ownership state is linked in WRAM bank 2 at
+`$d000`–`$d00c`, with its exclusive end at `$d00d`, 235 bytes of stack margin,
+and banked interrupt/runtime access that preserves `rSVBK`. The ownership core
+is linked in ROM bank `$3b` at `$4000`–`$4753` (`$754` bytes). The authoritative
+decision and build identities are retained in
+`../evidence/phase1-ownership-placement.json`.
+
+Phase 1 revalidates the closed initial-map-entry visible-resource inventory:
+`WR-YELLOW-LCDC-DISABLE`, `WR-YELLOW-MAP-VIEW-TILE-COPY`,
+`SC-YELLOW-MAP-ENTRY`, and `MU-YELLOW-MAP-VIEW-INITIAL`. Each row has one exact
+source and one exact ROM assignment, for eight reviewed assignments total,
+and discovery reports zero unlisted findings within that slice. CGB-only
+startup and ownership-core control flow do not touch the visible-resource
+schema and therefore do not add artificial inventory rows.
+
+The baseline semantic comparison preserves BG tile IDs, attributes, BG and OBJ
+palettes, shadow and hardware OAM, map and tileset identity, dirty state, and
+banks; it restores `RENDERER_YELLOW`/`YELLOW_ACTIVE` with empty jobs and a fresh
+generation. Yellow's baseline visuals are therefore unchanged. The release,
+debug, and VC products are CGB-only: a normal CGB hard boot switches speed
+exactly once, an already-double-speed entry does not switch again, and DMG and
+SGB boot remain in the rejection path. No palette, attribute, transfer,
+overlay, OAM-coloring, or colored-renderer acceptance is claimed before
+Phase 2.
 
 ## Phase 2: diagnostic vertical slice
 

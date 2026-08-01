@@ -209,7 +209,8 @@ ROMX $39
 	"Pikachu Graphics 1"
 ROMX $3A
 	"bank3A"
-; bank $3B is empty
+ROMX $3B
+	"Full Color Ownership Core"
 ROMX $3C
 	"Pikachu PCM"
 	"bank3C"
@@ -237,12 +238,16 @@ WRAM0
 	"Tilemap"
 	"Overworld Map"
 	"WRAM"
+WRAMX $1
+	"WRAM Bank 1"
 	"Party Data"
 	"Main Data"
 	"Current Box Data"
 	"CGB Palette Data"
 	org $df15
 	"Stack"
+WRAMX $2
+	"Full Color Ownership State"
 VRAM $0
 	"VRAM"
 SRAM $0

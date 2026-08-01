@@ -342,6 +342,12 @@ INCLUDE "engine/printer/printer2.asm"
 INCLUDE "engine/overworld/npc_movement_2.asm"
 
 
+SECTION "Full Color Ownership Core", ROMX[$4000], BANK[PHASE1_OWNERSHIP_ROM_BANK]
+
+INCLUDE "engine/full_color/ownership.asm"
+INCLUDE "engine/full_color/debug_runtime.asm"
+
+
 SECTION "bank3C", ROMX
 
 INCLUDE "engine/overworld/advance_player_sprite.asm"

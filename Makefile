@@ -59,8 +59,10 @@ RGBGFXFLAGS  ?= -Weverything
 	compare \
 	tools \
 	test-full-color-setup \
+	measure-full-color-phase1 \
 	test-full-color-gate0 \
 	test-full-color-renderer-conformance \
+	test-full-color-renderer-runtime \
 	test-full-color-smoke \
 	test-full-color-handoffs \
 	test-full-color-soak \
@@ -104,16 +106,23 @@ tools:
 
 FULL_COLOR_RESULTS ?= test-results/full-color-gate0
 FULL_COLOR_CONFORMANCE_RESULTS ?= test-results/full-color-renderer-conformance
+FULL_COLOR_RUNTIME_RESULTS ?= test-results/full-color-renderer-runtime
+
+measure-full-color-phase1: yellow_debug
+	$(PYTHON) -m tools.rom_tests.full_color.phase1_measurements --root . --output specs/full-colors/evidence/phase1-ownership-placement.json
 
 test-full-color-setup:
 	python3 -m venv .venv
 	.venv/bin/python -m pip install -r tools/rom_tests/requirements.txt
 
-test-full-color-gate0: yellow_debug
+test-full-color-gate0: pokeyellow.gbc pokeyellow_debug.gbc pokeyellow_vc.gbc
 	$(PYTHON) -m tools.rom_tests.full_color.gate0_runner --root . --results "$(FULL_COLOR_RESULTS)"
 
 test-full-color-renderer-conformance:
 	$(PYTHON) -m tools.rom_tests.full_color.renderer_conformance_runner --root . --results "$(FULL_COLOR_CONFORMANCE_RESULTS)"
+
+test-full-color-renderer-runtime: yellow_debug
+	$(PYTHON) -m tools.rom_tests.full_color.renderer_runtime_runner --root . --results "$(FULL_COLOR_RUNTIME_RESULTS)"
 
 test-full-color-smoke: yellow_debug
 	$(PYTHON) -m tools.rom_tests.full_color.runtime_observability --root . --results "$(FULL_COLOR_RESULTS)/smoke"
@@ -124,7 +133,7 @@ test-full-color-handoffs:
 test-full-color-soak:
 	$(PYTHON) -m pytest tools/rom_tests/tests/unit/full_color/test_model.py -k seeded_valid_sequences
 
-test-full-color-all: test-full-color-gate0 test-full-color-renderer-conformance test-full-color-handoffs test-full-color-soak
+test-full-color-all: test-full-color-gate0 test-full-color-renderer-conformance test-full-color-renderer-runtime test-full-color-handoffs test-full-color-soak
 
 
 RGBASMFLAGS += -Q8 -P includes.asm
@@ -165,12 +174,11 @@ $(foreach obj, $(pokeyellow_vc_obj), $(eval $(call DEP,$(obj),$(obj:_vc.o=.asm))
 endif
 
 
-RGBLINKFLAGS += -d
 pokeyellow.gbc:       RGBLINKFLAGS += -p 0x00
 pokeyellow_debug.gbc: RGBLINKFLAGS += -p 0xff
 pokeyellow_vc.gbc:    RGBLINKFLAGS += -p 0x00
 
-RGBFIXFLAGS += -cjsv -k 01 -l 0x33 -m MBC5+RAM+BATTERY -r 03 -t "POKEMON YELLOW"
+RGBFIXFLAGS += -Cjsv -k 01 -l 0x33 -m MBC5+RAM+BATTERY -r 03 -t "POKEMON YELLOW"
 pokeyellow.gbc:       RGBFIXFLAGS += -p 0x00
 pokeyellow_debug.gbc: RGBFIXFLAGS += -p 0xff
 pokeyellow_vc.gbc:    RGBFIXFLAGS += -p 0x00

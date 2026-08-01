@@ -51,7 +51,7 @@ jobs:
         uses: ./.github/actions/setup-build
 
       - name: Build
-        run: make -j"$(nproc)"
+        run: make -j"$(nproc)" yellow yellow_debug yellow_vc
 
       - name: Check for modified tracked files
         run: |
@@ -70,6 +70,9 @@ jobs:
           cp pokeyellow_debug.gbc release/pokeyellow-debug.gbc
           cp pokeyellow_debug.map release/pokeyellow-debug.map
           cp pokeyellow_debug.sym release/pokeyellow-debug.sym
+          cp pokeyellow_vc.gbc    release/pokeyellow-vc.gbc
+          cp pokeyellow_vc.map    release/pokeyellow-vc.map
+          cp pokeyellow_vc.sym    release/pokeyellow-vc.sym
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
@@ -105,11 +108,17 @@ jobs:
           name: pokeyellow-build
           path: release
 
-      - name: Prepare linked debug artifacts
+      - name: Prepare linked ROM artifacts
         run: |
+          cp release/pokeyellow.gbc       pokeyellow.gbc
+          cp release/pokeyellow.map       pokeyellow.map
+          cp release/pokeyellow.sym       pokeyellow.sym
           cp release/pokeyellow-debug.gbc pokeyellow_debug.gbc
           cp release/pokeyellow-debug.map pokeyellow_debug.map
           cp release/pokeyellow-debug.sym pokeyellow_debug.sym
+          cp release/pokeyellow-vc.gbc    pokeyellow_vc.gbc
+          cp release/pokeyellow-vc.map    pokeyellow_vc.map
+          cp release/pokeyellow-vc.sym    pokeyellow_vc.sym
 
       - name: Run unit tests
         run: python -m pytest tools/rom_tests/tests/unit
@@ -195,5 +204,61 @@ jobs:
         with:
           name: renderer-conformance-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.FULL_COLOR_CONFORMANCE_RESULTS }}/
+          if-no-files-found: error
+          retention-days: 14
+
+  phase1-runtime-ownership:
+    name: Phase 1 Runtime Ownership
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FULL_COLOR_RUNTIME_RESULTS: test-results/full-color-renderer-runtime
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Initialize Phase 1 runtime evidence root
+        run: |
+          mkdir -p "$FULL_COLOR_RUNTIME_RESULTS"
+          printf 'run_id=%s\nrun_attempt=%s\ncommit=%s\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" \
+            > "$FULL_COLOR_RUNTIME_RESULTS/ci-run.txt"
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/rom_tests/requirements.txt
+
+      - name: Set up pinned RGBDS
+        uses: ./.github/actions/setup-build
+
+      - name: Install pinned ROM test dependencies
+        run: make test-full-color-setup
+
+      - name: Download debug ROM evidence
+        uses: actions/download-artifact@v7
+        with:
+          name: pokeyellow-build
+          path: release
+
+      - name: Prepare debug ROM evidence
+        run: |
+          cp release/pokeyellow-debug.gbc pokeyellow_debug.gbc
+          cp release/pokeyellow-debug.map pokeyellow_debug.map
+          cp release/pokeyellow-debug.sym pokeyellow_debug.sym
+
+      - name: Run Phase 1 runtime ownership
+        run: make test-full-color-renderer-runtime
+
+      - name: Upload Phase 1 runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: phase1-runtime-ownership-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.FULL_COLOR_RUNTIME_RESULTS }}/
           if-no-files-found: error
           retention-days: 14

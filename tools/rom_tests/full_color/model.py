@@ -42,6 +42,366 @@ class PreVisibleBoundary(StrEnum):
     BUDGET_REVALIDATION = "BUDGET_REVALIDATION"
 
 
+class Phase1ActionKind(StrEnum):
+    """Actions implemented by the bounded Phase 1 ownership core.
+
+    These are deliberately separate from :class:`ActionKind`: Phase 1 has one
+    diagnostic slot and no visible renderer work, overlays, or reconstruction
+    ledger.  Keeping the vocabulary small also gives the ROM comparison tests
+    a stable action ABI while the later renderer model can continue to grow.
+    """
+
+    HARD_BOOT = "HARD_BOOT"
+    RESET = "RESET"
+    HANDOFF_TO_OVERWORLD = "HANDOFF_TO_OVERWORLD"
+    ACTIVATE_OVERWORLD = "ACTIVATE_OVERWORLD"
+    HANDOFF_TO_YELLOW = "HANDOFF_TO_YELLOW"
+    ADMIT_JOB = "ADMIT_JOB"
+    PREPARE_JOB = "PREPARE_JOB"
+    BEGIN_COMMIT = "BEGIN_COMMIT"
+    COMPLETE_JOB = "COMPLETE_JOB"
+    CANCEL_SUPERSEDED = "CANCEL_SUPERSEDED"
+    ADVANCE_GENERATION = "ADVANCE_GENERATION"
+
+
+@dataclass(frozen=True, slots=True)
+class Phase1Action:
+    kind: Phase1ActionKind
+
+
+@dataclass(frozen=True, slots=True)
+class Phase1State:
+    """The complete host/ROM comparison surface for Phase 1."""
+
+    owner: Owner
+    phase: Phase
+    generation: int
+    admission_open: bool
+    job_state: JobState | None
+    job_generation: int | None
+    cancellation_reason: CancellationReason | None
+    generation_exhausted: bool
+
+
+PHASE1_MAX_GENERATION = 0xFFFFFFFF
+
+
+@dataclass(slots=True)
+class Phase1OwnershipModel:
+    """Reference model for the production Phase 1 single-slot runtime.
+
+    No method models a tile, palette, OAM, VRAM, or other visible write.  The
+    slot exists only to prove admission, cancellation, and generation safety.
+    Generation zero is reserved for an empty/uninitialised job token.
+    """
+
+    owner: Owner = Owner.RENDERER_YELLOW
+    phase: Phase = Phase.YELLOW_ACTIVE
+    generation: int = 0
+    admission_open: bool = False
+    job_state: JobState | None = None
+    job_generation: int | None = None
+    cancellation_reason: CancellationReason | None = None
+    generation_exhausted: bool = False
+    last_request_result: RequestResult | None = None
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.generation <= PHASE1_MAX_GENERATION:
+            raise ModelViolation("Phase 1 generation must fit an unsigned 32-bit token")
+        self.assert_invariants()
+
+    def snapshot(self) -> Phase1State:
+        return Phase1State(
+            owner=self.owner,
+            phase=self.phase,
+            generation=self.generation,
+            admission_open=self.admission_open,
+            job_state=self.job_state,
+            job_generation=self.job_generation,
+            cancellation_reason=self.cancellation_reason,
+            generation_exhausted=self.generation_exhausted,
+        )
+
+    def hard_boot(self) -> None:
+        self.owner = Owner.RENDERER_YELLOW
+        self.phase = Phase.YELLOW_ACTIVE
+        self.generation = 0
+        self.generation_exhausted = False
+        self._clear_job()
+        if self._advance_generation():
+            self.admission_open = True
+        self.assert_invariants()
+
+    def reset(self) -> None:
+        self._cancel_if_cancellable(CancellationReason.RESET)
+        self.admission_open = False
+        advanced = self._advance_generation()
+        self.owner = Owner.RENDERER_YELLOW
+        self.phase = Phase.YELLOW_ACTIVE
+        self._clear_job()
+        self.admission_open = advanced
+        self.assert_invariants()
+
+    def handoff_to_overworld(self) -> None:
+        if not self.begin_handoff_to_overworld():
+            return
+        self.complete_handoff(
+            Owner.RENDERER_FULL_COLOR_OVERWORLD,
+            Phase.OVERWORLD_RECONSTRUCTING,
+        )
+
+    def begin_handoff_to_overworld(self) -> bool:
+        if self.owner is not Owner.RENDERER_YELLOW or self.phase is not Phase.YELLOW_ACTIVE:
+            raise ModelViolation("Phase 1 overworld handoff requires Yellow active")
+        if self.job_state is JobState.COMMITTING:
+            raise ModelViolation("Phase 1 job: COMMITTING is not cancellable")
+        self.admission_open = False
+        self.phase = Phase.HANDOFF_TO_OVERWORLD
+        self._cancel_if_cancellable(CancellationReason.HANDOFF)
+        if not self._advance_generation():
+            self.assert_invariants()
+            return False
+        self.assert_invariants()
+        return True
+
+    def activate_overworld(self) -> None:
+        if (
+            self.owner is not Owner.RENDERER_FULL_COLOR_OVERWORLD
+            or self.phase is not Phase.OVERWORLD_RECONSTRUCTING
+        ):
+            raise ModelViolation("Phase 1 activation requires overworld reconstruction")
+        if self.generation_exhausted:
+            raise ModelViolation("Phase 1 generation space is exhausted")
+        self.phase = Phase.OVERWORLD_ACTIVE
+        self.admission_open = True
+        self.assert_invariants()
+
+    def handoff_to_yellow(self) -> None:
+        if not self.begin_handoff_to_yellow():
+            return
+        self.complete_handoff(Owner.RENDERER_YELLOW, Phase.YELLOW_ACTIVE)
+
+    def begin_handoff_to_yellow(self) -> bool:
+        if self.owner is not Owner.RENDERER_FULL_COLOR_OVERWORLD or self.phase not in {
+            Phase.OVERWORLD_ACTIVE,
+            Phase.OVERWORLD_OVERLAY,
+        }:
+            raise ModelViolation("Phase 1 Yellow handoff requires active full-color ownership")
+        if self.job_state is JobState.COMMITTING:
+            raise ModelViolation("Phase 1 job: COMMITTING is not cancellable")
+        self.admission_open = False
+        self.phase = Phase.HANDOFF_TO_YELLOW
+        self._cancel_if_cancellable(CancellationReason.HANDOFF)
+        if not self._advance_generation():
+            self.assert_invariants()
+            return False
+        self.assert_invariants()
+        return True
+
+    def complete_handoff(self, arriving_owner: Owner, arriving_phase: Phase) -> None:
+        if self.admission_open:
+            raise ModelViolation("Phase 1 handoff completion requires closed admission")
+        if self.generation_exhausted or self.generation == 0:
+            raise ModelViolation("Phase 1 generation space is exhausted")
+        if arriving_owner is Owner.RENDERER_FULL_COLOR_OVERWORLD:
+            if (
+                self.owner is not Owner.RENDERER_YELLOW
+                or self.phase is not Phase.HANDOFF_TO_OVERWORLD
+                or arriving_phase is not Phase.OVERWORLD_RECONSTRUCTING
+            ):
+                raise ModelViolation("Phase 1 handoff completion direction is invalid")
+        elif arriving_owner is Owner.RENDERER_YELLOW:
+            if (
+                self.owner is not Owner.RENDERER_FULL_COLOR_OVERWORLD
+                or self.phase is not Phase.HANDOFF_TO_YELLOW
+                or arriving_phase is not Phase.YELLOW_ACTIVE
+            ):
+                raise ModelViolation("Phase 1 handoff completion direction is invalid")
+        else:
+            raise ModelViolation("Phase 1 handoff completion owner is invalid")
+        self.owner = arriving_owner
+        self.phase = arriving_phase
+        self._clear_job()
+        self.admission_open = arriving_phase is not Phase.OVERWORLD_RECONSTRUCTING
+        self.assert_invariants()
+
+    def admit_job(self, *, owner: Owner | None = None, generation: int | None = None) -> RequestResult:
+        requested_owner = self.owner if owner is None else owner
+        requested_generation = self.generation if generation is None else generation
+        if requested_owner is not self.owner:
+            result = RequestResult.REJECTED_WRONG_OWNER
+        elif requested_generation != self.generation:
+            result = RequestResult.REJECTED_STALE_GENERATION
+        elif not self.admission_open:
+            result = RequestResult.DEFERRED
+        elif self.job_state not in {None, JobState.COMPLETE, JobState.CANCELLED}:
+            result = RequestResult.REJECTED_CAPACITY
+        else:
+            self.job_state = JobState.PENDING
+            self.job_generation = self.generation
+            self.cancellation_reason = None
+            result = RequestResult.ACCEPTED
+        self.last_request_result = result
+        self.assert_invariants()
+        return result
+
+    def prepare_job(self) -> None:
+        self._transition_job(JobState.PENDING, JobState.PREPARED)
+
+    def begin_commit(self) -> None:
+        self._transition_job(JobState.PREPARED, JobState.COMMITTING)
+
+    def complete_job(self) -> None:
+        self._transition_job(JobState.COMMITTING, JobState.COMPLETE)
+
+    def cancel_superseded(self) -> bool:
+        cancelled = self._cancel_if_cancellable(CancellationReason.SUPERSEDED)
+        self.assert_invariants()
+        return cancelled
+
+    def advance_generation(self) -> bool:
+        advanced = self._advance_generation()
+        self.assert_invariants()
+        return advanced
+
+    def apply(self, action: Phase1Action) -> RequestResult | bool | None:
+        if action.kind is Phase1ActionKind.HARD_BOOT:
+            self.hard_boot()
+        elif action.kind is Phase1ActionKind.RESET:
+            self.reset()
+        elif action.kind is Phase1ActionKind.HANDOFF_TO_OVERWORLD:
+            self.handoff_to_overworld()
+        elif action.kind is Phase1ActionKind.ACTIVATE_OVERWORLD:
+            self.activate_overworld()
+        elif action.kind is Phase1ActionKind.HANDOFF_TO_YELLOW:
+            self.handoff_to_yellow()
+        elif action.kind is Phase1ActionKind.ADMIT_JOB:
+            return self.admit_job()
+        elif action.kind is Phase1ActionKind.PREPARE_JOB:
+            self.prepare_job()
+        elif action.kind is Phase1ActionKind.BEGIN_COMMIT:
+            self.begin_commit()
+        elif action.kind is Phase1ActionKind.COMPLETE_JOB:
+            self.complete_job()
+        elif action.kind is Phase1ActionKind.CANCEL_SUPERSEDED:
+            return self.cancel_superseded()
+        elif action.kind is Phase1ActionKind.ADVANCE_GENERATION:
+            return self.advance_generation()
+        else:  # pragma: no cover - StrEnum makes this defensive only
+            raise ModelViolation(f"unknown Phase 1 action {action.kind!r}")
+        return None
+
+    def _transition_job(self, source: JobState, target: JobState) -> None:
+        if self.job_state is not source:
+            actual = "EMPTY" if self.job_state is None else self.job_state.value
+            raise ModelViolation(
+                f"Phase 1 job: illegal transition {actual} -> {target.value}"
+            )
+        if self.job_generation != self.generation:
+            raise ModelViolation("Phase 1 job: stale generation execution")
+        self.job_state = target
+        self.assert_invariants()
+
+    def _cancel_if_cancellable(self, reason: CancellationReason) -> bool:
+        if self.job_state in {JobState.PENDING, JobState.PREPARED}:
+            self.job_state = JobState.CANCELLED
+            self.cancellation_reason = reason
+            return True
+        if self.job_state is JobState.COMMITTING:
+            raise ModelViolation("Phase 1 job: COMMITTING is not cancellable")
+        return False
+
+    def _advance_generation(self) -> bool:
+        if self.generation_exhausted:
+            self.admission_open = False
+            return False
+        if self.generation == PHASE1_MAX_GENERATION:
+            self.generation = 0
+            self.admission_open = False
+            self.generation_exhausted = True
+            return False
+        self.generation += 1
+        return True
+
+    def _clear_job(self) -> None:
+        self.job_state = None
+        self.job_generation = None
+        self.cancellation_reason = None
+
+    def assert_invariants(self) -> None:
+        if not 0 <= self.generation <= PHASE1_MAX_GENERATION:
+            raise ModelViolation("Phase 1 generation escaped unsigned 32-bit range")
+        if self.generation_exhausted and self.admission_open:
+            raise ModelViolation("Phase 1 admission reopened after generation exhaustion")
+        if self.phase is Phase.OVERWORLD_RECONSTRUCTING and self.admission_open:
+            raise ModelViolation("Phase 1 reconstruction must keep admission closed")
+        allowed = _ALLOWED_PHASE_OWNERS[self.phase]
+        if self.owner not in allowed:
+            raise ModelViolation(
+                f"invalid owner/phase pair: {self.owner.value}/{self.phase.value}"
+            )
+        if self.job_state is None:
+            if self.job_generation is not None or self.cancellation_reason is not None:
+                raise ModelViolation("Phase 1 empty slot retained job metadata")
+            return
+        if self.job_generation is None or self.job_generation == 0:
+            raise ModelViolation("Phase 1 occupied slot requires a nonzero generation")
+        if self.job_state is JobState.CANCELLED:
+            if self.cancellation_reason is None:
+                raise ModelViolation("Phase 1 cancelled job requires one stable reason")
+        elif self.cancellation_reason is not None:
+            raise ModelViolation("Phase 1 live job carries a cancellation reason")
+
+
+def generated_phase1_actions(seed: int, count: int) -> tuple[Phase1Action, ...]:
+    """Generate a deterministic *legal* action stream for model/ROM comparison."""
+    if count < 0:
+        raise ModelViolation("Phase 1 action count must be non-negative")
+    rng = random.Random(seed)
+    model = Phase1OwnershipModel()
+    actions: list[Phase1Action] = [Phase1Action(Phase1ActionKind.HARD_BOOT)]
+    model.apply(actions[0])
+    while len(actions) < count:
+        choices: list[Phase1ActionKind] = []
+        if model.job_state is not JobState.COMMITTING:
+            choices.append(Phase1ActionKind.RESET)
+            if model.phase is Phase.YELLOW_ACTIVE:
+                choices.append(Phase1ActionKind.HANDOFF_TO_OVERWORLD)
+            elif model.phase is Phase.OVERWORLD_RECONSTRUCTING:
+                choices.append(Phase1ActionKind.ACTIVATE_OVERWORLD)
+            elif model.phase is Phase.OVERWORLD_ACTIVE:
+                choices.append(Phase1ActionKind.HANDOFF_TO_YELLOW)
+        if model.job_state in {None, JobState.COMPLETE, JobState.CANCELLED}:
+            choices.append(Phase1ActionKind.ADVANCE_GENERATION)
+        if model.admission_open:
+            if model.job_state in {None, JobState.COMPLETE, JobState.CANCELLED}:
+                choices.append(Phase1ActionKind.ADMIT_JOB)
+            elif model.job_state is JobState.PENDING:
+                choices.extend(
+                    (Phase1ActionKind.PREPARE_JOB, Phase1ActionKind.CANCEL_SUPERSEDED)
+                )
+            elif model.job_state is JobState.PREPARED:
+                choices.extend(
+                    (Phase1ActionKind.BEGIN_COMMIT, Phase1ActionKind.CANCEL_SUPERSEDED)
+                )
+            elif model.job_state is JobState.COMMITTING:
+                choices.append(Phase1ActionKind.COMPLETE_JOB)
+        action = Phase1Action(rng.choice(choices))
+        model.apply(action)
+        actions.append(action)
+    return tuple(actions[:count])
+
+
+def replay_phase1_actions(actions: Iterable[Phase1Action]) -> tuple[Phase1State, ...]:
+    """Return the expected state after each action for a ROM-side replay."""
+    model = Phase1OwnershipModel()
+    states: list[Phase1State] = []
+    for action in actions:
+        model.apply(action)
+        states.append(model.snapshot())
+    return tuple(states)
+
+
 @dataclass(frozen=True, slots=True)
 class ModelAction:
     kind: ActionKind

@@ -1,4 +1,4 @@
-"""Observational reader and CI smoke check for Gate 0 debug-ROM state."""
+"""Observational readers for the versioned full-color debug-ROM carrier."""
 
 from __future__ import annotations
 
@@ -8,12 +8,15 @@ import hashlib
 import json
 from pathlib import Path
 import sys
-from typing import Sequence
+from typing import Sequence, TYPE_CHECKING
 
 from tools.rom_tests.emulator import Emulator
 
-from .enums import CancellationReason, JobState, Owner, Phase
-from .snapshots import REQUIRED_RECONSTRUCTION_ITEMS, SemanticSnapshot
+from .enums import CancellationReason, JobState, Owner, Phase, RequestResult
+from .snapshots import (
+    REQUIRED_RECONSTRUCTION_ITEMS,
+    SemanticSnapshot,
+)
 from .trace import (
     TRACE_LAYOUT_VERSION,
     TraceSymbols,
@@ -21,13 +24,23 @@ from .trace import (
     decode_writer_ring,
 )
 
+if TYPE_CHECKING:
+    from .renderer_oracle import ConformanceCase
+
 
 DEBUG_MAGIC = b"FCG0"
-DEBUG_LAYOUT_VERSION = 1
+DEBUG_LAYOUT_VERSION = 2
 DEBUG_SRAM_BANK = 3
 DEBUG_TRACE_CAPACITY = 32
 DEBUG_TRACE_RECORD_SIZE = 33
 DIRTY_BITS = {"bg": 0x01, "obj": 0x02, "attributes": 0x04}
+PHASE1_OWNERSHIP_REPLACEMENT_COMMAND = 1
+PHASE1_OWNERSHIP_REPLACEMENT_CHECKPOINT = 1
+PHASE1_RESTORE_YELLOW_COMMAND = 2
+PHASE1_RESTORE_YELLOW_CHECKPOINT = 2
+PHASE1_MAX_COMMAND_FRAMES = 120
+PHASE1_CASE_ID = "RC-OWNERSHIP-REPLACEMENT"
+PHASE1_CHECKPOINT = "phase1-ownership-replacement"
 _CAPTURE_GUARD_REGISTERS = {
     "FF70": 0xFF70,
     "FF4F": 0xFF4F,
@@ -37,8 +50,6 @@ _CAPTURE_GUARD_REGISTERS = {
 
 _UNSUPPORTED_BASELINE_SCALARS = {
     "wFullColorDebugLastRequestResult": 1,
-    "wFullColorDebugJobState": 1,
-    "wFullColorDebugCancellationReason": 1,
     "wFullColorDebugCommitUnitID": 2,
     "wFullColorDebugWriterID": 2,
     "wFullColorDebugLastWriterID": 2,
@@ -51,16 +62,28 @@ _UNSUPPORTED_BASELINE_SCALARS = {
     "wFullColorDebugTimingRowKey": 2,
     "wFullColorDebugAssertionCode": 2,
 }
+_RETAINED_PHASE1_DIAGNOSTIC_SCALARS = frozenset(
+    {
+        "wFullColorDebugLastRequestResult",
+        "wFullColorDebugCommitUnitID",
+        "wFullColorDebugWriterID",
+        "wFullColorDebugLastWriterID",
+        "wFullColorDebugLastResourceID",
+    }
+)
 
 REQUIRED_DEBUG_SYMBOLS = (
     "wFullColorDebugStateStart",
     "wFullColorDebugMagic",
     "wFullColorDebugLayoutVersion",
+    "wFullColorDebugActivationPhase",
     "wFullColorDebugOwner",
     "wFullColorDebugPhase",
     "wFullColorDebugGeneration",
     "wFullColorDebugLastRequestResult",
+    "wFullColorDebugAdmissionOpen",
     "wFullColorDebugJobState",
+    "wFullColorDebugJobGeneration",
     "wFullColorDebugCancellationReason",
     "wFullColorDebugDirtyFlags",
     "wFullColorDebugCommitUnitID",
@@ -87,6 +110,68 @@ REQUIRED_DEBUG_SYMBOLS = (
     "wFullColorDebugTraceEnd",
     "wFullColorDebugStateEnd",
 )
+
+PHASE1_COMMAND_SYMBOLS = (
+    "wFullColorDebugCommand",
+    "wFullColorDebugCheckpoint",
+)
+PHASE1_COMMAND_PENDING_SYMBOL = "hFullColorDebugCommandPending"
+
+PHASE1_TRACE_SYMBOLS = TraceSymbols(
+    owners={
+        0: Owner.RENDERER_YELLOW,
+        1: Owner.RENDERER_FULL_COLOR_OVERWORLD,
+    },
+    phases={
+        0: Phase.YELLOW_ACTIVE,
+        1: Phase.HANDOFF_TO_OVERWORLD,
+        2: Phase.OVERWORLD_RECONSTRUCTING,
+        3: Phase.OVERWORLD_ACTIVE,
+        4: Phase.OVERWORLD_OVERLAY,
+        5: Phase.HANDOFF_TO_YELLOW,
+    },
+    job_states={
+        0: JobState.PENDING,
+        1: JobState.PREPARED,
+        2: JobState.COMMITTING,
+        3: JobState.COMPLETE,
+        4: JobState.CANCELLED,
+    },
+    cancellations={
+        0: CancellationReason.HANDOFF,
+        1: CancellationReason.RESET,
+        2: CancellationReason.SUPERSEDED,
+        3: CancellationReason.STALE_GENERATION,
+        0xFF: None,
+    },
+    writer_ids={1: "WR-RC-OWNERSHIP-REPLACEMENT"},
+    commit_unit_ids={0: None, 1: "MU-RC-OWNERSHIP-REPLACEMENT"},
+    job_ids={1: "JOB-OLD", 2: "JOB-REPLACEMENT"},
+    request_ids={1: "REQ-RC-OWNERSHIP-REPLACEMENT"},
+    resource_identities={1: "ownership_generation"},
+)
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeObservation:
+    """One atomic ROM checkpoint and its independently decoded trace."""
+
+    case_id: str
+    rom_identity: str
+    snapshot: SemanticSnapshot
+    trace: WriterTrace
+
+    def __post_init__(self) -> None:
+        if self.case_id != PHASE1_CASE_ID:
+            raise AssertionError(f"unexpected Phase 1 runtime case: {self.case_id}")
+        if self.snapshot.scenario != self.case_id:
+            raise AssertionError("runtime snapshot scenario does not match case identity")
+        if self.snapshot.rom != self.rom_identity:
+            raise AssertionError("runtime snapshot ROM identity does not match capture")
+        if self.snapshot.evidence_kind != "RENDERER_RUNTIME":
+            raise AssertionError("runtime snapshot has wrong evidence provenance")
+        if self.snapshot.activation_phase != 1:
+            raise AssertionError("Phase 1 runtime snapshot requires activation phase 1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +226,14 @@ def wait_until_debug_ready(emulator: Emulator, *, max_frames: int = 600) -> None
     raise AssertionError(f"debug state did not initialize within {max_frames} frames")
 
 
+def wait_until_phase1_capture_ready(emulator: Emulator) -> None:
+    """Reach the first stable visual checkpoint after debug initialization."""
+
+    wait_until_debug_ready(emulator)
+    # Debug magic is published one DMA before hardware OAM catches its shadow.
+    emulator.tick(3)
+
+
 def read_baseline_debug_state(emulator: Emulator) -> BaselineDebugState:
     wait_until_debug_ready(emulator)
 
@@ -152,7 +245,7 @@ def read_baseline_debug_state(emulator: Emulator) -> BaselineDebugState:
         phase=emulator.read("wFullColorDebugPhase"),
         generation=_read_little_endian(emulator, "wFullColorDebugGeneration", 4),
         current_rom_bank=emulator.read("wFullColorDebugCurrentROMBank"),
-        current_wram_bank=emulator.read("wFullColorDebugCurrentWRAMBank"),
+        current_wram_bank=(emulator.read("wFullColorDebugCurrentWRAMBank") & 7) or 1,
         current_vram_bank=emulator.read("wFullColorDebugCurrentVRAMBank"),
         assertion_code=_read_little_endian(emulator, "wFullColorDebugAssertionCode", 2),
         trace_capacity=decoded.capacity,
@@ -179,7 +272,12 @@ def _read_little_endian(emulator: Emulator, symbol: str, size: int) -> int:
     return int.from_bytes(emulator.read_bytes(symbol, size), "little")
 
 
-def read_writer_trace(emulator: Emulator) -> WriterTrace:
+def read_writer_trace(
+    emulator: Emulator,
+    *,
+    symbols: TraceSymbols | None = None,
+    permitted_writer_ids: Sequence[str] | None = None,
+) -> WriterTrace:
     """Decode the bounded SRAM trace without changing the selected MBC bank."""
 
     trace_size = (
@@ -192,19 +290,24 @@ def read_writer_trace(emulator: Emulator) -> WriterTrace:
             f"debug trace layout is {trace_size} bytes; expected {expected_trace_size}"
         )
     raw_trace = emulator.read_bytes("wFullColorDebugTraceStart", trace_size)
+    selected_symbols = symbols or TraceSymbols(
+        owners={0: Owner.RENDERER_YELLOW},
+        phases={0: Phase.YELLOW_ACTIVE},
+        job_states={0: JobState.PENDING},
+        cancellations={0: None, 1: CancellationReason.HANDOFF},
+        writer_ids={0: "WR-NONE"},
+        commit_unit_ids={0: None},
+        job_ids={0: "JOB-NONE"},
+        request_ids={0: "REQ-NONE"},
+    )
     return decode_writer_ring(
         raw_trace,
-        TraceSymbols(
-            owners={0: Owner.RENDERER_YELLOW},
-            phases={0: Phase.YELLOW_ACTIVE},
-            job_states={0: JobState.PENDING},
-            cancellations={0: None, 1: CancellationReason.HANDOFF},
-            writer_ids={0: "WR-NONE"},
-            commit_unit_ids={0: None},
-            job_ids={0: "JOB-NONE"},
-            request_ids={0: "REQ-NONE"},
+        selected_symbols,
+        permitted_writer_ids=(
+            tuple(permitted_writer_ids)
+            if permitted_writer_ids is not None
+            else ("WR-NONE",)
         ),
-        permitted_writer_ids=("WR-NONE",),
     )
 
 
@@ -236,11 +339,18 @@ def capture_yellow_baseline_snapshot(
     scenario: str,
     seed: int,
     checkpoint: str,
+    retained_phase1_diagnostics: bool = False,
 ) -> SemanticSnapshot:
     """Capture one observational, schema-valid Yellow-owned CGB checkpoint."""
     wait_until_debug_ready(emulator)
     guards_before = _read_capture_guards(emulator)
-    trace = read_writer_trace(emulator)
+    trace = read_writer_trace(
+        emulator,
+        symbols=PHASE1_TRACE_SYMBOLS if retained_phase1_diagnostics else None,
+        permitted_writer_ids=("WR-RC-OWNERSHIP-REPLACEMENT",)
+        if retained_phase1_diagnostics
+        else None,
+    )
 
     layout_version = emulator.read("wFullColorDebugLayoutVersion")
     owner_code = emulator.read("wFullColorDebugOwner")
@@ -257,13 +367,28 @@ def capture_yellow_baseline_snapshot(
         symbol: _read_little_endian(emulator, symbol, size)
         for symbol, size in _UNSUPPORTED_BASELINE_SCALARS.items()
     }
-    nonzero = {symbol: value for symbol, value in unsupported.items() if value}
+    nonzero = {
+        symbol: value
+        for symbol, value in unsupported.items()
+        if value
+        and not (
+            retained_phase1_diagnostics
+            and symbol in _RETAINED_PHASE1_DIAGNOSTIC_SCALARS
+        )
+    }
     if nonzero:
         details = ", ".join(
             f"{symbol}={value}" for symbol, value in sorted(nonzero.items())
         )
         raise AssertionError(
             "unsupported Yellow-baseline debug scalar is nonzero: " + details
+        )
+    job_state = emulator.read("wFullColorDebugJobState")
+    cancellation = emulator.read("wFullColorDebugCancellationReason")
+    if (job_state, cancellation) != (0xFF, 0xFF):
+        raise AssertionError(
+            "Yellow baseline requires an empty production job slot encoded as "
+            f"0xff/0xff; got {job_state:#04x}/{cancellation:#04x}"
         )
 
     dirty_flags = emulator.read("wFullColorDebugDirtyFlags")
@@ -348,6 +473,273 @@ def capture_yellow_baseline_snapshot(
             "semantic snapshot capture changed guard state: " + changed
         )
     return snapshot
+
+
+def run_debug_command(
+    emulator: Emulator,
+    *,
+    command: int = PHASE1_OWNERSHIP_REPLACEMENT_COMMAND,
+    checkpoint: int = PHASE1_OWNERSHIP_REPLACEMENT_CHECKPOINT,
+    prior_checkpoint: int = 0,
+    max_frames: int = PHASE1_MAX_COMMAND_FRAMES,
+) -> None:
+    """Submit one bounded mailbox command and wait for its exact checkpoint."""
+
+    wait_until_debug_ready(emulator)
+    missing = sorted(set(PHASE1_COMMAND_SYMBOLS) - emulator.symbols.keys())
+    if PHASE1_COMMAND_PENDING_SYMBOL not in emulator.symbols:
+        missing.append(PHASE1_COMMAND_PENDING_SYMBOL)
+    if missing:
+        raise AssertionError(
+            "debug ROM is missing Phase 1 command symbols: " + ", ".join(missing)
+        )
+    wrong_bank = sorted(
+        symbol
+        for symbol in PHASE1_COMMAND_SYMBOLS
+        if emulator.symbol_banks[symbol] != DEBUG_SRAM_BANK
+    )
+    if wrong_bank:
+        raise AssertionError(
+            "Phase 1 command symbols are outside reserved SRAM bank 3: "
+            + ", ".join(wrong_bank)
+        )
+    if emulator.symbol_banks[PHASE1_COMMAND_PENDING_SYMBOL] != 0:
+        raise AssertionError("Phase 1 pending trigger must reside in fixed HRAM")
+    if emulator.read("wFullColorDebugLayoutVersion") != DEBUG_LAYOUT_VERSION:
+        raise AssertionError("Phase 1 command requires debug layout version 2")
+    if emulator.read("wFullColorDebugActivationPhase") != 1:
+        raise AssertionError("Phase 1 command requires activation phase 1")
+    actual_prior_checkpoint = emulator.read("wFullColorDebugCheckpoint")
+    if actual_prior_checkpoint != prior_checkpoint:
+        raise AssertionError(
+            "Phase 1 command requires checkpoint "
+            f"{prior_checkpoint}; got {actual_prior_checkpoint}"
+        )
+    emulator.write("wFullColorDebugCommand", command)
+    emulator.write(PHASE1_COMMAND_PENDING_SYMBOL, 1)
+    for _ in range(max_frames + 1):
+        actual = emulator.read("wFullColorDebugCheckpoint")
+        if actual == checkpoint:
+            if emulator.read("wFullColorDebugCommand") != 0:
+                raise AssertionError("Phase 1 debug command was not acknowledged")
+            return
+        if actual not in {prior_checkpoint, checkpoint}:
+            raise AssertionError(
+                f"Phase 1 command reached unexpected checkpoint {actual}; expected {checkpoint}"
+            )
+        emulator.tick()
+    raise AssertionError(
+        f"Phase 1 command did not reach checkpoint {checkpoint} within {max_frames} frames"
+    )
+
+
+def restore_phase1_to_yellow(
+    emulator: Emulator,
+    *,
+    scenario: str = "phase1-baseline",
+    seed: int = 0,
+    checkpoint: str = "after-phase1-restore",
+) -> SemanticSnapshot:
+    """Run the shared production handoff back to Yellow and capture its state."""
+
+    run_debug_command(
+        emulator,
+        command=PHASE1_RESTORE_YELLOW_COMMAND,
+        checkpoint=PHASE1_RESTORE_YELLOW_CHECKPOINT,
+        prior_checkpoint=PHASE1_OWNERSHIP_REPLACEMENT_CHECKPOINT,
+    )
+    return capture_yellow_baseline_snapshot(
+        emulator,
+        scenario=scenario,
+        seed=seed,
+        checkpoint=checkpoint,
+        retained_phase1_diagnostics=True,
+    )
+
+
+def _runtime_reconstruction() -> dict[str, object]:
+    items = sorted(REQUIRED_RECONSTRUCTION_ITEMS)
+    return {
+        "required_items": items,
+        "completed_items": [],
+        "item_provenance": {},
+        "poisoned_items": [],
+        "unknown_prior_state": False,
+        "presentation_barrier_count": 0,
+    }
+
+
+def capture_phase1_runtime_observation(
+    emulator: Emulator,
+    case: ConformanceCase,
+    *,
+    execute_command: bool = True,
+    settle_debug_ready: bool = True,
+) -> RuntimeObservation:
+    """Capture the sole activated Phase 1 case from one real ROM checkpoint."""
+
+    if case.case_id != PHASE1_CASE_ID:
+        raise AssertionError(
+            f"Phase 1 runtime capture only supports {PHASE1_CASE_ID}; got {case.case_id}"
+        )
+    if execute_command and settle_debug_ready:
+        wait_until_phase1_capture_ready(emulator)
+    else:
+        wait_until_debug_ready(emulator)
+    guards_before = _read_capture_guards(emulator)
+    if execute_command:
+        run_debug_command(emulator)
+    elif emulator.read("wFullColorDebugCheckpoint") != PHASE1_OWNERSHIP_REPLACEMENT_CHECKPOINT:
+        raise AssertionError("Phase 1 runtime checkpoint has not been reached")
+
+    layout_version = emulator.read("wFullColorDebugLayoutVersion")
+    activation_phase = emulator.read("wFullColorDebugActivationPhase")
+    if layout_version != DEBUG_LAYOUT_VERSION:
+        raise AssertionError(f"unsupported debug layout version: {layout_version}")
+    if activation_phase != 1:
+        raise AssertionError(
+            f"Phase 1 runtime carrier has wrong activation phase: {activation_phase}"
+        )
+    trace = read_writer_trace(
+        emulator,
+        symbols=PHASE1_TRACE_SYMBOLS,
+        permitted_writer_ids=("WR-RC-OWNERSHIP-REPLACEMENT",),
+    )
+    expected_generation = case.inputs["generation"]
+    generation = _read_little_endian(emulator, "wFullColorDebugGeneration", 4)
+    owner_code = emulator.read("wFullColorDebugOwner")
+    phase_code = emulator.read("wFullColorDebugPhase")
+    if owner_code != 1:
+        raise AssertionError(f"Phase 1 runtime carrier has wrong owner code: {owner_code}")
+    if phase_code != 3:
+        raise AssertionError(f"Phase 1 runtime carrier has wrong phase code: {phase_code}")
+    if generation != expected_generation:
+        raise AssertionError(
+            f"Phase 1 runtime carrier has wrong generation: {generation}; "
+            f"expected {expected_generation}"
+        )
+    exact_scalars = {
+        "wFullColorDebugLastRequestResult": 0,
+        "wFullColorDebugAdmissionOpen": 1,
+        "wFullColorDebugJobState": 3,
+        "wFullColorDebugCancellationReason": 0xFF,
+        "wFullColorDebugCommitUnitID": 1,
+        "wFullColorDebugWriterID": 1,
+        "wFullColorDebugLastWriterID": 1,
+        "wFullColorDebugLastResourceID": 1,
+    }
+    observed_scalars: dict[str, int] = {}
+    for symbol, expected in exact_scalars.items():
+        size = 2 if symbol in {
+            "wFullColorDebugCommitUnitID",
+            "wFullColorDebugWriterID",
+            "wFullColorDebugLastWriterID",
+            "wFullColorDebugLastResourceID",
+        } else 1
+        actual = _read_little_endian(emulator, symbol, size)
+        observed_scalars[symbol] = actual
+        if actual != expected:
+            raise AssertionError(
+                f"Phase 1 runtime carrier {symbol}={actual}; expected {expected}"
+            )
+    assertion_code = _read_little_endian(
+        emulator, "wFullColorDebugAssertionCode", 2
+    )
+    if assertion_code:
+        raise AssertionError(
+            f"Phase 1 runtime carrier reports assertion code {assertion_code}"
+        )
+    dirty_flags = emulator.read("wFullColorDebugDirtyFlags")
+    known_dirty_mask = sum(DIRTY_BITS.values())
+    if dirty_flags & ~known_dirty_mask:
+        raise AssertionError(
+            f"unknown debug dirty bits: {dirty_flags & ~known_dirty_mask:#04x}"
+        )
+    rom_identity = _rom_identity(Path(emulator.rom))
+    writer_id = "WR-RC-OWNERSHIP-REPLACEMENT"
+    raw_wram_bank = emulator.read_memory(0xFF70, 1)[0] & 0x07
+    snapshot = SemanticSnapshot.from_dict(
+        {
+            "schema": "full-color-contract-v1",
+            "rom": rom_identity,
+            "scenario": case.case_id,
+            "seed": 0,
+            "checkpoint": PHASE1_CHECKPOINT,
+            "frame": emulator.frame,
+            "evidence_kind": "RENDERER_RUNTIME",
+            "activation_phase": activation_phase,
+            "owner": Owner.RENDERER_FULL_COLOR_OVERWORLD.value,
+            "phase": Phase.OVERWORLD_ACTIVE.value,
+            "generation": generation,
+            "request_result": {
+                0: RequestResult.ACCEPTED.value,
+            }[observed_scalars["wFullColorDebugLastRequestResult"]],
+            "job": {
+                "job_id": "JOB-REPLACEMENT",
+                "request_ids": ["REQ-RC-OWNERSHIP-REPLACEMENT"],
+                "resources": ["ownership_generation"],
+                "state": {
+                    3: JobState.COMPLETE.value,
+                }[observed_scalars["wFullColorDebugJobState"]],
+                "cancellation_reason": None,
+                "commit_unit_id": "MU-RC-OWNERSHIP-REPLACEMENT",
+                "owner": Owner.RENDERER_FULL_COLOR_OVERWORLD.value,
+                "generation": _read_little_endian(
+                    emulator, "wFullColorDebugJobGeneration", 4
+                ),
+            },
+            "writer_id": writer_id,
+            "traced_writer_ids": list(
+                _stable_unique([entry.writer_id for entry in trace.entries])
+            ),
+            "banks": {
+                "rom": emulator.read("hLoadedROMBank"),
+                "wram": raw_wram_bank or 1,
+                "vram": emulator.read_memory(0xFF4F, 1)[0] & 1,
+            },
+            "dirty": {
+                name: bool(dirty_flags & mask) for name, mask in DIRTY_BITS.items()
+            },
+            "queued_jobs": [],
+            "reconstruction": _runtime_reconstruction(),
+            "bg_tile_ids": emulator.read_vram_bank(0, 0x9800, 0x800).hex(),
+            "bg_attributes": emulator.read_vram_bank(1, 0x9800, 0x800).hex(),
+            "bg_palettes": emulator.read_palette_ram().hex(),
+            "obj_palettes": emulator.read_palette_ram(object_palettes=True).hex(),
+            "shadow_oam": emulator.read_bytes("wShadowOAM", 160).hex(),
+            "hardware_oam": emulator.read_memory(0xFE00, 160).hex(),
+            "map_id": f"${emulator.read('wCurMap'):02X}",
+            "tileset_id": f"${emulator.read('wCurMapTileset'):02X}",
+            "transfer_state": None,
+            "overlay_request": None,
+            "oam_fallback": {
+                "occurred": False,
+                "fallback_kind": None,
+                "object_id": None,
+                "final_tile_id": None,
+                "identity": None,
+                "generation": None,
+                "writer_id": None,
+                "palette": None,
+                "before_attributes": 0,
+                "after_attributes": 0,
+            },
+            "timing_row_key": None,
+            "timing_row": None,
+            "artifacts": {},
+        }
+    )
+    guards_after = _read_capture_guards(emulator)
+    if guards_after != guards_before:
+        changed = ", ".join(
+            f"{name}={guards_before[name]:#04x}->{guards_after[name]:#04x}"
+            for name in guards_before
+            if guards_after[name] != guards_before[name]
+        )
+        raise AssertionError(
+            "Phase 1 command or runtime observation changed guard state: " + changed
+        )
+    return RuntimeObservation(case.case_id, rom_identity, snapshot, trace)
 
 
 def run_smoke(

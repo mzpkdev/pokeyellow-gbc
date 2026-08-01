@@ -1,6 +1,25 @@
 WriteDMACodeToHRAM::
 ; Since no other memory is available during OAM DMA,
 ; DMARoutine is copied to HRAM and executed there.
+	; Init and SoftResetInit overwrite this intent before joining their common
+	; initialization path, so no power-on HRAM value is ever trusted.
+	ldh a, [hSoftReset]
+	cp 1
+	jr nz, .cold_boot
+	jr .ownership_ready
+.cold_boot
+	farcall InitRendererOwnership
+.ownership_ready
+	; Match the legacy initialization boundary: clear all HRAM except hOnCGB,
+	; then reinstall the DMA stub below.
+	xor a
+	ld hl, STARTOF(HRAM)
+	ld bc, SIZEOF(HRAM) - 1
+	call FillMemory
+	ld a, BANK(WriteDMACodeToHRAM)
+	ldh [hLoadedROMBank], a
+	ld [rROMB], a
+
 	ld c, LOW(hDMARoutine)
 	ld b, DMARoutine.End - DMARoutine
 	ld hl, DMARoutine
@@ -23,6 +42,8 @@ InitFullColorDebugState::
 	ldh a, [hOnCGB]
 	and a
 	ret z
+	xor a
+	ldh [hFullColorDebugCommandPending], a
 
 	ld a, RAMG_SRAM_ENABLE
 	ld [rRAMG], a
@@ -45,12 +66,12 @@ InitFullColorDebugState::
 	ld [hli], a
 	ld a, FULL_COLOR_DEBUG_LAYOUT_VERSION
 	ld [hli], a
-	ld a, FULL_COLOR_DEBUG_OWNER_YELLOW
-	ld [wFullColorDebugOwner], a
-	ld a, FULL_COLOR_DEBUG_PHASE_YELLOW_ACTIVE
-	ld [wFullColorDebugPhase], a
-	ld a, 1
-	ld [wFullColorDebugGeneration], a
+	ld a, FULL_COLOR_DEBUG_ACTIVATION_PHASE
+	ld [wFullColorDebugActivationPhase], a
+	xor a
+	ld [wFullColorDebugCommand], a
+	ld [wFullColorDebugCheckpoint], a
+	farcall CopyRendererStateToDebugCarrier
 
 	ldh a, [hLoadedROMBank]
 	ld [wFullColorDebugCurrentROMBank], a
@@ -74,7 +95,8 @@ InitFullColorDebugState::
 	ld a, HIGH(FULL_COLOR_DEBUG_TRACE_CAPACITY)
 	ld [hl], a
 
-	ld a, 1
+	ldh a, [rSVBK]
+	and 7
 	ld [wFullColorDebugCurrentWRAMBank], a
 	xor a
 	ld [rRAMB], a

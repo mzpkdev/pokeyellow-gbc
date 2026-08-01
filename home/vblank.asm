@@ -5,6 +5,14 @@ VBlank::
 	push de
 	push hl
 
+	; An interrupt can arrive while renderer state has WRAM bank 2 selected.
+	; Save the raw entry register on the stack before touching any banked WRAM,
+	; then run Yellow's legacy VBlank work against its established bank 1.
+	ldh a, [rSVBK]
+	push af
+	ld a, 1
+	ldh [rSVBK], a
+
 	ldh a, [rVBK] ; vram bank
 	push af
 	xor a
@@ -12,6 +20,10 @@ VBlank::
 
 	ldh a, [hLoadedROMBank]
 	ld [wVBlankSavedROMBank], a
+
+	; Phase 1 dispatch is banked to keep the already-full Home section bounded.
+	; Its full-color route is a no-op; Yellow's mechanics continue unchanged.
+	farcall RouteRendererOwnershipVBlank
 
 	ldh a, [hSCX]
 	ldh [rSCX], a
@@ -33,8 +45,7 @@ VBlank::
 	call UpdateMovingBgTiles
 	call hDMARoutine
 	ld a, BANK(PrepareOAMData)
-	ldh [hLoadedROMBank], a
-	ld [rROMB], a
+	call BankswitchCommon
 	call PrepareOAMData
 
 	; VBlank-sensitive operations end.
@@ -43,13 +54,11 @@ VBlank::
 	call Random
 	call ReadJoypad
 
-	ldh a, [hVBlankOccurred]
-	and a
-	jr z, .skipZeroing
+	; The postcondition was always zero; write it directly and leave more of
+	; the fixed Home section for the bank-preserving interrupt prologue.
 	xor a
 	ldh [hVBlankOccurred], a
 
-.skipZeroing
 	ldh a, [hFrameCounter]
 	and a
 	jr z, .skipDec
@@ -69,11 +78,13 @@ VBlank::
 	call SerialFunction
 
 	ld a, [wVBlankSavedROMBank]
-	ldh [hLoadedROMBank], a
-	ld [rROMB], a
+	call BankswitchCommon
 
 	pop af
 	ldh [rVBK], a
+
+	pop af
+	ldh [rSVBK], a
 
 	pop hl
 	pop de

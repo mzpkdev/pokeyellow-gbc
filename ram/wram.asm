@@ -1372,7 +1372,35 @@ wBattleMonSpecies2:: db
 
 wEnemyMonNick:: ds NAME_LENGTH
 
-wEnemyMon:: battle_struct wEnemyMon
+wEnemyMon::
+wEnemyMonSpecies:: db
+wEnemyMonHP:: dw
+wEnemyMonPartyPos::
+wEnemyMonBoxLevel:: db
+wEnemyMonStatus:: db
+wEnemyMonType::
+wEnemyMonType1:: db
+wEnemyMonType2:: db
+wEnemyMonCatchRate:: db
+wEnemyMonMoves:: ds NUM_MOVES
+wEnemyMonDVs:: dw
+wEnemyMonLevel:: db
+wEnemyMonStats::
+wEnemyMonMaxHP:: dw
+wEnemyMonAttack:: dw
+wEnemyMonDefense:: dw
+wEnemyMonSpeed:: dw
+wEnemyMonSpecial:: dw
+wEnemyMonPP:: ds NUM_MOVES - 1
+
+ASSERT @ == $d000
+
+
+SECTION "WRAM Bank 1", WRAMX[$d000], BANK[1]
+
+; The final PP byte crosses the fixed/banked WRAM boundary. Keep the public
+; wEnemyMonPP label at $cffd and preserve the original four-byte contiguity.
+	ds 1
 
 wEnemyMonBaseStats:: ds NUM_STATS
 wEnemyMonActualCatchRate:: db
@@ -1896,7 +1924,7 @@ wSavedNPCMovementDirections2Index:: db
 wPlayerName:: ds NAME_LENGTH
 
 
-SECTION "Party Data", WRAM0
+SECTION "Party Data", WRAMX, BANK[1]
 
 wPartyDataStart::
 
@@ -1925,7 +1953,7 @@ wPartyMonNicksEnd::
 wPartyDataEnd::
 
 
-SECTION "Main Data", WRAM0
+SECTION "Main Data", WRAMX, BANK[1]
 
 wMainDataStart::
 
@@ -2484,7 +2512,7 @@ wDayCareMon:: box_struct wDayCareMon
 wMainDataEnd::
 
 
-SECTION "Current Box Data", WRAM0
+SECTION "Current Box Data", WRAMX, BANK[1]
 
 wBoxDataStart::
 
@@ -2513,7 +2541,7 @@ wBoxMonNicksEnd::
 wBoxDataEnd::
 
 
-SECTION "CGB Palette Data", WRAM0
+SECTION "CGB Palette Data", WRAMX, BANK[1]
 
 wCGBBasePalPointers:: ds NUM_ACTIVE_PALS * 2
 wCGBPal:: ds PAL_SIZE
@@ -2524,10 +2552,31 @@ wdef4:: db
 wBGPPalsBuffer:: ds NUM_ACTIVE_PALS * PAL_SIZE
 
 
-SECTION "Stack", WRAM0
+SECTION "Stack", WRAMX, BANK[1]
 
 ; the stack grows downward
 	ds $eb - 1
 wStack:: db
 
 ENDSECTION
+
+
+SECTION "Full Color Ownership State", WRAMX[$d000], BANK[PHASE1_SELECTED_WRAM_BANK]
+
+; This is the complete Phase 1 production state. Only
+; engine/full_color/ownership.asm may access these symbols directly.
+wRendererStateStart::
+wRendererOwner:: db
+wRendererPhase:: db
+wRendererGeneration:: ds 4
+wRendererAdmissionOpen:: db
+wRendererJobState:: db
+wRendererJobGeneration:: ds 4
+wRendererJobCancellationReason:: db
+wRendererStateEnd::
+
+ASSERT wRendererStateEnd - wRendererStateStart == PHASE1_OWNERSHIP_STATE_BYTES
+ASSERT wRendererStateStart == $d000
+ASSERT wRendererStateEnd == $d000 + PHASE1_OWNERSHIP_STATE_BYTES
+ASSERT BANK(wRendererStateStart) == PHASE1_SELECTED_WRAM_BANK
+ASSERT BANK(wRendererStateStart) != BANK(wPartyDataStart)

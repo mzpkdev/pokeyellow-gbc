@@ -272,6 +272,71 @@ The shipped provider is synthetic and records
 only that mode contributes activated renderer evidence. Synthetic checker
 success proves checker sensitivity and determinism, not renderer correctness.
 
+## Phase 1 real-ROM ownership evidence
+
+Run the activated Phase 1 slice with the stable, build-dependent command:
+
+```sh
+make test-full-color-renderer-runtime
+```
+
+The command writes a fresh numbered attempt below
+`test-results/full-color-renderer-runtime`; set
+`FULL_COLOR_RUNTIME_RESULTS` to select another root. Each attempt boots two
+fresh CGB emulators, completes both runs, validates each closed manifest, and
+byte-compares their stable evidence. A red case, invalid artifact, incomplete
+run, or difference between the two runs makes the command fail while retaining
+the evidence from both runs.
+
+Read an attempt in this order:
+
+1. `summary.json` for the two run statuses and stable-file comparison;
+2. each `run-*/run-summary.json`, then `run-*/manifest.json`, to confirm the
+   ROM identity, activation phase, exact case set, and artifact hashes;
+3. `run-*/baseline-semantic-report.json`, followed by
+   `baseline-before.json` and `baseline-after.json`, for the Yellow restoration
+   result and any localized resource difference;
+4. `run-*/cases/RC-OWNERSHIP-REPLACEMENT/compact-summary.txt`, then
+   `structured-diff.json` and `expected-patches.json`, for the independent
+   comparison; and
+5. `actual-semantic-snapshot.json` and `actual-writer-trace.json` for the ROM
+   state and the ordered cancellation/replacement events that produced it.
+
+Phase 1 activates only `RC-OWNERSHIP-REPLACEMENT`, with evidence kind
+`RENDERER_RUNTIME` and activation phase 1. The real debug ROM cancels the old
+generation with `SUPERSEDED`, performs no later old-generation write, and
+completes the replacement under the fresh generation. The case is mapped
+exactly to `CHK-OWN-01`, `CHK-JOB-01`, and `CHK-COMMIT-01`. These checks cover
+the ownership, cancellation, and replacement-completion predicates of this
+one diagnostic operation; they do not claim that any colored resource commit
+or the globally quantified color acceptance criteria pass.
+
+The measured ownership state is 13 bytes at WRAM bank 2
+`$d000`–`$d00c` (with the end marker at `$d00d`). It requires banked access
+that preserves `rSVBK`; the measured stack margin is 235 bytes. The linked
+ownership core occupies ROM bank `$3b`, `$4000`–`$4753`, for `$754` bytes.
+These values come from
+`specs/full-colors/evidence/phase1-ownership-placement.json` and its bound
+debug ROM, map, and symbol identities; they are not donor placements.
+
+The current visible-resource inventory slice remains exactly
+`WR-YELLOW-LCDC-DISABLE`, `WR-YELLOW-MAP-VIEW-TILE-COPY`,
+`SC-YELLOW-MAP-ENTRY`, and `MU-YELLOW-MAP-VIEW-INITIAL`. Source and built-ROM
+discovery consume one exact assignment of each kind for every row: eight
+reviewed assignments total, with no unlisted source or ROM finding inside the
+initial-map-entry slice. CGB-only startup rejection and the ownership-state
+core do not write a visible resource, so they do not create synthetic writer,
+scene, or mutation rows.
+
+The before/after semantic report requires Yellow ownership, `YELLOW_ACTIVE`,
+empty jobs, restored banks, a fresh generation, and unchanged BG tile IDs,
+attributes, palettes, shadow and hardware OAM, map, tileset, and dirty state.
+Thus Phase 1 keeps Yellow's baseline visuals unchanged. All ROM variants carry
+the CGB-only boundary: a normal CGB hard boot switches speed exactly once, an
+already-double-speed entry does not switch again, and DMG and SGB startup enter
+the bounded rejection loop. Phase 2 remains the first colored diagnostic
+slice; Phase 1 makes no color or colored-renderer acceptance claim.
+
 ## Iteration tiers
 
 ### Fast: every change
