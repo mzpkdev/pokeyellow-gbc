@@ -82,6 +82,12 @@ def test_phase1_measurement_has_a_stable_build_dependent_command() -> None:
     )
 
 
+def test_cgb_only_link_allows_measured_switchable_wram_bank() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "RGBLINKFLAGS += -d" not in makefile
+    assert "RGBLINKFLAGS += -w" not in makefile
+
+
 def test_renderer_conformance_has_a_stable_separate_command() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     target = _recipes()["test-full-color-renderer-conformance"]

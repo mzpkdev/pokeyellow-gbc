@@ -16,14 +16,19 @@ from tools.rom_tests.full_color.errors import ModelViolation
 from tools.rom_tests.full_color.model import (
     ActionKind,
     OPTIONAL_SUPERSEDABLE,
+    PHASE1_MAX_GENERATION,
     ModelAction,
     OwnershipModel,
+    Phase1ActionKind,
+    Phase1OwnershipModel,
     PreVisibleBoundary,
     Request,
     RECONSTRUCTION_ITEMS,
     RECONSTRUCTION_ITEM_PROVENANCE,
     execute_valid_actions,
+    generated_phase1_actions,
     generate_actions,
+    replay_phase1_actions,
 )
 
 
@@ -351,3 +356,205 @@ def test_adversarial_sequence_fails_at_first_corrupted_transition() -> None:
 
     with pytest.raises(ModelViolation, match="action 1: adversarial action ILLEGAL_TRANSITION"):
         execute_valid_actions(actions)
+
+
+def test_phase1_hard_boot_owns_yellow_generation_one_with_empty_slot() -> None:
+    model = Phase1OwnershipModel()
+    model.hard_boot()
+
+    assert model.snapshot() == replace(
+        model.snapshot(),
+        owner=Owner.RENDERER_YELLOW,
+        phase=Phase.YELLOW_ACTIVE,
+        generation=1,
+        admission_open=True,
+        job_state=None,
+        job_generation=None,
+        cancellation_reason=None,
+        generation_exhausted=False,
+    )
+
+
+def test_phase1_single_diagnostic_slot_has_explicit_admission_results() -> None:
+    model = Phase1OwnershipModel()
+    model.hard_boot()
+
+    assert model.admit_job(owner=Owner.RENDERER_FULL_COLOR_OVERWORLD) is RequestResult.REJECTED_WRONG_OWNER
+    assert model.admit_job(generation=0) is RequestResult.REJECTED_STALE_GENERATION
+    assert model.admit_job() is RequestResult.ACCEPTED
+    assert model.admit_job() is RequestResult.REJECTED_CAPACITY
+    assert model.job_state is JobState.PENDING
+    assert model.job_generation == model.generation
+
+
+def test_phase1_reset_invalidates_work_before_reopening_yellow() -> None:
+    model = Phase1OwnershipModel()
+    model.hard_boot()
+    model.admit_job()
+    model.prepare_job()
+    previous_generation = model.generation
+
+    model.reset()
+
+    assert model.owner is Owner.RENDERER_YELLOW
+    assert model.phase is Phase.YELLOW_ACTIVE
+    assert model.generation == previous_generation + 1
+    assert model.admission_open
+    assert model.job_state is None
+    assert model.job_generation is None
+
+
+def test_phase1_handoff_cancels_old_slot_and_never_reuses_generation() -> None:
+    model = Phase1OwnershipModel()
+    model.hard_boot()
+    model.admit_job()
+    model.prepare_job()
+    old_generation = model.job_generation
+
+    model.handoff_to_overworld()
+
+    assert model.owner is Owner.RENDERER_FULL_COLOR_OVERWORLD
+    assert model.phase is Phase.OVERWORLD_RECONSTRUCTING
+    assert model.generation == old_generation + 1
+    assert not model.admission_open
+    assert model.job_state is None
+    model.activate_overworld()
+    assert model.admission_open
+
+
+def test_phase1_reconstruction_stays_closed_and_cannot_handoff_to_yellow() -> None:
+    model = Phase1OwnershipModel()
+    model.hard_boot()
+    model.handoff_to_overworld()
+    before = model.snapshot()
+
+    assert model.phase is Phase.OVERWORLD_RECONSTRUCTING
+    assert not model.admission_open
+    assert model.admit_job() is RequestResult.DEFERRED
+    assert model.snapshot() == before
+    with pytest.raises(ModelViolation, match="active full-color ownership"):
+        model.handoff_to_yellow()
+    assert model.snapshot() == before
+
+    model.activate_overworld()
+    assert model.phase is Phase.OVERWORLD_ACTIVE
+    assert model.admission_open
+
+    with pytest.raises(ModelViolation, match="reconstruction must keep admission closed"):
+        Phase1OwnershipModel(
+            owner=Owner.RENDERER_FULL_COLOR_OVERWORLD,
+            phase=Phase.OVERWORLD_RECONSTRUCTING,
+            generation=2,
+            admission_open=True,
+        )
+
+
+def test_phase1_superseded_slot_records_reason_and_replacement_generation() -> None:
+    model = Phase1OwnershipModel()
+    model.hard_boot()
+    model.admit_job()
+    model.prepare_job()
+
+    assert model.cancel_superseded()
+    assert model.job_state is JobState.CANCELLED
+    assert model.cancellation_reason is CancellationReason.SUPERSEDED
+    assert model.advance_generation()
+    assert model.admit_job() is RequestResult.ACCEPTED
+    assert model.job_state is JobState.PENDING
+    assert model.job_generation == model.generation
+    assert model.cancellation_reason is None
+
+
+def test_phase1_committing_job_cannot_be_cancelled_reset_or_handed_off() -> None:
+    model = Phase1OwnershipModel()
+    model.hard_boot()
+    model.admit_job()
+    model.prepare_job()
+    model.begin_commit()
+    before = model.snapshot()
+
+    with pytest.raises(ModelViolation, match="COMMITTING is not cancellable"):
+        model.cancel_superseded()
+    with pytest.raises(ModelViolation, match="COMMITTING is not cancellable"):
+        model.reset()
+    with pytest.raises(ModelViolation, match="COMMITTING is not cancellable"):
+        model.handoff_to_overworld()
+    assert model.snapshot() == before
+
+
+def test_phase1_generation_carry_and_exhaustion_are_fail_closed() -> None:
+    carrying = Phase1OwnershipModel(generation=0xFF, admission_open=True)
+    assert carrying.advance_generation()
+    assert carrying.generation == 0x100
+    assert carrying.admission_open
+
+    exhausted = Phase1OwnershipModel(
+        generation=PHASE1_MAX_GENERATION,
+        admission_open=True,
+    )
+    assert not exhausted.advance_generation()
+    assert exhausted.generation == 0
+    assert exhausted.generation_exhausted
+    assert not exhausted.admission_open
+    assert exhausted.admit_job() is RequestResult.DEFERRED
+    assert not exhausted.advance_generation()
+
+
+def test_phase1_exhausted_handoff_completion_cannot_reopen_admission() -> None:
+    model = Phase1OwnershipModel(
+        generation=PHASE1_MAX_GENERATION,
+        admission_open=True,
+    )
+
+    assert not model.begin_handoff_to_overworld()
+    before = model.snapshot()
+    with pytest.raises(ModelViolation, match="generation space is exhausted"):
+        model.complete_handoff(
+            Owner.RENDERER_FULL_COLOR_OVERWORLD,
+            Phase.OVERWORLD_RECONSTRUCTING,
+        )
+
+    assert model.snapshot() == before
+    assert not model.admission_open
+
+
+def test_phase1_wrong_direction_completion_fails_without_state_corruption() -> None:
+    model = Phase1OwnershipModel()
+    model.hard_boot()
+    assert model.begin_handoff_to_overworld()
+    before = model.snapshot()
+
+    with pytest.raises(ModelViolation, match="completion direction is invalid"):
+        model.complete_handoff(Owner.RENDERER_YELLOW, Phase.YELLOW_ACTIVE)
+
+    assert model.snapshot() == before
+
+    model.complete_handoff(
+        Owner.RENDERER_FULL_COLOR_OVERWORLD,
+        Phase.OVERWORLD_RECONSTRUCTING,
+    )
+    model.activate_overworld()
+    assert model.begin_handoff_to_yellow()
+    before = model.snapshot()
+
+    with pytest.raises(ModelViolation, match="completion direction is invalid"):
+        model.complete_handoff(
+            Owner.RENDERER_FULL_COLOR_OVERWORLD,
+            Phase.OVERWORLD_ACTIVE,
+        )
+
+    assert model.snapshot() == before
+
+
+@pytest.mark.parametrize("seed", range(32))
+def test_seeded_phase1_action_scaffolding_is_legal_and_deterministic(seed: int) -> None:
+    first = generated_phase1_actions(seed, 64)
+    second = generated_phase1_actions(seed, 64)
+    assert first == second
+    assert replay_phase1_actions(first) == replay_phase1_actions(second)
+    assert first[0].kind is Phase1ActionKind.HARD_BOOT
+
+    model = Phase1OwnershipModel()
+    for action in first:
+        model.apply(action)
+        model.assert_invariants()

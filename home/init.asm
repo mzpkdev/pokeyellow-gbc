@@ -1,11 +1,17 @@
 SoftReset::
-	call StopAllSounds
-	call GBPalWhiteOut
-	ld c, 32
-	call DelayFrames
-	; fallthrough
+	farjp SoftResetRendererOwnership
 
 Init::
+	; Cold startup establishes its reset intent before inspecting any memory.
+	xor a
+	jr InitWithResetIntent
+
+SoftResetInit::
+	; Only the completed SoftResetRendererOwnership path enters here.
+	ld a, 1
+
+InitWithResetIntent:
+	ldh [hSoftReset], a
 ;  Program init.
 	di
 
@@ -30,8 +36,12 @@ Init::
 
 	ld sp, wStack
 
+	ld a, 1
+	ldh [rSVBK], a
 	ld hl, STARTOF(WRAM0)
-	ld bc, SIZEOF(WRAM0)
+	; Preserve Yellow's historical contiguous C000-DFFF clear now that the
+	; CGB linker describes D000-DFFF honestly as WRAMX bank 1.
+	ld bc, $2000
 .loop
 	ld [hl], 0
 	inc hl
@@ -41,10 +51,6 @@ Init::
 	jr nz, .loop
 
 	call ClearVram
-
-	ld hl, STARTOF(HRAM)
-	ld bc, SIZEOF(HRAM) - 1
-	call FillMemory
 
 	call ClearSprites
 
@@ -110,10 +116,7 @@ Init::
 	jp PrepareTitleScreen
 
 ClearVram::
-	ld hl, STARTOF(VRAM)
-	ld bc, SIZEOF(VRAM)
-	xor a
-	jp FillMemory
+	farjp ClearVramBanked
 
 
 StopAllSounds::

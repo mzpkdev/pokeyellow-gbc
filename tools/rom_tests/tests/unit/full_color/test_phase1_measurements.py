@@ -89,6 +89,15 @@ def test_bank_3b_is_selected_only_by_measurement_not_fixed_preference() -> None:
     assert decision.selected_rom_bank == 0x20
 
 
+def test_linked_ownership_core_remains_the_selected_rom_placement() -> None:
+    linked = RomCandidate(0x3B, 0x4000, 0x431C, allocated=True)
+    larger_free = RomCandidate(0x30, 0x4000, 0x7FFF)
+    decision = select_placement(measurement(rom=(larger_free, linked)))
+    assert decision.selected_rom_bank == 0x3B
+    assert decision.selected_rom_start == 0x4000
+    assert decision.rom_allocation_status == "linked"
+
+
 def test_overlap_is_rejected_and_never_selected() -> None:
     overlapping = candidate(1, interrupt_switches=0, overlaps=("Existing State",))
     valid = candidate(2, interrupt_switches=2)

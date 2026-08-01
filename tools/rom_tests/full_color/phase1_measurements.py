@@ -83,6 +83,7 @@ class RomCandidate:
     bank: int
     start: int
     end: int
+    allocated: bool = False
 
     @property
     def size(self) -> int:
@@ -140,6 +141,7 @@ class PlacementDecision:
     selected_rom_bank: int
     selected_rom_start: int
     selected_rom_end: int
+    rom_allocation_status: str
     input_rom: str
     input_map: str
     input_sym: str
@@ -171,6 +173,7 @@ class PlacementDecision:
                 "minimum_stack_margin_bytes": MINIMUM_STACK_MARGIN,
             },
             "rom": {
+                "allocation_status": self.rom_allocation_status,
                 "selected_bank": self.selected_rom_bank,
                 "selected_free_start": self.selected_rom_start,
                 "selected_free_end": self.selected_rom_end,
@@ -275,7 +278,13 @@ def measure(root: Path) -> LinkMeasurement:
             raise PlacementError(f"missing measurement input: {path}")
 
     rom_sections, wram0_sections, wramx_sections = _parse_map(map_path)
-    stack_margin = _stack_margin(sym_path, wram0_sections)
+    all_wram_sections = list(wram0_sections)
+    all_wram_sections.extend(
+        section
+        for sections in wramx_sections.values()
+        for section in sections
+    )
+    stack_margin = _stack_margin(sym_path, all_wram_sections)
     # On CGB hardware SVBK=1 exposes the same $d000-$dfff storage that this
     # legacy ROM links as WRAM0.  Treat those linked sections as measured
     # occupancy for bank 1; an apparently empty WRAMX map entry is not free.
@@ -315,6 +324,11 @@ def measure(root: Path) -> LinkMeasurement:
                     allocated=True,
                 )
             )
+        free_ranges = _free_ranges(
+            WRAMX_START,
+            WRAMX_END,
+            [(start, end) for start, end, _ in wramx_sections[bank]],
+        )
         wram_candidates.extend(
             WramCandidate(
                 section="Full Color Ownership State",
@@ -326,15 +340,35 @@ def measure(root: Path) -> LinkMeasurement:
                 stack_margin_bytes=stack_margin,
                 overlaps=bank1_aliases if bank == 1 else (),
             )
-            for start, end in _free_ranges(
-                WRAMX_START,
-                WRAMX_END,
-                [(start, end) for start, end, _ in wramx_sections[bank]],
-            )
+            for start, end in free_ranges
         )
+        if bank == 1 and not free_ranges and not ownership_sections:
+            wram_candidates.append(
+                WramCandidate(
+                    section="Full Color Ownership State",
+                    bank=1,
+                    start=WRAMX_START,
+                    end=WRAMX_END,
+                    interrupt_bank_switches=0,
+                    runtime_bank_switches=0,
+                    stack_margin_bytes=stack_margin,
+                    fits=False,
+                    overlaps=tuple(name for _, _, name in wramx_sections[1]),
+                )
+            )
     wram = tuple(wram_candidates)
     rom: list[RomCandidate] = []
     for bank in sorted(rom_sections):
+        ownership_sections = [
+            (start, end, name)
+            for start, end, name in rom_sections[bank]
+            if name == "Full Color Ownership Core"
+        ]
+        if len(ownership_sections) > 1:
+            raise PlacementError("multiple linked Full Color Ownership Core sections")
+        if ownership_sections:
+            start, end, _ = ownership_sections[0]
+            rom.append(RomCandidate(bank, start, end, allocated=True))
         occupied = [(start, end) for start, end, _ in rom_sections[bank]]
         rom.extend(
             RomCandidate(bank, start, end)
@@ -436,8 +470,12 @@ def select_placement(measurement: LinkMeasurement) -> PlacementDecision:
                 + ", ".join(f"${bank:02x}" for bank in forbidden_banks)
             )
         raise PlacementError("no measured ROM candidate is available")
+    linked_rom = [candidate for candidate in eligible_rom if candidate.allocated]
+    if len(linked_rom) > 1:
+        raise PlacementError("ownership core is linked in multiple ROM banks")
+    ranked_rom = linked_rom or eligible_rom
     selected_rom = min(
-        eligible_rom, key=lambda candidate: (-candidate.size, candidate.bank, candidate.start)
+        ranked_rom, key=lambda candidate: (-candidate.size, candidate.bank, candidate.start)
     )
     for candidate in eligible_rom:
         if candidate != selected_rom:
@@ -470,6 +508,7 @@ def select_placement(measurement: LinkMeasurement) -> PlacementDecision:
         selected_rom_bank=selected_rom.bank,
         selected_rom_start=selected_rom.start,
         selected_rom_end=selected_rom.end,
+        rom_allocation_status="linked" if selected_rom.allocated else "proposed",
         input_rom=measurement.input_rom,
         input_map=measurement.input_map,
         input_sym=measurement.input_sym,

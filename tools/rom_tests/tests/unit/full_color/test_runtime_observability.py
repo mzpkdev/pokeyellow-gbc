@@ -13,11 +13,15 @@ from tools.rom_tests.full_color.runtime_observability import (
     DEBUG_TRACE_CAPACITY,
     DEBUG_TRACE_RECORD_SIZE,
     REQUIRED_DEBUG_SYMBOLS,
+    PHASE1_COMMAND_SYMBOLS,
+    PHASE1_CASE_ID,
+    capture_phase1_runtime_observation,
     capture_yellow_baseline_snapshot,
     require_debug_symbols,
     run_retained_smoke,
     run_smoke,
 )
+from tools.rom_tests.full_color.renderer_oracle import load_corpus
 from tools.rom_tests.full_color.snapshots import SemanticSnapshot
 
 
@@ -109,6 +113,8 @@ class SnapshotEmulator:
                 "wFullColorDebugMagic": b"FCG0",
                 "wFullColorDebugLayoutVersion": bytes([DEBUG_LAYOUT_VERSION]),
                 "wFullColorDebugGeneration": (9).to_bytes(4, "little"),
+                "wFullColorDebugJobState": b"\xff",
+                "wFullColorDebugCancellationReason": b"\xff",
                 "wFullColorDebugDirtyFlags": b"\x05",
                 "wFullColorDebugAssertionCode": b"\x00\x00",
                 "wFullColorDebugTraceStart": struct.pack(
@@ -160,6 +166,102 @@ class SnapshotEmulator:
 
     def close(self) -> None:
         self.closed = True
+
+
+def _phase1_case():
+    path = Path("tools/rom_tests/fixtures/full_color/renderer-conformance/cases.json")
+    return next(
+        case
+        for case in load_corpus(json.loads(path.read_text(encoding="utf-8")))
+        if case.case_id == PHASE1_CASE_ID
+    )
+
+
+class Phase1Emulator(SnapshotEmulator):
+    def __init__(self, rom: Path) -> None:
+        super().__init__(rom)
+        for index, symbol in enumerate(PHASE1_COMMAND_SYMBOLS):
+            self.symbols[symbol] = 0xA700 + index
+            self.symbol_banks[symbol] = 3
+            self.data[symbol] = b"\x00"
+        self.data.update(
+            {
+                "wFullColorDebugActivationPhase": b"\x01",
+                "wFullColorDebugOwner": b"\x01",
+                "wFullColorDebugPhase": b"\x03",
+                "wFullColorDebugGeneration": (8).to_bytes(4, "little"),
+                "wFullColorDebugCheckpoint": b"\x01",
+            }
+        )
+        records = [
+            (0, 1, 7, 7, 1, 3, 1, 0, 0xFF, 1, 1, 1, 1, 1, 0),
+            (1, 1, 7, 7, 1, 3, 1, 1, 0xFF, 1, 1, 1, 1, 1, 0),
+            (2, 1, 7, 7, 1, 3, 1, 4, 2, 1, 1, 1, 1, 1, 0),
+            (3, 1, 8, 8, 1, 3, 1, 0, 0xFF, 1, 1, 1, 2, 1, 0),
+            (4, 1, 8, 8, 1, 3, 1, 1, 0xFF, 1, 1, 1, 2, 1, 0),
+            (5, 1, 8, 8, 1, 3, 1, 2, 0xFF, 1, 1, 1, 2, 1, 1),
+            (6, 1, 8, 8, 1, 3, 1, 3, 0xFF, 1, 1, 1, 2, 1, 0),
+        ]
+        record_struct = struct.Struct("<IIIIBBBBBHHHHHH")
+        body = b"".join(record_struct.pack(*record) for record in records)
+        body += bytes((DEBUG_TRACE_CAPACITY - len(records)) * DEBUG_TRACE_RECORD_SIZE)
+        self.data["wFullColorDebugTraceStart"] = (
+            struct.pack("<4sBHHH", b"FCTR", 2, DEBUG_TRACE_CAPACITY, len(records), len(records))
+            + body
+        )
+
+
+def test_phase1_capture_uses_real_rom_identity_and_canonical_trace(tmp_path: Path) -> None:
+    rom = tmp_path / "pokeyellow_debug.gbc"
+    rom.write_bytes(b"phase1 ROM")
+    emulator = Phase1Emulator(rom)
+
+    observation = capture_phase1_runtime_observation(
+        emulator,  # type: ignore[arg-type]
+        _phase1_case(),
+        execute_command=False,
+    )
+
+    assert observation.snapshot.evidence_kind == "RENDERER_RUNTIME"
+    assert observation.snapshot.activation_phase == 1
+    assert observation.snapshot.scenario == PHASE1_CASE_ID
+    assert observation.snapshot.rom == (
+        "pokeyellow_debug.gbc:" + hashlib.sha256(b"phase1 ROM").hexdigest()
+    )
+    assert [entry.job_id for entry in observation.trace.entries] == [
+        "JOB-OLD",
+        "JOB-OLD",
+        "JOB-OLD",
+        "JOB-REPLACEMENT",
+        "JOB-REPLACEMENT",
+        "JOB-REPLACEMENT",
+        "JOB-REPLACEMENT",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("symbol", "value", "failure"),
+    [
+        ("wFullColorDebugActivationPhase", 0, "wrong activation phase"),
+        ("wFullColorDebugOwner", 0, "wrong owner code"),
+        ("wFullColorDebugPhase", 0, "wrong phase code"),
+        ("wFullColorDebugGeneration", 7, "wrong generation"),
+    ],
+)
+def test_phase1_capture_rejects_wrong_carrier_identity(
+    tmp_path: Path, symbol: str, value: int, failure: str
+) -> None:
+    rom = tmp_path / "pokeyellow_debug.gbc"
+    rom.write_bytes(b"phase1 ROM")
+    emulator = Phase1Emulator(rom)
+    size = 4 if symbol == "wFullColorDebugGeneration" else 1
+    emulator.data[symbol] = value.to_bytes(size, "little")
+    with pytest.raises(AssertionError, match=failure):
+        capture_phase1_runtime_observation(
+            emulator,  # type: ignore[arg-type]
+            _phase1_case(),
+            execute_command=False,
+        )
 
 
 def test_capture_constructs_valid_deterministic_yellow_baseline(

@@ -169,7 +169,6 @@ $(foreach obj, $(pokeyellow_vc_obj), $(eval $(call DEP,$(obj),$(obj:_vc.o=.asm))
 endif
 
 
-RGBLINKFLAGS += -d
 pokeyellow.gbc:       RGBLINKFLAGS += -p 0x00
 pokeyellow_debug.gbc: RGBLINKFLAGS += -p 0xff
 pokeyellow_vc.gbc:    RGBLINKFLAGS += -p 0x00

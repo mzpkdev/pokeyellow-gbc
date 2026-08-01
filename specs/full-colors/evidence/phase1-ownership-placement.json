@@ -2,19 +2,19 @@
   "inputs": {
     "map": {
       "path": "pokeyellow_debug.map",
-      "sha256": "c2c385c41a7bfddc3ccd2acb699fb5c38398485efdc743a0f78f4f007e3b1957"
+      "sha256": "68287e80109dbbbfeda1cdbb1acc53b48a036538af58e034a285ef99f07108d0"
     },
     "rom": {
       "path": "pokeyellow_debug.gbc",
-      "sha256": "51c1553fb1834391552dd87f3fbff7f7a47fd58f52c023cedc7a45e5c5034da7"
+      "sha256": "c31b78787ede31b189acd662af2039eca9973029473ee4841433809ff30e1121"
     },
     "sym": {
       "path": "pokeyellow_debug.sym",
-      "sha256": "30688dc5cbe1a17a9282dbff7e173602f3e368c291316a5246230e10f3e60e78"
+      "sha256": "3f29af5e08304717b1502c0fb88f0f9ca211b12a7efce9f3eb4bb7f0d464e09c"
     }
   },
   "ownership_state": {
-    "allocation_status": "proposed",
+    "allocation_status": "linked",
     "byte_cost": 13,
     "fields": [
       {
@@ -62,7 +62,7 @@
       "end": 32767,
       "kind": "ROM",
       "reason": "lower-ranked by the deterministic measured selection rule",
-      "start": 31822
+      "start": 31862
     },
     {
       "bank": 2,
@@ -450,6 +450,13 @@
       "start": 27172
     },
     {
+      "bank": 59,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 17303
+    },
+    {
       "bank": 60,
       "end": 32767,
       "kind": "ROM",
@@ -481,8 +488,15 @@
       "bank": 1,
       "end": 57343,
       "kind": "WRAM",
-      "reason": "overlaps measured section(s): WRAM, Party Data, Main Data, Current Box Data, CGB Palette Data, Stack",
+      "reason": "overlaps measured section(s): WRAM Bank 1, Party Data, Main Data, Current Box Data, CGB Palette Data, Stack",
       "start": 53248
+    },
+    {
+      "bank": 2,
+      "end": 57343,
+      "kind": "WRAM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 53261
     },
     {
       "bank": 3,
@@ -521,9 +535,10 @@
     }
   ],
   "rom": {
+    "allocation_status": "linked",
     "selected_bank": 59,
-    "selected_free_bytes": 16384,
-    "selected_free_end": 32767,
+    "selected_free_bytes": 919,
+    "selected_free_end": 17302,
     "selected_free_start": 16384
   },
   "schema": "full-color-phase1-ownership-placement-v1",
