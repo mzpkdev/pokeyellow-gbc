@@ -8,12 +8,14 @@ import pytest
 
 from tools.rom_tests.full_color.phase1_measurements import (
     FORBIDDEN_ROM_BANKS,
+    MAP_IDENTITY,
     MINIMUM_STACK_MARGIN,
     PHASE1_STATE_BYTES,
     LinkMeasurement,
     PlacementError,
     RomCandidate,
     WramCandidate,
+    generate,
     select_placement,
     verify_evidence,
 )
@@ -57,6 +59,28 @@ def measurement(
         wram=wram or (candidate(2, margin=margin),),
         rom=rom or (RomCandidate(0x3B, 0x4000, 0x7FFF),),
         stack_margin_bytes=margin,
+    )
+
+
+def write_measurement_inputs(root: Path, map_text: str) -> None:
+    root.mkdir()
+    (root / "pokeyellow_debug.gbc").write_bytes(b"rom")
+    (root / "pokeyellow_debug.map").write_text(map_text, encoding="utf-8")
+    (root / "pokeyellow_debug.sym").write_text(
+        "00:dfff wStack\n", encoding="utf-8"
+    )
+
+
+def placement_map(symbols: tuple[str, str], *, rom_end: int = 0x4001) -> str:
+    size = rom_end - 0x4000 + 1
+    return (
+        "ROMX bank #59:\n"
+        f'\tSECTION: $4000-${rom_end:04x} (${size:04x} bytes) '
+        '["Full Color Ownership Core"]\n'
+        f"\t         $4000 = {symbols[0]}\n"
+        f"\t         $4000 = {symbols[1]}\n\n"
+        "WRAM0 bank #0:\n"
+        '\tSECTION: $df15-$dfff ($00eb bytes) ["Stack"]\n'
     )
 
 
@@ -167,6 +191,44 @@ def test_wrong_ownership_byte_cost_is_rejected() -> None:
         select_placement(replace(measurement(), state_bytes=PHASE1_STATE_BYTES + 1))
 
 
+def test_same_address_map_symbol_reordering_has_stable_identity(tmp_path) -> None:
+    root = tmp_path / "repo"
+    map_path = root / "pokeyellow_debug.map"
+    write_measurement_inputs(root, placement_map(("First", "Second")))
+    first_raw = map_path.read_bytes()
+    first = generate(root)
+    evidence = tmp_path / "placement.json"
+    evidence.write_text(first.to_json(), encoding="utf-8")
+
+    map_path.write_text(placement_map(("Second", "First")), encoding="utf-8")
+    second = generate(root)
+
+    assert first_raw != map_path.read_bytes()
+    assert first.map_sha256 == second.map_sha256
+    assert first.to_json() == second.to_json()
+    assert first.to_dict()["inputs"]["map"]["sha256_kind"] == MAP_IDENTITY
+    verify_evidence(root, evidence)
+
+
+def test_placement_relevant_map_change_invalidates_evidence(tmp_path) -> None:
+    root = tmp_path / "repo"
+    map_path = root / "pokeyellow_debug.map"
+    write_measurement_inputs(root, placement_map(("First", "Second")))
+    original = generate(root)
+    evidence = tmp_path / "placement.json"
+    evidence.write_text(original.to_json(), encoding="utf-8")
+
+    map_path.write_text(
+        placement_map(("First", "Second"), rom_end=0x4002), encoding="utf-8"
+    )
+    changed = generate(root)
+
+    assert changed.map_sha256 != original.map_sha256
+    assert changed.selected_rom_end != original.selected_rom_end
+    with pytest.raises(PlacementError, match="stale or edited"):
+        verify_evidence(root, evidence)
+
+
 def test_stale_hash_or_hand_edited_evidence_is_rejected(tmp_path) -> None:
     root = tmp_path / "repo"
     root.mkdir()
@@ -180,8 +242,6 @@ def test_stale_hash_or_hand_edited_evidence_is_rejected(tmp_path) -> None:
     (root / "pokeyellow_debug.sym").write_text(
         "00:dfff wStack\n", encoding="utf-8"
     )
-
-    from tools.rom_tests.full_color.phase1_measurements import generate
 
     evidence = tmp_path / "placement.json"
     evidence.write_text(generate(root).to_json(), encoding="utf-8")

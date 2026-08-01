@@ -2,7 +2,8 @@
   "inputs": {
     "map": {
       "path": "pokeyellow_debug.map",
-      "sha256": "6913cec747495d98b2807237c6bdeee9d6cdb23f2614d48ceeae4ee013b70e1d"
+      "sha256": "0da1636f893f6502c0924accf0f076835345ff966da5111b12c71e9af4ee99f1",
+      "sha256_kind": "full-color-phase1-canonical-map-v1"
     },
     "rom": {
       "path": "pokeyellow_debug.gbc",

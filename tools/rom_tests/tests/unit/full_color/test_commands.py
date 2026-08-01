@@ -69,6 +69,14 @@ def test_gate0_artifacts_use_one_overridable_results_root() -> None:
     ]
 
 
+def test_gate0_builds_every_phase1_product_rom() -> None:
+    assert _dependencies()["test-full-color-gate0"] == (
+        "pokeyellow.gbc",
+        "pokeyellow_debug.gbc",
+        "pokeyellow_vc.gbc",
+    )
+
+
 def test_python_prefers_the_repo_virtualenv_when_present() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert "$(wildcard .venv/bin/python)" in makefile

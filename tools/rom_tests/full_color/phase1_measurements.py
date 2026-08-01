@@ -2,7 +2,9 @@
 
 The resulting JSON is deliberately a derived artifact: every address comes
 from the current RGBDS map/symbol output (or from the CGB WRAM bank geometry),
-and every input is bound by SHA-256.  The module contains no donor placement.
+the ROM and symbols are bound by their byte SHA-256, and the map is bound by a
+canonical SHA-256 of its placement facts.  The module contains no donor
+placement.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from typing import Sequence
 
 
 SCHEMA = "full-color-phase1-ownership-placement-v1"
+MAP_IDENTITY = "full-color-phase1-canonical-map-v1"
 OWNERSHIP_STATE_LAYOUT = (
     ("owner", 1),
     ("phase", 1),
@@ -44,7 +47,7 @@ SELECTION_RULE = (
     "donor banks are never eligible"
 )
 
-_BANK_RE = re.compile(r"^(ROMX|WRAM0|WRAMX) bank #(\d+):$")
+_BANK_RE = re.compile(r"^([A-Z0-9]+) bank #(\d+):$")
 _SECTION_RE = re.compile(
     r'^\s*SECTION: \$([0-9a-fA-F]{4})(?:-\$([0-9a-fA-F]{4}))? '
     r'\(\$([0-9a-fA-F]{4}) bytes?\) \["([^"]+)"\]$'
@@ -152,7 +155,11 @@ class PlacementDecision:
             "schema": self.schema,
             "inputs": {
                 "rom": {"path": self.input_rom, "sha256": self.rom_sha256},
-                "map": {"path": self.input_map, "sha256": self.map_sha256},
+                "map": {
+                    "path": self.input_map,
+                    "sha256": self.map_sha256,
+                    "sha256_kind": MAP_IDENTITY,
+                },
                 "sym": {"path": self.input_sym, "sha256": self.sym_sha256},
             },
             "ownership_state": {
@@ -211,6 +218,60 @@ def _free_ranges(
     if cursor <= end:
         result.append((cursor, end))
     return result
+
+
+def _canonical_map_sha256(
+    rom_sections: dict[int, list[tuple[int, int, str]]],
+    wram0_sections: Sequence[tuple[int, int, str]],
+    wramx_sections: dict[int, list[tuple[int, int, str]]],
+) -> str:
+    """Hash the complete, deterministically ordered map facts used here."""
+
+    facts: list[tuple[object, ...]] = []
+    for bank in sorted(rom_sections):
+        sections = sorted(rom_sections[bank])
+        facts.append(("bank", "ROMX", bank))
+        facts.extend(
+            ("section", "ROMX", bank, start, end, name)
+            for start, end, name in sections
+        )
+        facts.extend(
+            ("free", "ROMX", bank, start, end)
+            for start, end in _free_ranges(
+                ROMX_START,
+                ROMX_END,
+                [(start, end) for start, end, _ in sections],
+            )
+        )
+
+    facts.append(("bank", "WRAM0", 0))
+    facts.extend(
+        ("section", "WRAM0", 0, start, end, name)
+        for start, end, name in sorted(wram0_sections)
+    )
+
+    for bank in sorted(wramx_sections):
+        sections = sorted(wramx_sections[bank])
+        facts.append(("bank", "WRAMX", bank))
+        facts.extend(
+            ("section", "WRAMX", bank, start, end, name)
+            for start, end, name in sections
+        )
+        facts.extend(
+            ("free", "WRAMX", bank, start, end)
+            for start, end in _free_ranges(
+                WRAMX_START,
+                WRAMX_END,
+                [(start, end) for start, end, _ in sections],
+            )
+        )
+
+    canonical = json.dumps(
+        {"kind": MAP_IDENTITY, "facts": facts},
+        ensure_ascii=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def _parse_map(
@@ -376,7 +437,9 @@ def measure(root: Path) -> LinkMeasurement:
         )
     return LinkMeasurement(
         rom_sha256=_sha256(rom_path),
-        map_sha256=_sha256(map_path),
+        map_sha256=_canonical_map_sha256(
+            rom_sections, wram0_sections, wramx_sections
+        ),
         sym_sha256=_sha256(sym_path),
         state_bytes=PHASE1_STATE_BYTES,
         wram=wram,
