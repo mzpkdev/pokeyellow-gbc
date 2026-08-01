@@ -7,6 +7,8 @@ import shutil
 
 import pytest
 
+import tools.rom_tests.full_color.baseline_inventory as baseline_inventory
+
 from tools.rom_tests.full_color.baseline_discovery import (
     discover_baseline_rom,
     discover_baseline_sources,
@@ -15,6 +17,7 @@ from tools.rom_tests.full_color.baseline_inventory import (
     PROGRESS_SCHEMA,
     REVIEWED_SLICE,
     build_progress,
+    PHASE2_PLANNED_ROW_IDS,
     progress_json,
 )
 from tools.rom_tests.full_color.discovery_assignment import (
@@ -23,6 +26,7 @@ from tools.rom_tests.full_color.discovery_assignment import (
 )
 from tools.rom_tests.full_color.inventory import (
     InventoryReconciliationError,
+    InventoryValidationError,
     MutationInventory,
     SceneInventory,
     WriterInventory,
@@ -49,6 +53,16 @@ def authorities():
     )
 
 
+def reviewed_authorities():
+    writers, scenes, mutations, assignments = authorities()
+    return (
+        WriterInventory(tuple(row for row in writers.rows if not row["planned"])),
+        SceneInventory(tuple(row for row in scenes.rows if not row["planned"])),
+        MutationInventory(tuple(row for row in mutations.rows if not row["planned"])),
+        assignments,
+    )
+
+
 def assignments_for_reports(assignments, source, rom_report):
     """Keep assignment evidence current while retaining reviewed subjects."""
     raw = assignments.to_dict()
@@ -66,7 +80,12 @@ def assignments_for_reports(assignments, source, rom_report):
 def real_bundle():
     source = discover_baseline_sources(ROOT)
     rom = discover_baseline_rom(ROOT, source_report=source)
-    return (*authorities(), source, rom, (ROOT / "pokeyellow_debug.gbc").read_bytes())
+    return (
+        *authorities(),
+        source,
+        rom,
+        (ROOT / "pokeyellow_debug.gbc").read_bytes(),
+    )
 
 
 def test_canonical_authorities_load_and_round_trip() -> None:
@@ -80,9 +99,17 @@ def test_canonical_authorities_load_and_round_trip() -> None:
 
 def test_exact_reviewed_map_entry_tranche() -> None:
     writers, scenes, mutations, _ = authorities()
-    writer = {row["id"]: row for row in writers.rows}
-    scene = scenes.rows[0]
-    mutation = mutations.rows[0]
+    reviewed_writers = tuple(row for row in writers.rows if not row["planned"])
+    reviewed_scenes = tuple(row for row in scenes.rows if not row["planned"])
+    reviewed_mutations = tuple(row for row in mutations.rows if not row["planned"])
+    planned = tuple(
+        row
+        for row in (*writers.rows, *scenes.rows, *mutations.rows)
+        if row["planned"]
+    )
+    writer = {row["id"]: row for row in reviewed_writers}
+    scene = reviewed_scenes[0]
+    mutation = reviewed_mutations[0]
     assert tuple(sorted((*writer, scene["id"], mutation["id"]))) == ROW_IDS
     assert scene["classification"] == "MAP_BACKED"
     assert scene["first_display_writers"] == ["WR-YELLOW-LCDC-DISABLE"]
@@ -95,11 +122,14 @@ def test_exact_reviewed_map_entry_tranche() -> None:
     assert writer["WR-YELLOW-MAP-VIEW-TILE-COPY"]["generation_checked"] is False
     assert all(
         row["evidence"]["reviewed"]
-        for row in (*writers.rows, *scenes.rows, *mutations.rows)
+        for row in (*reviewed_writers, *reviewed_scenes, *reviewed_mutations)
     )
     assert all(
-        not row["planned"] for row in (*writers.rows, *scenes.rows, *mutations.rows)
+        not row["planned"]
+        for row in (*reviewed_writers, *reviewed_scenes, *reviewed_mutations)
     )
+    assert planned
+    assert all(not row["evidence"]["reviewed"] for row in planned)
 
 
 def test_progress_json_is_canonical_for_fake_progress(monkeypatch) -> None:
@@ -132,12 +162,198 @@ def test_real_progress_closes_slice_and_keeps_global_backlog(real_bundle) -> Non
         "source_unlisted_count": 0,
     }
     assert tuple(progress["reviewed_rows"]["row_ids"]) == ROW_IDS
+    assert progress["planned_rows"]["total_count"] == 18
+    assert set(progress["planned_rows"]["row_ids"]) == PHASE2_PLANNED_ROW_IDS
     assert progress["assigned"]["source_count"] == 4
     assert progress["assigned"]["rom_count"] == 4
     assert progress["matched"]["source_count"] == 4
     assert progress["matched"]["machine_count"] == 4
     assert progress["backlog"]["errors"] > 0
     assert progress["backlog"]["rom_candidates"] > 0
+
+
+def test_audit_transition_rejects_source_changes_outside_bound_manifest(
+    real_bundle, monkeypatch
+) -> None:
+    writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
+    real_manifest = baseline_inventory._source_path_manifest
+
+    def changed_manifest(repository, paths):
+        manifest = real_manifest(repository, paths)
+        manifest["audio.asm"] = "0" * 64
+        return manifest
+
+    monkeypatch.setattr(baseline_inventory, "_source_path_manifest", changed_manifest)
+    with pytest.raises(
+        InventoryReconciliationError,
+        match="outside the hash-bound audit-only change set",
+    ):
+        build_progress(
+            writers=writers,
+            scenes=scenes,
+            mutations=mutations,
+            assignments=assignments,
+            source_report=source,
+            rom_report=rom_report,
+            rom=rom,
+            repository=ROOT,
+        )
+
+
+@pytest.mark.parametrize("mode", ["duplicate", "traversal", "no-delta", "phantom"])
+def test_audit_transition_manifest_has_exact_safe_delta_paths(
+    real_bundle, tmp_path, monkeypatch, mode
+) -> None:
+    _, _, _, assignments, source, _, _ = real_bundle
+    transition_path = ROOT / baseline_inventory.SOURCE_TRANSITION_PATH
+    text = transition_path.read_text(encoding="utf-8")
+    if mode == "duplicate":
+        text = text.replace(
+            '"audit_only_paths": {',
+            '"audit_only_paths": {}, "audit_only_paths": {',
+            1,
+        )
+    else:
+        raw = json.loads(text)
+        if mode == "traversal":
+            raw["audit_only_paths"]["../main.asm"] = raw["audit_only_paths"].pop("main.asm")
+        elif mode == "no-delta":
+            raw["audit_only_paths"]["main.asm"]["reviewed_sha256"] = raw["audit_only_paths"]["main.asm"]["audit_sha256"]
+        else:
+            raw["audit_only_paths"]["phantom.asm"] = {
+                "reviewed_sha256": None,
+                "audit_sha256": None,
+            }
+        text = json.dumps(raw)
+    changed = tmp_path / "transition.json"
+    changed.write_text(text, encoding="utf-8")
+    monkeypatch.setattr(baseline_inventory, "SOURCE_TRANSITION_PATH", changed)
+    with pytest.raises(
+        InventoryReconciliationError,
+        match="valid audit-only transition|not normalized|no actual delta|malformed audit path hash",
+    ):
+        baseline_inventory._reviewed_source_view(assignments, source, ROOT)
+
+
+def test_planned_row_cannot_claim_reviewed_evidence(real_bundle) -> None:
+    writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
+    raw = json.loads(writers.to_json())
+    planned = next(row for row in raw["rows"] if row["planned"])
+    planned["evidence"]["reviewed"] = True
+    changed = WriterInventory.from_dict(raw)
+    with pytest.raises(
+        InventoryReconciliationError, match="planned row cannot claim reviewed evidence"
+    ):
+        build_progress(
+            writers=changed,
+            scenes=scenes,
+            mutations=mutations,
+            assignments=assignments,
+            source_report=source,
+            rom_report=rom_report,
+            rom=rom,
+        )
+
+
+def test_planned_row_machine_bytes_remain_bound_to_debug_rom(real_bundle) -> None:
+    writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
+    raw = json.loads(writers.to_json())
+    planned = next(row for row in raw["rows"] if row["planned"])
+    planned["machine_sites"][0]["bytes"] = "00"
+    changed = WriterInventory.from_dict(raw)
+    with pytest.raises(
+        InventoryReconciliationError, match="planned machine bytes do not match"
+    ):
+        build_progress(
+            writers=changed,
+            scenes=scenes,
+            mutations=mutations,
+            assignments=assignments,
+            source_report=source,
+            rom_report=rom_report,
+            rom=rom,
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation", ["machine-site", "bytes", "root", "resources", "commit"]
+)
+def test_planned_only_palette_exception_is_exactly_row_bound(
+    real_bundle, mutation
+) -> None:
+    writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
+    raw = json.loads(writers.to_json())
+    row = next(
+        item for item in raw["rows"] if item["id"] == "WR-P2-YELLOW-BG-PALETTE"
+    )
+    if mutation == "machine-site":
+        row["machine_sites"] = []
+    elif mutation == "bytes":
+        row["machine_sites"][0]["bytes"] = "fb1acf"
+    elif mutation == "root":
+        row["reachability"]["roots"] = ["RunPaletteCommand.altered"]
+        row["reachability"]["call_paths"] = [["RunPaletteCommand.altered"]]
+    elif mutation == "resources":
+        row["resources"][0]["end"] = 0xFF6A
+    else:
+        row["commit_unit"] = "BYTE"
+    with pytest.raises(InventoryReconciliationError, match="planned"):
+        build_progress(
+            writers=WriterInventory.from_dict(raw), scenes=scenes,
+            mutations=mutations, assignments=assignments, source_report=source,
+            rom_report=rom_report, rom=rom,
+        )
+
+
+def test_planned_writer_schema_requires_declared_source_evidence() -> None:
+    writers = WriterInventory.load(AUTHORITY / "writers.json")
+    raw = json.loads(writers.to_json())
+    row = next(item for item in raw["rows"] if item["planned"])
+    row["source_sites"] = []
+    with pytest.raises(
+        InventoryValidationError,
+        match="source_sites.*non-empty array",
+    ):
+        WriterInventory.from_dict(raw)
+
+
+def test_general_planned_row_requires_declared_machine_evidence(real_bundle) -> None:
+    writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
+    raw = json.loads(writers.to_json())
+    row = next(
+        item for item in raw["rows"]
+        if item["id"] == "WR-P2-YELLOW-ANIMATION-TILES"
+    )
+    row["machine_sites"] = []
+    with pytest.raises(
+        InventoryReconciliationError, match="lacks required machine evidence"
+    ):
+        build_progress(
+            writers=WriterInventory.from_dict(raw), scenes=scenes,
+            mutations=mutations, assignments=assignments, source_report=source,
+            rom_report=rom_report, rom=rom,
+        )
+
+
+@pytest.mark.parametrize("mode", ["delete", "add", "substitute"])
+def test_planned_row_ids_are_an_exact_closed_set(real_bundle, mode) -> None:
+    writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
+    raw = json.loads(writers.to_json())
+    planned_index = next(i for i, row in enumerate(raw["rows"]) if row["planned"])
+    if mode == "delete":
+        raw["rows"].pop(planned_index)
+    elif mode == "add":
+        reviewed = next(row for row in raw["rows"] if not row["planned"])
+        reviewed["planned"] = True
+        reviewed["evidence"]["reviewed"] = False
+    else:
+        raw["rows"][planned_index]["id"] = "WR-P2-SUBSTITUTED"
+        raw["rows"].sort(key=lambda row: row["id"])
+    with pytest.raises(InventoryReconciliationError, match="exact closed set"):
+        build_progress(
+            writers=WriterInventory.from_dict(raw), scenes=scenes, mutations=mutations,
+            assignments=assignments, source_report=source, rom_report=rom_report, rom=rom,
+        )
 
 
 def test_unlisted_source_local_label_inside_reviewed_slice_fails_closed(
@@ -227,7 +443,7 @@ def test_real_rom_byte_mutation_reaches_unlisted_slice_failure(
     (tmp_path / "pokeyellow_debug.gbc").write_bytes(changed_rom)
     changed_report = discover_baseline_rom(tmp_path, source_report=source)
     assert any(
-        finding.root == "DisableLCD" and finding.address == 0x77
+        finding.root == "DisableLCD.wait" and finding.address == 0x77
         for finding in changed_report.findings
     )
     changed_assignments = assignments_for_reports(assignments, source, changed_report)
@@ -268,7 +484,7 @@ def test_stale_assignment_source_and_rom_bytes_fail_closed(real_bundle) -> None:
     changed[index] = replace(changed[index], line=2)
     with pytest.raises(
         InventoryReconciliationError,
-        match="unexpected unlisted source item.*EnterMap",
+        match="audit-only transition target subject is absent",
     ):
         build_progress(
             writers=writers,

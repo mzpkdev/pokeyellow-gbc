@@ -17,6 +17,8 @@ from typing import Any
 
 _INCLUDE = re.compile(r'^\s*INCLUDE\s+"([^"]+)"', re.IGNORECASE)
 _LABEL = re.compile(r"^\s*((?:[A-Za-z_][\w#.]*)|(?:\.[A-Za-z_][\w#.]*))::?\s*(.*)$")
+_LOCAL_LABEL = re.compile(r"^\s*(\.[A-Za-z_][\w#.]*)(?:::?)?\s*(.*)$")
+_MAP_HEADER = re.compile(r"^\s*map_header\s+([A-Za-z_][\w#.]*)\s*,", re.IGNORECASE)
 _ALIAS = re.compile(
     r"^\s*(?:DEF\s+)?([A-Za-z_][\w#.]*)\s+EQU\s+"
     r"(.+?)(?:\s*;.*)?$",
@@ -64,6 +66,33 @@ REGISTER_SYMBOLS: dict[str, int] = {
     "rOBPD": 0xFF6B,
     "rSVBK": 0xFF70,
 }
+
+# Exact source roots retained by the compile-time-only Phase 2 audit product.
+PHASE2_HOSTILE_LIFECYCLE_ROOTS = ("EnterMap",)
+PHASE2_HOSTILE_SCENE_ROOTS = (
+    "DisplayPartyMenu",
+    "DisplayStartMenu",
+    "DisplayTextID",
+    "PalletTown_h",
+    "PartyMenuInit",
+    "RestoreScreenTilesAndReloadTilePatterns",
+    "Route1_h",
+    "StartMenu_Pokemon.exitMenu",
+)
+PHASE2_HOSTILE_MUTATION_ROOTS = (
+    "AutoBgMapTransfer",
+    "DMARoutine",
+    "LoadMapData",
+    "LoadNorthSouthConnectionsTileMap",
+    "PrepareOAMData",
+    "RedrawRowOrColumn",
+    "RunPaletteCommand",
+    "ScheduleEastColumnRedraw",
+    "ScheduleNorthRowRedraw",
+    "ScheduleSouthRowRedraw",
+    "ScheduleWestColumnRedraw",
+    "UpdateMovingBgTiles",
+)
 
 
 def _resource(address: int) -> str | None:
@@ -188,6 +217,9 @@ class SourceDiscoverer:
         lifecycle_sinks: Iterable[str] = (),
         scene_sinks: Iterable[str] = (),
         mutation_sinks: Iterable[str] = (),
+        scene_edge_classifications: Mapping[
+            tuple[str, str], tuple[str, str]
+        ] | None = None,
     ) -> None:
         self.repository = Path(repository).resolve()
         self.owner_gates = dict(owner_gates or {})
@@ -198,6 +230,7 @@ class SourceDiscoverer:
         self.lifecycle_sinks = frozenset(lifecycle_sinks)
         self.scene_sinks = frozenset(scene_sinks)
         self.mutation_sinks = frozenset(mutation_sinks)
+        self.scene_edge_classifications = dict(scene_edge_classifications or {})
 
     def discover(self, roots: Iterable[str | Path]) -> SourceDiscoveryReport:
         root_names = tuple(
@@ -281,12 +314,15 @@ class SourceDiscoverer:
                         changed = True
 
         findings: list[SourceFinding] = []
-        self._symbol_locations = {
-            label: (item.path, line)
-            for item in parsed.values()
-            for line, label in item.labels
-            if not label.startswith(".")
-        }
+        self._symbol_locations = {}
+        for item in parsed.values():
+            current_global = "<top-level>"
+            for line, label in item.labels:
+                if label.startswith("."):
+                    qualified = current_global + label
+                else:
+                    current_global = qualified = label
+                self._symbol_locations[qualified] = (item.path, line)
         for name in sorted(parsed):
             findings.extend(
                 self._find_in_file(parsed[name], aliases, macros, constants)
@@ -308,16 +344,11 @@ class SourceDiscoverer:
                     f"{finding.path}:{finding.line}:{finding.symbol}: "
                     f"unclassified scene edge to {finding.destination}"
                 )
-        defined = {
-            label[1].lstrip(".")
-            for item in parsed.values()
-            for label in item.labels
-            if not label[1].startswith(".")
-        }
+        defined = set(self._symbol_locations)
         discovered_control_roots = {
             finding.symbol
             for finding in findings
-            if finding.category in {"lifecycle", "scene_edge", "mutation"}
+            if finding.category in {"lifecycle", "scene", "scene_edge", "mutation"}
         }
         for symbol in sorted(
             ((self.lifecycle_roots | self.scene_roots | self.mutation_roots) & defined)
@@ -405,6 +436,10 @@ class SourceDiscoverer:
             match = _LABEL.match(line)
             if match:
                 labels.append((number, match.group(1)))
+            elif match := _LOCAL_LABEL.match(line):
+                labels.append((number, match.group(1)))
+            elif match := _MAP_HEADER.match(line):
+                labels.append((number, match.group(1) + "_h"))
             match = _ALIAS.match(line)
             if match:
                 aliases.append((match.group(1), match.group(2)))
@@ -431,6 +466,21 @@ class SourceDiscoverer:
                 continue
             instruction = line
             label = _LABEL.match(line)
+            if label is None and (local := _LOCAL_LABEL.match(line)):
+                # Every local label begins a new lexical scope.  Configuration
+                # controls evidence emission, never where the previous root ends.
+                label = local
+            if label is None and (map_header := _MAP_HEADER.match(line)):
+                # map_header emits a real linked <Map>_h symbol.
+                synthetic = map_header.group(1) + "_h"
+                if synthetic in self.scene_roots:
+                    findings.append(
+                        self._finding(
+                            item.path, number, synthetic, "scene", "configured-root",
+                            synthetic, "SCENE_BOUNDARY", aliases, line,
+                            resolved=True, row_kind="DIRECTED_EDGE",
+                        )
+                    )
             if label:
                 raw = label.group(1)
                 if raw.startswith("."):
@@ -452,6 +502,22 @@ class SourceDiscoverer:
                             line,
                             resolved=True,
                             row_kind="LIFECYCLE",
+                        )
+                    )
+                elif current_symbol in self.scene_roots:
+                    findings.append(
+                        self._finding(
+                            item.path,
+                            number,
+                            current_symbol,
+                            "scene",
+                            "configured-root",
+                            current_symbol,
+                            "SCENE_BOUNDARY",
+                            aliases,
+                            line,
+                            resolved=True,
+                            row_kind="DIRECTED_EDGE",
                         )
                     )
                 elif current_symbol in self.mutation_roots:
@@ -578,8 +644,13 @@ class SourceDiscoverer:
     def _configured_category(self, symbol: str, destination: str = "") -> str:
         if symbol in self.mutation_roots or destination in self.mutation_sinks:
             return "mutation"
-        if symbol in self.scene_roots or destination in self.scene_sinks:
+        if (
+            (symbol, destination) in self.scene_edge_classifications
+            or destination in self.scene_sinks
+        ):
             return "scene_edge"
+        if symbol in self.scene_roots:
+            return "control_flow" if self.scene_edge_classifications else "scene_edge"
         return "lifecycle"
 
     def _control_flow_finding(
@@ -611,10 +682,15 @@ class SourceDiscoverer:
             self.lifecycle_sinks | self.scene_sinks | self.mutation_sinks
         )
         resolved = not computed and configured_edge
+        row_kind = direction = None
         if category == "scene_edge":
             # Discovery proves an edge exists, but root/sink membership alone
             # cannot invent its ownership-transfer direction.
-            resolved = False
+            classification = self.scene_edge_classifications.get((symbol, destination))
+            if classification is None:
+                resolved = False
+            else:
+                row_kind, direction = classification
         return self._finding(
             path,
             line,
@@ -627,6 +703,8 @@ class SourceDiscoverer:
             evidence,
             resolved=resolved,
             condition=condition,
+            row_kind=row_kind,
+            direction=direction,
         )
 
     @classmethod
@@ -824,7 +902,13 @@ def discover_sources(
     lifecycle_sinks: Iterable[str] = (),
     scene_sinks: Iterable[str] = (),
     mutation_sinks: Iterable[str] = (),
+    scene_edge_classifications: Mapping[
+        tuple[str, str], tuple[str, str]
+    ] | None = None,
 ) -> SourceDiscoveryReport:
+    lifecycle_roots = tuple(lifecycle_roots)
+    scene_roots = tuple(scene_roots)
+    mutation_roots = tuple(mutation_roots)
     return SourceDiscoverer(
         repository,
         owner_gates=owner_gates,
@@ -835,4 +919,5 @@ def discover_sources(
         lifecycle_sinks=lifecycle_sinks,
         scene_sinks=scene_sinks,
         mutation_sinks=mutation_sinks,
+        scene_edge_classifications=scene_edge_classifications,
     ).discover(roots)

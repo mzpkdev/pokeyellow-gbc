@@ -12,6 +12,7 @@ def _recipes() -> dict[str, str]:
     names = (
         "test-full-color-setup",
         "measure-full-color-phase1",
+        "verify-full-color-phase2-audit",
         "test-full-color-gate0",
         "test-full-color-renderer-conformance",
         "test-full-color-renderer-runtime",
@@ -38,7 +39,7 @@ def _dependencies() -> dict[str, tuple[str, ...]]:
     return {
         name: tuple(dependencies.split())
         for name, dependencies in re.findall(
-            r"^(test-full-color-[a-z0-9-]+):([^\n]*)$", text, re.MULTILINE
+            r"^((?:test|verify)-full-color-[a-z0-9-]+):([^\n]*)$", text, re.MULTILINE
         )
     }
 
@@ -75,6 +76,18 @@ def test_gate0_builds_every_phase1_product_rom() -> None:
         "pokeyellow_debug.gbc",
         "pokeyellow_vc.gbc",
     )
+
+
+def test_phase2_audit_verification_is_a_separate_focused_gate() -> None:
+    dependencies = _dependencies()
+    assert dependencies["verify-full-color-phase2-audit"] == (
+        "pokeyellow.gbc",
+        "pokeyellow_debug.gbc",
+        "pokeyellow_vc.gbc",
+        "pokeyellow_phase2_audit.gbc",
+    )
+    assert "phase2_measurements" in _recipes()["verify-full-color-phase2-audit"]
+    assert "--verify" in _recipes()["verify-full-color-phase2-audit"]
 
 
 def test_python_prefers_the_repo_virtualenv_when_present() -> None:

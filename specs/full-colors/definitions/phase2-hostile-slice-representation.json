@@ -1,0 +1,49 @@
+{
+  "debug_carrier": {
+    "header_bytes": 32,
+    "record_bytes": 32
+  },
+  "descriptor": [
+    {"bytes": 1, "name": "state_and_class"},
+    {"bytes": 1, "name": "owner"},
+    {"bytes": 4, "name": "generation"},
+    {"bytes": 2, "name": "destination"},
+    {"bytes": 2, "name": "source"},
+    {"bytes": 2, "name": "desired_state"},
+    {"bytes": 2, "name": "resource_mask"},
+    {"bytes": 2, "name": "extent"},
+    {"bytes": 2, "name": "reservation"},
+    {"bytes": 1, "name": "flags"},
+    {"bytes": 1, "name": "retry_token"}
+  ],
+  "request_classes": [
+    {"equivalent_at_capacity": true, "fallback_observable": false, "name": "ANIMATION_REPLACEMENT", "required_work": true, "retry_observable": true},
+    {"equivalent_at_capacity": true, "fallback_observable": false, "name": "BG_PALETTE_PAYLOAD", "required_work": true, "retry_observable": true},
+    {"equivalent_at_capacity": true, "fallback_observable": false, "name": "MAP_COLUMN_PAIRED", "required_work": true, "retry_observable": true},
+    {"equivalent_at_capacity": true, "fallback_observable": false, "name": "MAP_CONNECTION_PAIRED", "required_work": true, "retry_observable": true},
+    {"equivalent_at_capacity": true, "fallback_observable": false, "name": "MAP_OVERLAY_PAIRED", "required_work": true, "retry_observable": true},
+    {"equivalent_at_capacity": true, "fallback_observable": false, "name": "MAP_RECTANGLE_PAIRED", "required_work": true, "retry_observable": true},
+    {"equivalent_at_capacity": true, "fallback_observable": false, "name": "MAP_ROW_PAIRED", "required_work": true, "retry_observable": true},
+    {"equivalent_at_capacity": false, "fallback_observable": true, "name": "OAM_BATCH_AND_DMA", "required_work": true, "retry_observable": true},
+    {"equivalent_at_capacity": true, "fallback_observable": false, "name": "OBJ_PALETTE_PAYLOAD", "required_work": true, "retry_observable": true}
+  ],
+  "scenario": [
+    {"identity":{"owner":"RENDERER_FULL_COLOR_OVERWORLD","generation":"generation-1","resources":["ATTRIBUTES","BG_MAP","HARDWARE_OAM","PALETTES","SHADOW_OAM"],"visible_boundary":"PALLET_TOWN_ENTRY"}, "enqueue": [{"class":"BG_PALETTE_PAYLOAD","destination":"bg-palette","desired_state":"pallet-base"},{"class":"OBJ_PALETTE_PAYLOAD","destination":"obj-palette","desired_state":"pallet-base"},{"class":"MAP_RECTANGLE_PAIRED","destination":"viewport","desired_state":"pallet-entry"},{"class":"OAM_BATCH_AND_DMA","destination":"oam-frame","desired_state":"entry-objects"}], "name": "pallet-map-entry"},
+    {"identity":{"owner":"RENDERER_FULL_COLOR_OVERWORLD","generation":"generation-1","resources":["ATTRIBUTES","BG_MAP"],"visible_boundary":"PALLET_TOWN_HORIZONTAL_SCROLL"}, "drain": true, "enqueue": [{"class":"MAP_COLUMN_PAIRED","destination":"column-0","desired_state":"east-0"},{"class":"MAP_COLUMN_PAIRED","destination":"column-1","desired_state":"east-1"},{"class":"MAP_COLUMN_PAIRED","destination":"column-2","desired_state":"east-2"},{"class":"MAP_COLUMN_PAIRED","destination":"column-3","desired_state":"east-3"},{"class":"MAP_COLUMN_PAIRED","destination":"column-4","desired_state":"west-4"},{"class":"MAP_COLUMN_PAIRED","destination":"column-5","desired_state":"west-5"},{"class":"MAP_COLUMN_PAIRED","destination":"column-6","desired_state":"west-6"},{"class":"MAP_COLUMN_PAIRED","destination":"column-7","desired_state":"west-7"}], "name": "hostile-horizontal-pressure"},
+    {"identity":{"owner":"RENDERER_FULL_COLOR_OVERWORLD","generation":"generation-1","resources":["ATTRIBUTES","BG_MAP"],"visible_boundary":"PALLET_TOWN_VERTICAL_SCROLL"}, "drain": true, "enqueue": [{"class":"MAP_ROW_PAIRED","destination":"row-0","desired_state":"north-0"},{"class":"MAP_ROW_PAIRED","destination":"row-1","desired_state":"north-1"},{"class":"MAP_ROW_PAIRED","destination":"row-2","desired_state":"north-2"},{"class":"MAP_ROW_PAIRED","destination":"row-3","desired_state":"north-3"},{"class":"MAP_ROW_PAIRED","destination":"row-4","desired_state":"south-4"},{"class":"MAP_ROW_PAIRED","destination":"row-5","desired_state":"south-5"},{"class":"MAP_ROW_PAIRED","destination":"row-6","desired_state":"south-6"},{"class":"MAP_ROW_PAIRED","destination":"row-7","desired_state":"south-7"}], "name": "hostile-vertical-pressure"},
+    {"identity":{"owner":"RENDERER_FULL_COLOR_OVERWORLD","generation":"generation-1","resources":["ATTRIBUTES","BG_MAP","BG_TILES"],"visible_boundary":"PALLET_TOWN_TO_ROUTE_1"}, "drain": true, "enqueue": [{"class":"ANIMATION_REPLACEMENT","destination":"water-frame","desired_state":"frame-a"},{"class":"ANIMATION_REPLACEMENT","destination":"flower-frame","desired_state":"frame-b"},{"class":"MAP_CONNECTION_PAIRED","destination":"north-band-0","desired_state":"route1-0"},{"class":"MAP_CONNECTION_PAIRED","destination":"north-band-1","desired_state":"route1-1"},{"class":"MAP_CONNECTION_PAIRED","destination":"north-band-2","desired_state":"route1-2"},{"class":"MAP_CONNECTION_PAIRED","destination":"north-band-3","desired_state":"route1-3"}], "name": "animation-and-route1"},
+    {"identity":{"owner":"RENDERER_FULL_COLOR_OVERWORLD","generation":"generation-1","resources":["ATTRIBUTES","BG_MAP"],"visible_boundary":"OVERLAY_VISIBLE"}, "drain": true, "enqueue": [{"class":"MAP_OVERLAY_PAIRED","destination":"dialogue-0","desired_state":"open"},{"class":"MAP_OVERLAY_PAIRED","destination":"dialogue-1","desired_state":"open"},{"class":"MAP_OVERLAY_PAIRED","destination":"start-menu-0","desired_state":"open"},{"class":"MAP_OVERLAY_PAIRED","destination":"start-menu-1","desired_state":"open"}], "name": "dialogue-and-start-overlay"},
+    {"identity":{"owner":"RENDERER_FULL_COLOR_OVERWORLD","generation":"generation-1","resources":["HARDWARE_OAM","SHADOW_OAM"],"visible_boundary":"OAM_FRAME_COMMIT"}, "drain": true, "enqueue": [{"class":"OAM_BATCH_AND_DMA","destination":"oam-frame","desired_state":"follower"},{"class":"OAM_BATCH_AND_DMA","destination":"oam-frame","desired_state":"npc"}], "name": "follower-and-npc"},
+    {"identity":{"owner":"RENDERER_FULL_COLOR_OVERWORLD","generation":"generation-2","resources":["ATTRIBUTES","BG_MAP","PALETTES"],"visible_boundary":"PARTY_RETURN_RECONSTRUCTION"}, "drain": true, "enqueue": [{"class":"MAP_RECTANGLE_PAIRED","destination":"reconstruct-0","desired_state":"party-return-0"},{"class":"MAP_RECTANGLE_PAIRED","destination":"reconstruct-1","desired_state":"party-return-1"},{"class":"MAP_RECTANGLE_PAIRED","destination":"reconstruct-2","desired_state":"party-return-2"},{"class":"MAP_RECTANGLE_PAIRED","destination":"reconstruct-3","desired_state":"party-return-3"},{"class":"BG_PALETTE_PAYLOAD","destination":"bg-palette-base","desired_state":"party-return-base"},{"class":"BG_PALETTE_PAYLOAD","destination":"bg-palette-visible","desired_state":"party-return-visible"},{"class":"OBJ_PALETTE_PAYLOAD","destination":"obj-palette-base","desired_state":"party-return-base"},{"class":"OBJ_PALETTE_PAYLOAD","destination":"obj-palette-visible","desired_state":"party-return-visible"}], "name": "party-return-reconstruction"}
+  ],
+  "schema": "full-color-phase2-hostile-slice-definition-v1",
+  "scratch": [
+    {"bytes": 64, "name": "bg_palette_base"},
+    {"bytes": 64, "name": "bg_palette_transformed"},
+    {"bytes": 64, "name": "obj_palette_base"},
+    {"bytes": 64, "name": "obj_palette_transformed"},
+    {"bytes": 360, "name": "attribute_rectangle"},
+    {"bytes": 160, "name": "shadow_oam_batch"},
+    {"bytes": 32, "name": "reconstruction_ledger"}
+  ]
+}
