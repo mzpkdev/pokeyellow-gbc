@@ -29,6 +29,9 @@ def _validate_phase2_audit_provisioning(workflow: str) -> None:
     test_command = "run: python -m pytest tools/rom_tests/tests/unit"
     gate0_command = "run: make test-full-color-gate0"
 
+    assert re.findall(r"^    timeout-minutes: (.+)$", test_job, re.MULTILINE) == [
+        "20"
+    ], "Test CI timeout must be exactly 20 minutes"
     assert SETUP_BUILD_ACTION in test_job, (
         "Test CI must install the pinned RGBDS toolchain"
     )
@@ -115,6 +118,22 @@ def _move_gate0_rgbds_setup_after_audit(workflow: str) -> str:
     [
         (
             lambda text: text.replace(
+                "  test:\n"
+                "    name: Test\n"
+                "    needs: build\n"
+                "    runs-on: ubuntu-latest\n"
+                "    timeout-minutes: 20\n",
+                "  test:\n"
+                "    name: Test\n"
+                "    needs: build\n"
+                "    runs-on: ubuntu-latest\n"
+                "    timeout-minutes: 10\n",
+                1,
+            ),
+            "Test CI timeout must be exactly 20 minutes",
+        ),
+        (
+            lambda text: text.replace(
                 "      - name: Set up pinned RGBDS\n"
                 "        uses: ./.github/actions/setup-build\n",
                 "",
@@ -153,6 +172,7 @@ def _move_gate0_rgbds_setup_after_audit(workflow: str) -> str:
         ),
     ],
     ids=(
+        "test-timeout",
         "test-rgbds",
         "test-rgbds-after-audit",
         "test-audit-build",
