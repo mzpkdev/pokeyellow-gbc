@@ -11,6 +11,7 @@ def _recipes() -> dict[str, str]:
     text = (ROOT / "Makefile").read_text(encoding="utf-8")
     names = (
         "test-full-color-setup",
+        "measure-full-color-phase1",
         "test-full-color-gate0",
         "test-full-color-renderer-conformance",
         "test-full-color-smoke",
@@ -59,6 +60,26 @@ def test_gate0_artifacts_use_one_overridable_results_root() -> None:
 def test_python_prefers_the_repo_virtualenv_when_present() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert "$(wildcard .venv/bin/python)" in makefile
+
+
+def test_phase1_measurement_has_a_stable_build_dependent_command() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    header = re.search(
+        r"^measure-full-color-phase1:(?P<dependencies>[^\n]*)$",
+        makefile,
+        re.MULTILINE,
+    )
+    assert header is not None
+    assert "yellow_debug" in header.group("dependencies").split()
+    target = _recipes()["measure-full-color-phase1"]
+    assert (
+        "$(PYTHON) -m tools.rom_tests.full_color.phase1_measurements --root ."
+        in target
+    )
+    assert (
+        "--output specs/full-colors/evidence/phase1-ownership-placement.json"
+        in target
+    )
 
 
 def test_renderer_conformance_has_a_stable_separate_command() -> None:

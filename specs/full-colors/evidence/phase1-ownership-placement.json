@@ -1,0 +1,531 @@
+{
+  "inputs": {
+    "map": {
+      "path": "pokeyellow_debug.map",
+      "sha256": "c2c385c41a7bfddc3ccd2acb699fb5c38398485efdc743a0f78f4f007e3b1957"
+    },
+    "rom": {
+      "path": "pokeyellow_debug.gbc",
+      "sha256": "51c1553fb1834391552dd87f3fbff7f7a47fd58f52c023cedc7a45e5c5034da7"
+    },
+    "sym": {
+      "path": "pokeyellow_debug.sym",
+      "sha256": "30688dc5cbe1a17a9282dbff7e173602f3e368c291316a5246230e10f3e60e78"
+    }
+  },
+  "ownership_state": {
+    "allocation_status": "proposed",
+    "byte_cost": 13,
+    "fields": [
+      {
+        "bytes": 1,
+        "name": "owner"
+      },
+      {
+        "bytes": 1,
+        "name": "phase"
+      },
+      {
+        "bytes": 4,
+        "name": "generation"
+      },
+      {
+        "bytes": 1,
+        "name": "admission_open"
+      },
+      {
+        "bytes": 1,
+        "name": "job_state"
+      },
+      {
+        "bytes": 4,
+        "name": "job_generation"
+      },
+      {
+        "bytes": 1,
+        "name": "job_cancellation_reason"
+      }
+    ],
+    "interrupt_access": "REQUIRES_BANKED_PRESERVE_RSVBK",
+    "interrupt_bank_switches": 2,
+    "minimum_stack_margin_bytes": 128,
+    "runtime_bank_switches": 2,
+    "selected_wram_bank": 2,
+    "selected_wram_end": 53260,
+    "selected_wram_section": "Full Color Ownership State",
+    "selected_wram_start": 53248,
+    "stack_margin_bytes": 235
+  },
+  "rejected_candidates": [
+    {
+      "bank": 1,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 31822
+    },
+    {
+      "bank": 2,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32455
+    },
+    {
+      "bank": 3,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 31448
+    },
+    {
+      "bank": 4,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 31266
+    },
+    {
+      "bank": 5,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32227
+    },
+    {
+      "bank": 6,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 26815
+    },
+    {
+      "bank": 7,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 26268
+    },
+    {
+      "bank": 8,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 30653
+    },
+    {
+      "bank": 9,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32571
+    },
+    {
+      "bank": 10,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32269
+    },
+    {
+      "bank": 11,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32304
+    },
+    {
+      "bank": 12,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32085
+    },
+    {
+      "bank": 13,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32556
+    },
+    {
+      "bank": 14,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 31659
+    },
+    {
+      "bank": 15,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 31682
+    },
+    {
+      "bank": 16,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 24442
+    },
+    {
+      "bank": 17,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 27670
+    },
+    {
+      "bank": 18,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 25924
+    },
+    {
+      "bank": 19,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32538
+    },
+    {
+      "bank": 20,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 27042
+    },
+    {
+      "bank": 21,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 27031
+    },
+    {
+      "bank": 22,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 25942
+    },
+    {
+      "bank": 23,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 24448
+    },
+    {
+      "bank": 24,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 26382
+    },
+    {
+      "bank": 26,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32752
+    },
+    {
+      "bank": 28,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "RGB bank $1c extension is not assumed free in Yellow",
+      "start": 32435
+    },
+    {
+      "bank": 29,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 24951
+    },
+    {
+      "bank": 30,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32657
+    },
+    {
+      "bank": 31,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 30816
+    },
+    {
+      "bank": 32,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 29369
+    },
+    {
+      "bank": 33,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 27112
+    },
+    {
+      "bank": 34,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 28670
+    },
+    {
+      "bank": 35,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32270
+    },
+    {
+      "bank": 36,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 26662
+    },
+    {
+      "bank": 37,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 27932
+    },
+    {
+      "bank": 38,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 31435
+    },
+    {
+      "bank": 39,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 31639
+    },
+    {
+      "bank": 40,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 31812
+    },
+    {
+      "bank": 41,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 30504
+    },
+    {
+      "bank": 42,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 31622
+    },
+    {
+      "bank": 43,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 31234
+    },
+    {
+      "bank": 44,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "Yellow Text 7 occupies RGB bank $2c",
+      "start": 30960
+    },
+    {
+      "bank": 45,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 29086
+    },
+    {
+      "bank": 46,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 31138
+    },
+    {
+      "bank": 47,
+      "end": 20479,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 18244
+    },
+    {
+      "bank": 47,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 29776
+    },
+    {
+      "bank": 48,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 16385
+    },
+    {
+      "bank": 49,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "Yellow Pikachu cries occupy RGB bank $31",
+      "start": 31942
+    },
+    {
+      "bank": 51,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32758
+    },
+    {
+      "bank": 52,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 25974
+    },
+    {
+      "bank": 53,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 30210
+    },
+    {
+      "bank": 54,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32608
+    },
+    {
+      "bank": 55,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32662
+    },
+    {
+      "bank": 56,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32504
+    },
+    {
+      "bank": 57,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32419
+    },
+    {
+      "bank": 58,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 27172
+    },
+    {
+      "bank": 60,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 28088
+    },
+    {
+      "bank": 61,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 26950
+    },
+    {
+      "bank": 62,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32118
+    },
+    {
+      "bank": 63,
+      "end": 32767,
+      "kind": "ROM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 32567
+    },
+    {
+      "bank": 1,
+      "end": 57343,
+      "kind": "WRAM",
+      "reason": "overlaps measured section(s): WRAM, Party Data, Main Data, Current Box Data, CGB Palette Data, Stack",
+      "start": 53248
+    },
+    {
+      "bank": 3,
+      "end": 57343,
+      "kind": "WRAM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 53248
+    },
+    {
+      "bank": 4,
+      "end": 57343,
+      "kind": "WRAM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 53248
+    },
+    {
+      "bank": 5,
+      "end": 57343,
+      "kind": "WRAM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 53248
+    },
+    {
+      "bank": 6,
+      "end": 57343,
+      "kind": "WRAM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 53248
+    },
+    {
+      "bank": 7,
+      "end": 57343,
+      "kind": "WRAM",
+      "reason": "lower-ranked by the deterministic measured selection rule",
+      "start": 53248
+    }
+  ],
+  "rom": {
+    "selected_bank": 59,
+    "selected_free_bytes": 16384,
+    "selected_free_end": 32767,
+    "selected_free_start": 16384
+  },
+  "schema": "full-color-phase1-ownership-placement-v1",
+  "selection_rule": "WRAM: fewest interrupt bank switches, fewest runtime bank switches, largest measured stack margin, lowest bank, lowest start; ROM: largest contiguous measured free range, lowest bank, lowest start; forbidden donor banks are never eligible"
+}

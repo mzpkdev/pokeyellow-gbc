@@ -59,6 +59,7 @@ RGBGFXFLAGS  ?= -Weverything
 	compare \
 	tools \
 	test-full-color-setup \
+	measure-full-color-phase1 \
 	test-full-color-gate0 \
 	test-full-color-renderer-conformance \
 	test-full-color-smoke \
@@ -104,6 +105,9 @@ tools:
 
 FULL_COLOR_RESULTS ?= test-results/full-color-gate0
 FULL_COLOR_CONFORMANCE_RESULTS ?= test-results/full-color-renderer-conformance
+
+measure-full-color-phase1: yellow_debug
+	$(PYTHON) -m tools.rom_tests.full_color.phase1_measurements --root . --output specs/full-colors/evidence/phase1-ownership-placement.json
 
 test-full-color-setup:
 	python3 -m venv .venv
@@ -170,7 +174,7 @@ pokeyellow.gbc:       RGBLINKFLAGS += -p 0x00
 pokeyellow_debug.gbc: RGBLINKFLAGS += -p 0xff
 pokeyellow_vc.gbc:    RGBLINKFLAGS += -p 0x00
 
-RGBFIXFLAGS += -cjsv -k 01 -l 0x33 -m MBC5+RAM+BATTERY -r 03 -t "POKEMON YELLOW"
+RGBFIXFLAGS += -Cjsv -k 01 -l 0x33 -m MBC5+RAM+BATTERY -r 03 -t "POKEMON YELLOW"
 pokeyellow.gbc:       RGBFIXFLAGS += -p 0x00
 pokeyellow_debug.gbc: RGBFIXFLAGS += -p 0xff
 pokeyellow_vc.gbc:    RGBFIXFLAGS += -p 0x00
