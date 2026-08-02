@@ -2622,6 +2622,7 @@ ASSERT BANK(wFullColorPhase2StateStart) == FULL_COLOR_PHASE2_WRAM_BANK
 
 ; Guarded lifecycle and runtime-observation state. Nothing here is present in a
 ; normal product and no field aliases the Phase 1 SRAM mailbox.
+IF DEF(PHASE2_AUDIT)
 SECTION "Full Color Phase 2 Lifecycle State", WRAMX[FULL_COLOR_PHASE3_WRAM_START], BANK[FULL_COLOR_PHASE2_WRAM_BANK]
 wFullColorPhase2LifecycleStateStart::
 wFullColorAuthoritySnapshot::
@@ -2690,4 +2691,6 @@ ASSERT wFullColorDebugCarrierEnd - wFullColorDebugCarrierStart == FULL_COLOR_DEB
 ASSERT wFullColorPhase2LifecycleStateStart == FULL_COLOR_PHASE3_WRAM_START
 ASSERT wFullColorPhase2LifecycleStateEnd == FULL_COLOR_PHASE3_WRAM_END
 ASSERT BANK(wFullColorPhase2LifecycleStateStart) == FULL_COLOR_PHASE2_WRAM_BANK
+
+ENDC
 ENDC

@@ -154,24 +154,55 @@ AdmitFullColorRequest::
 ; the exact descriptor, and freezes it into scheduler scratch before return.
 ; A returns ACCEPTED or DEFERRED; carry is clear only for ACCEPTED.
 EnqueueFullColorMapRow::
+	IF !DEF(PHASE2_AUDIT)
+	select_renderer_state_e
+	ENDC
 	ld a, FULL_COLOR_REQUEST_MAP_ROW_PAIRED
 	jp EnqueueFullColorPairedSemantic
 EnqueueFullColorMapColumn::
+	IF !DEF(PHASE2_AUDIT)
+	select_renderer_state_e
+	ENDC
 	ld a, FULL_COLOR_REQUEST_MAP_COLUMN_PAIRED
 	jp EnqueueFullColorPairedSemantic
 EnqueueFullColorMapConnection::
+	IF !DEF(PHASE2_AUDIT)
+	select_renderer_state_e
+	ENDC
 	ld a, FULL_COLOR_REQUEST_MAP_CONNECTION_PAIRED
 	jp EnqueueFullColorPairedSemantic
 EnqueueFullColorMapRectangle::
+	IF !DEF(PHASE2_AUDIT)
+	select_renderer_state_e
+	ENDC
 	ld a, FULL_COLOR_REQUEST_MAP_RECTANGLE_PAIRED
 	jp EnqueueFullColorPairedSemantic
 EnqueueFullColorMapOverlay::
+	IF !DEF(PHASE2_AUDIT)
+	select_renderer_state_e
+	ENDC
 	ld a, FULL_COLOR_REQUEST_MAP_OVERLAY_PAIRED
 	; fallthrough
 EnqueueFullColorPairedSemantic:
+	IF DEF(PHASE2_AUDIT)
 	push af
 	select_renderer_state_e
 	pop af
+	ELSE
+	; The class is loaded only after selecting WRAM2. Pushing it before the bank
+	; switch and popping afterward would read the same stack address from the
+	; wrong physical WRAM bank.
+	; A retained producer is immutable retry authority. Check the singleton
+	; before writing even its class: a later row/column request must not mutate
+	; the deferred unit while OAM owns preparation scratch.
+	push af
+	call FullColorProducerStorageAvailableSelected
+	jr nc, .storage_available
+	pop af
+	jp EnqueueFullColorSemantic_defer
+.storage_available
+	pop af
+	ENDC
 	ld [wFullColorProducerClass], a
 	bit 7, a
 	ld a, 0
@@ -235,8 +266,10 @@ EnqueueFullColorPairedSemantic:
 	cp d
 	jp nz, EnqueueFullColorSemantic_defer
 .geometry_ok
+	IF DEF(PHASE2_AUDIT)
 	call FullColorProducerStorageAvailableSelected
 	jp c, EnqueueFullColorSemantic_defer
+	ENDC
 	; BC = width * height.
 	ld a, [wFullColorProducerWidth]
 	ld e, a
@@ -288,6 +321,47 @@ EnqueueFullColorPairedSemantic:
 	jr .copy_tiles
 .tiles_done
 	pop bc
+	; Normal-debug diagnostic overlays carry an independently-authored second
+	; plane. The scheduler below remains the production freezer and committer.
+IF DEF(_DEBUG)
+IF !DEF(PHASE2_AUDIT)
+	ld a, [wFullColorProducerClass]
+	cp FULL_COLOR_REQUEST_MAP_OVERLAY_PAIRED
+	jr z, .diagnostic_class
+	cp FULL_COLOR_REQUEST_MAP_ROW_PAIRED
+	jr z, .diagnostic_class
+	cp FULL_COLOR_REQUEST_MAP_COLUMN_PAIRED
+	jr z, .diagnostic_class
+	cp FULL_COLOR_REQUEST_MAP_CONNECTION_PAIRED
+	jr nz, .derive_attributes
+.diagnostic_class
+	ld a, [wFullColorRequestStaging + 1]
+	and a
+	jr nz, .derive_attributes
+	ld a, [wFullColorPhase2DiagnosticOverlayAttributeCount]
+	cp c
+	jr nz, .derive_attributes
+	ld de, wFullColorPhase2DiagnosticOverlayAttributes
+	ld hl, wFullColorProducerTiles
+	add hl, bc
+	push bc
+.copy_diagnostic_attributes
+	ld a, b
+	or c
+	jr z, .diagnostic_attributes_done
+	ld a, [de]
+	ld [hli], a
+	inc de
+	dec bc
+	jr .copy_diagnostic_attributes
+.diagnostic_attributes_done
+	pop bc
+	xor a
+	ld [wFullColorPhase2DiagnosticOverlayAttributeCount], a
+	jr .derived
+.derive_attributes
+ENDC
+ENDC
 	; Derive a distinct attribute plane from the frozen tile plane.
 	ld de, wFullColorProducerTiles
 	ld hl, wFullColorProducerTiles
@@ -321,11 +395,17 @@ EnqueueFullColorPairedSemantic:
 EnqueueFullColorMovementRowStrip::
 	ld b, SCREEN_WIDTH
 	ld c, 2
+	IF !DEF(PHASE2_AUDIT)
+	select_renderer_state_e
+	ENDC
 	ld a, $80 | FULL_COLOR_REQUEST_MAP_ROW_PAIRED
 	jp EnqueueFullColorPairedSemantic
 EnqueueFullColorMovementColumnStrip::
 	ld b, 2
 	ld c, SCREEN_HEIGHT
+	IF !DEF(PHASE2_AUDIT)
+	select_renderer_state_e
+	ENDC
 	ld a, $80 | FULL_COLOR_REQUEST_MAP_COLUMN_PAIRED
 	jp EnqueueFullColorPairedSemantic
 
@@ -333,6 +413,10 @@ EnqueueFullColorMovementColumnStrip::
 ; BC=attribute-map destination. Attribute identity is derived from tile 0.
 EnqueueFullColorAnimation::
 	select_renderer_state_e
+	IF !DEF(PHASE2_AUDIT)
+	call FullColorProducerStorageAvailableSelected
+	jp c, EnqueueFullColorSemantic_defer
+	ENDC
 	xor a
 	ld [wFullColorProducerFlags], a
 	ld a, h
@@ -354,8 +438,10 @@ EnqueueFullColorAnimation::
 	ld [wFullColorProducerHeight], a
 	ld a, FULL_COLOR_REQUEST_ANIMATION_REPLACEMENT
 	ld [wFullColorProducerClass], a
+	IF DEF(PHASE2_AUDIT)
 	call FullColorProducerStorageAvailableSelected
 	jp c, EnqueueFullColorSemantic_defer
+	ENDC
 	ld a, [wFullColorProducerSource]
 	ld e, a
 	ld a, [wFullColorProducerSource + 1]
@@ -1292,19 +1378,31 @@ RunFullColorSchedulerSelected::
 .revalidate
 	ld a, [wRendererOwner]
 	cp RENDERER_FULL_COLOR_OVERWORLD
+IF DEF(PHASE2_AUDIT)
 	jr nz, CancelFullColorDescriptorStaleSelected
+ELSE
+	jp nz, CancelFullColorDescriptorStaleSelected
+ENDC
 	push hl
 	ld de, FULL_COLOR_DESCRIPTOR_OWNER
 	add hl, de
 	ld a, [hli]
 	cp RENDERER_FULL_COLOR_OVERWORLD
+IF DEF(PHASE2_AUDIT)
 	jr nz, .cancel_pop
+ELSE
+	jp nz, FullColorCancelPop
+ENDC
 	ld de, wRendererGeneration
 	ld b, 4
 .generation
 	ld a, [de]
 	cp [hl]
+IF DEF(PHASE2_AUDIT)
 	jr nz, .cancel_pop
+ELSE
+	jp nz, FullColorCancelPop
+ENDC
 	inc de
 	inc hl
 	dec b
@@ -1317,7 +1415,11 @@ RunFullColorSchedulerSelected::
 	ld e, l
 	call ValidateFullColorRequestResourcesSelected
 	pop hl
+IF DEF(PHASE2_AUDIT)
 	jr c, CancelFullColorDescriptorStaleSelected
+ELSE
+	jp c, CancelFullColorDescriptorStaleSelected
+ENDC
 	; Required resources must be a subset of the currently available set.
 	push hl
 	ld de, FULL_COLOR_DESCRIPTOR_RESOURCE_MASK
@@ -1348,6 +1450,19 @@ RunFullColorSchedulerSelected::
 	jr c, .defer_pop
 .budget_ok
 	pop hl
+	; The normal-debug core-cycle authority brackets the exact commit and then
+	; exercises a second, synthetic admission at threshold + 1. SameBoy writes
+	; the host-derived probe only after calibration; a nonzero probe must defer
+	; before this second attempt can enter COMMITTING.
+IF !DEF(PHASE2_AUDIT)
+	push hl
+	ld a, [hl]
+	and FULL_COLOR_DESCRIPTOR_CLASS_MASK
+	call SelectFullColorRuntimeTimingRowSelected
+	call BeginFullColorRuntimeTimingSampleSelected
+	pop hl
+	push af
+ENDC
 	ld a, [hl]
 	and FULL_COLOR_DESCRIPTOR_CLASS_MASK
 	ld b, a
@@ -1359,6 +1474,14 @@ RunFullColorSchedulerSelected::
 	call RecordFullColorTransitionSelected
 	pop hl
 	call CommitFullColorVisibleUnitSelected
+IF !DEF(PHASE2_AUDIT)
+	pop af
+	jr c, .timing_done
+	push hl
+	call EndFullColorRuntimeTimingSampleSelected
+	pop hl
+.timing_done
+ENDC
 	ld a, [hl]
 	and FULL_COLOR_DESCRIPTOR_CLASS_MASK
 	ld b, a
@@ -1375,7 +1498,143 @@ RunFullColorSchedulerSelected::
 .defer_pop
 	pop hl
 	ret
+
+IF !DEF(PHASE2_AUDIT)
+; Input A=request class. Output A=canonical timing row or zero when the work is
+; deliberately measured inside its containing transfer/VBlank unit.
+SelectFullColorRuntimeTimingRowSelected:
+	cp FULL_COLOR_REQUEST_BG_PALETTE_PAYLOAD
+	jr z, .bg
+	cp FULL_COLOR_REQUEST_OBJ_PALETTE_PAYLOAD
+	jr z, .obj
+	cp FULL_COLOR_REQUEST_MAP_ROW_PAIRED
+	jr z, .horizontal
+	cp FULL_COLOR_REQUEST_MAP_COLUMN_PAIRED
+	jr z, .vertical
+	cp FULL_COLOR_REQUEST_MAP_CONNECTION_PAIRED
+	jr z, .connection
+	cp FULL_COLOR_REQUEST_OAM_BATCH_AND_DMA
+	jr z, .oam
+	xor a
+	ret
+.bg
+	ld a, FULL_COLOR_TIMING_ROW_PALETTE_BG
+	ret
+.obj
+	ld a, FULL_COLOR_TIMING_ROW_PALETTE_OBJ
+	ret
+.horizontal
+	ld a, FULL_COLOR_TIMING_ROW_STREAM_HORIZONTAL
+	ret
+.vertical
+	ld a, FULL_COLOR_TIMING_ROW_STREAM_VERTICAL
+	ret
+.connection
+	ld a, FULL_COLOR_TIMING_ROW_STREAM_CONNECTION
+	ret
+.oam
+	ld a, FULL_COLOR_TIMING_ROW_OAM_MAXIMUM
+	ret
+
+; Input A=row. The calibration and sample use the same two marker writes; the
+; only difference between them is the exact operation between sample markers.
+BeginFullColorRuntimeTimingSampleSelected::
+	and a
+	jr z, .skip
+	ld c, a
+	ld a, [wFullColorRuntimeTimingInitialized]
+	cp $a7
+	jr z, .initialized
+	push bc
+	ld hl, wFullColorRuntimeTimingEvent
+	ld bc, wFullColorRuntimeTimingInitialized + 1 - wFullColorRuntimeTimingEvent
+	xor a
+	call FillMemory
+	ld a, $a7
+	ld [wFullColorRuntimeTimingInitialized], a
+	pop bc
+.initialized
+	ld a, [wFullColorRuntimeTimingActive]
+	and a
+	jr nz, .skip
+	ld b, 0
+	ld hl, wFullColorRuntimeTimingSeenRows
+	add hl, bc
+	ld a, [hl]
+	and a
+	jr nz, .skip
+	inc [hl]
+	ld a, 1
+	ld [wFullColorRuntimeTimingActive], a
+	ld a, c
+	ld [wFullColorRuntimeTimingRow], a
+	ld hl, wFullColorRuntimeTimingSequence
+	inc [hl]
+	jr nz, :+
+	inc hl
+	inc [hl]
+:
+	xor a
+	ld [wFullColorRuntimeTimingProbeResult], a
+	ld [wFullColorRuntimeTimingProbeCycles], a
+	ld [wFullColorRuntimeTimingProbeCycles + 1], a
+	ld [wFullColorRuntimeTimingProbeCycles + 2], a
+	ld [wFullColorRuntimeTimingProbeCycles + 3], a
+	ld a, FULL_COLOR_TIMING_EVENT_CALIBRATION_START
+	ld [wFullColorRuntimeTimingEvent], a
+	ld a, FULL_COLOR_TIMING_EVENT_CALIBRATION_END
+	ld [wFullColorRuntimeTimingEvent], a
+	ld a, FULL_COLOR_TIMING_EVENT_SAMPLE_START
+	ld [wFullColorRuntimeTimingEvent], a
+	and a
+	ret
+.skip
+	scf
+	ret
+
+EndFullColorRuntimeTimingSampleSelected::
+	ld a, [wFullColorRuntimeTimingRow]
+	and a
+	ret z
+	ld a, FULL_COLOR_TIMING_EVENT_SAMPLE_END
+	ld [wFullColorRuntimeTimingEvent], a
+	ld a, FULL_COLOR_TIMING_EVENT_THRESHOLD_START
+	ld [wFullColorRuntimeTimingEvent], a
+	ld a, [wFullColorRuntimeTimingProbeResult]
+	cp FULL_COLOR_TIMING_PROBE_ENTERED_COMMITTING
+	jr z, .entered_committing
+	ld hl, wFullColorRuntimeTimingProbeCycles
+	ld a, [hli]
+	or [hl]
+	inc hl
+	or [hl]
+	inc hl
+	or [hl]
+	jr z, .no_host_probe
+	ld a, FULL_COLOR_TIMING_PROBE_DEFERRED
+	ld [wFullColorRuntimeTimingProbeResult], a
+	ld a, FULL_COLOR_TIMING_EVENT_THRESHOLD_DEFER
+	ld [wFullColorRuntimeTimingEvent], a
+	jr .done
+.entered_committing
+	ld a, FULL_COLOR_TIMING_EVENT_THRESHOLD_COMMITTING
+	ld [wFullColorRuntimeTimingEvent], a
+	jr .done
+.no_host_probe
+	; Ordinary emulators do not inject a threshold probe. Leave the observation
+	; neutral rather than turning debug gameplay into a timing-test dependency.
+	xor a
+	ld [wFullColorRuntimeTimingEvent], a
+.done
+	xor a
+	ld [wFullColorRuntimeTimingActive], a
+	ret
+ENDC
+IF DEF(PHASE2_AUDIT)
 .cancel_pop
+ELSE
+FullColorCancelPop:
+ENDC
 	pop hl
 	; fallthrough
 CancelFullColorDescriptorStaleSelected:
@@ -1421,6 +1680,21 @@ CancelFullColorSchedulerSelected::
 	xor a
 	ld [wFullColorRequestCount], a
 	ld [wFullColorRequestCursor], a
+IF !DEF(PHASE2_AUDIT)
+	; Cancellation invalidates the retained singleton as well as resident
+	; descriptors. Otherwise a pre-handoff row or column can be retried after a
+	; later generation takes ownership. Party-return authority is separate and
+	; deliberately remains intact.
+	ld [wFullColorProducerPending], a
+	ld [wFullColorProducerClass], a
+	ld [wFullColorProducerFlags], a
+	ld [wFullColorProducerWidth], a
+	ld [wFullColorProducerHeight], a
+	ld [wFullColorProducerSource], a
+	ld [wFullColorProducerSource + 1], a
+	ld [wFullColorProducerDestination], a
+	ld [wFullColorProducerDestination + 1], a
+ENDC
 	ret
 
 LoadFullColorCursorDescriptorSelected:

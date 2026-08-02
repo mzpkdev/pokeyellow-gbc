@@ -1,0 +1,8 @@
+{
+  "schema": "sameboy-source-lock-v1",
+  "version": "v1.0.3",
+  "tag_object": "5104c0429df2a73cfccea8c5034d5cb72c13c5f2",
+  "commit": "208ba4afabffab9edde416f2dbb8ae459e34adb8",
+  "source_url": "https://codeload.github.com/LIJI32/SameBoy/tar.gz/refs/tags/v1.0.3",
+  "archive_sha256": "7da338458e19396cb43dfe1a4df4555882ebea92540565dc993c1c706c981dc3"
+}

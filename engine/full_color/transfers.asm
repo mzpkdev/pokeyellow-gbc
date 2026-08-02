@@ -50,6 +50,13 @@ PrepareFullColorPairedTransferSelected::
 	ld a, [wFullColorRequestStaging]
 	and a
 	jr z, .attributes_ready
+IF DEF(_DEBUG)
+IF !DEF(PHASE2_AUDIT)
+	; Activated overlays use their request-authored attribute plane. Keeping
+	; this conditional preserves the committed audit product byte-for-byte.
+	jr .attributes_ready
+ENDC
+ENDC
 	ld de, wFullColorAttributeRectangle
 .attributes_ready
 	; The second frozen plane uses the four palette buffers followed by the
@@ -72,6 +79,12 @@ PrepareFullColorPairedTransferSelected::
 	and a
 	jr z, .owned_attribute
 	ld a, [de]
+IF DEF(_DEBUG)
+IF !DEF(PHASE2_AUDIT)
+	and $ef
+	jr .store
+ENDC
+ENDC
 	and 7
 	jr .store
 .owned_attribute
@@ -208,6 +221,7 @@ CommitFullColorMapPlaneSelected:
 	ret
 
 AdvanceFullColorMapCellSelected:
+	IF DEF(PHASE2_AUDIT)
 	inc hl
 	ld a, [wFullColorTimingState]
 	add 4
@@ -215,6 +229,21 @@ AdvanceFullColorMapCellSelected:
 	ret nz
 	ld a, [wFullColorTimingState]
 	ld h, a
+	ELSE
+	; A streamed row wraps inside its current 32-cell hardware-map row. A
+	; plain INC HL spills a right-edge strip into the following row whenever
+	; the camera's destination column is nonzero.
+	push bc
+	ld a, l
+	inc a
+	and TILEMAP_WIDTH - 1
+	ld b, a
+	ld a, l
+	and -TILEMAP_WIDTH
+	or b
+	ld l, a
+	pop bc
+	ENDC
 	ret
 
 AdvanceFullColorMapRowSelected:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
@@ -33,6 +34,30 @@ BASELINE_CHECKPOINT = "debug-ready"
 BASELINE_SEED = 0
 BASELINE_FRAME_COUNT = 5
 CHECKPOINT_FRAME_INDEX = 2
+
+
+@dataclass(frozen=True, slots=True)
+class VisualCheckpointContract:
+    """Immutable naming and bounds for one runtime visual checkpoint."""
+
+    scenario: str
+    checkpoint: str
+    minimum_frames: int = 1
+    maximum_frames: int = 31
+
+    def __post_init__(self) -> None:
+        if not self.scenario or not self.checkpoint:
+            raise ValueError("visual scenario and checkpoint must be non-empty")
+        if not 1 <= self.minimum_frames <= self.maximum_frames <= 31:
+            raise ValueError("visual frame bounds must satisfy 1 <= min <= max <= 31")
+
+
+BASELINE_VISUAL_CONTRACT = VisualCheckpointContract(
+    scenario=BASELINE_SCENARIO,
+    checkpoint=BASELINE_CHECKPOINT,
+    minimum_frames=1,
+    maximum_frames=31,
+)
 
 
 def _save_png(image: Image.Image, path: Path) -> None:
@@ -103,6 +128,109 @@ def _localized_diff(reference: Image.Image) -> tuple[Image.Image, dict[str, obje
             "actual_rgb": list(after),
         },
     }
+
+
+def _localized_frame_diff(
+    reference: Image.Image,
+    actual: Image.Image,
+) -> tuple[Image.Image, dict[str, object]]:
+    """Render an honest localized diff between two independently captured frames."""
+    if reference.size != actual.size:
+        raise ValueError("visual diff frames must have equal dimensions")
+    difference = ImageChops.difference(reference.convert("RGB"), actual.convert("RGB"))
+    bbox = difference.getbbox()
+    if bbox is None:
+        crop = (0, 0, 1, 1)
+        localized = difference.crop(crop).resize((8, 8), Image.Resampling.NEAREST)
+        changed_pixels = 0
+    else:
+        left = max(0, bbox[0] - 4)
+        top = max(0, bbox[1] - 4)
+        right = min(reference.width, bbox[2] + 4)
+        bottom = min(reference.height, bbox[3] + 4)
+        crop = (left, top, right, bottom)
+        localized = difference.crop(crop).resize(
+            ((right - left) * 8, (bottom - top) * 8),
+            Image.Resampling.NEAREST,
+        )
+        changed_pixels = sum(
+            pixel != (0, 0, 0) for pixel in difference.get_flattened_data()
+        )
+    return localized, {
+        "schema": "full-color-localized-image-diff-v1",
+        "kind": "CAPTURED_FRAME_COMPARISON",
+        "bbox": None if bbox is None else list(bbox),
+        "crop": list(crop),
+        "changed_pixels": changed_pixels,
+    }
+
+
+def write_runtime_visual_evidence(
+    output: Path,
+    *,
+    contract: VisualCheckpointContract,
+    frames: Sequence[Image.Image],
+    frame_numbers: Sequence[int],
+    checkpoint_index: int,
+    snapshot: SemanticSnapshot,
+    trace: WriterTrace,
+) -> None:
+    """Write Phase 2's fixed visual roles without creating a Gate 0 manifest.
+
+    The localized diff compares two real frames from the same cold-boot replay.
+    It never mutates pixels and never treats a rendered frame as expectation
+    authority.
+    """
+    if snapshot.scenario != contract.scenario or snapshot.checkpoint != contract.checkpoint:
+        raise ValueError("visual snapshot does not match scenario/checkpoint contract")
+    if not contract.minimum_frames <= len(frames) <= contract.maximum_frames:
+        raise ValueError("visual frame count violates scenario contract")
+    if len(frames) != len(frame_numbers):
+        raise ValueError("frames and frame numbers must have equal length")
+    if not 0 <= checkpoint_index < len(frames):
+        raise ValueError("checkpoint index is outside the frame strip")
+    if list(frame_numbers) != sorted(set(frame_numbers)):
+        raise ValueError("frame numbers must be unique and increasing")
+    normalized = tuple(frame.convert("RGB") for frame in frames)
+    if len({frame.size for frame in normalized}) != 1:
+        raise ValueError("every frame must have the same dimensions")
+
+    output.mkdir(parents=True, exist_ok=True)
+    screenshot = output / "screenshot.png"
+    strip = output / "frame-strip.png"
+    contact = output / "contact-sheet.png"
+    localized = output / "localized-diff.png"
+    localized_metadata = output / "localized-diff.json"
+    semantic = output / "semantic-snapshot.json"
+    writer_trace = output / "writer-trace.json"
+    checkpoint_frame = normalized[checkpoint_index]
+    reference_frame = normalized[0]
+    diff_image, diff_metadata = _localized_frame_diff(reference_frame, checkpoint_frame)
+    diff_metadata.update({
+        "scenario": contract.scenario,
+        "checkpoint": contract.checkpoint,
+        "reference_frame": frame_numbers[0],
+        "actual_frame": frame_numbers[checkpoint_index],
+    })
+    _save_png(checkpoint_frame, screenshot)
+    _save_png(_frame_strip(normalized), strip)
+    _save_png(_contact_sheet(normalized, frame_numbers, checkpoint_index=checkpoint_index), contact)
+    _save_png(diff_image, localized)
+    localized_metadata.write_text(
+        json.dumps(diff_metadata, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    linked = snapshot.to_dict()
+    linked["artifacts"] = {
+        "contact_sheet": "visuals/contact-sheet.png",
+        "frame_strip": "visuals/frame-strip.png",
+        "localized_image_diff": "visuals/localized-diff.png",
+        "localized_image_diff_metadata": "visuals/localized-diff.json",
+        "screenshot": "visuals/screenshot.png",
+        "writer_trace": "visuals/writer-trace.json",
+    }
+    semantic.write_text(SemanticSnapshot.from_dict(linked).to_json(), encoding="utf-8")
+    writer_trace.write_text(trace.to_json(), encoding="utf-8")
 
 
 def write_visual_evidence(

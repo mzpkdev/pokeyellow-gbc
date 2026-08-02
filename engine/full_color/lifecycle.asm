@@ -260,6 +260,11 @@ PoisonLegacyVideoRequests::
 ; No inputs. Returns carry set on an ownership transition failure. Clobbers
 ; AF, BC, HL. Snapshots WRAM1 authority before ownership selects bank 2.
 BeginFullColorMapEntry::
+IF !DEF(PHASE2_AUDIT)
+	select_renderer_state_e
+	call InitFullColorPhase2LifecycleSelected
+	restore_renderer_state_e
+ENDC
 	call SnapshotFullColorMapAuthority
 	call PoisonLegacyVideoRequests
 	ld a, HANDOFF_TO_OVERWORLD
@@ -311,10 +316,17 @@ ReconstructFullColorMapEntry::
 	ld a, [wRendererPhase]
 	cp OVERWORLD_RECONSTRUCTING
 	jp nz, .restore_failed
+IF !DEF(PHASE2_AUDIT)
+	call MeasureFullColorCanaryPaletteRowsSelected
+	ld a, FULL_COLOR_TIMING_ROW_RECONSTRUCTION
+	call BeginFullColorRuntimeTimingSampleSelected
+	push af
+ENDC
 	call LoadFullColorFontGraphicsSelected
 	call SnapshotFullColorVisibleMapSelected
 	; Commit the independent 64-byte palette authority while presentation is
 	; hidden. This is one complete payload, never a transition-only success.
+	IF DEF(PHASE2_AUDIT)
 	ld a, $80
 	ldh [rBGPI], a
 	ld hl, FullColorCanaryBGPalettes
@@ -325,6 +337,9 @@ ReconstructFullColorMapEntry::
 	ldh [c], a
 	dec b
 	jr nz, .palette
+	ELSE
+	call CommitFullColorCanaryCombinedPalettesSelected
+	ENDC
 	; Build the exact reconstruction descriptor and use the ordinary paired
 	; preparation/commit machinery. Its source has already been snapshotted.
 	ld hl, wFullColorSchedulerEnqueueDescriptor
@@ -373,14 +388,28 @@ ReconstructFullColorMapEntry::
 	ld d, h
 	ld e, l
 	call ValidateFullColorRequestResourcesSelected
+IF !DEF(PHASE2_AUDIT)
+	jr c, .timed_restore_failed
+ELSE
 	jr c, .restore_failed
+ENDC
 	ld hl, wFullColorSchedulerEnqueueDescriptor
 	call PrepareFullColorPairedTransferSelected
+IF !DEF(PHASE2_AUDIT)
+	jr c, .timed_restore_failed
+ELSE
 	jr c, .restore_failed
+ENDC
 	call CommitFullColorPairedTransferSelected
 	; Exactly one reconstruction barrier is observable before activation.
 	ld hl, wFullColorDebugReconstructionState
 	inc [hl]
+IF !DEF(PHASE2_AUDIT)
+	pop af
+	jr c, .timing_done
+	call EndFullColorRuntimeTimingSampleSelected
+.timing_done
+ENDC
 	restore_renderer_state_e
 	call ActivateFullColorOwnerForDiagnostic
 	ret c
@@ -397,6 +426,63 @@ ReconstructFullColorMapEntry::
 .failed
 	scf
 	ret
+IF !DEF(PHASE2_AUDIT)
+.timed_restore_failed
+	pop af
+	xor a
+	ld [wFullColorRuntimeTimingActive], a
+	jr .restore_failed
+ENDC
+
+IF !DEF(PHASE2_AUDIT)
+; Capture the three palette rows independently before the complete hidden
+; reconstruction sample. Repeating the writes is harmless while LCD is off
+; and keeps every canonical row bound to its exact hardware operation.
+MeasureFullColorCanaryPaletteRowsSelected:
+	ld a, FULL_COLOR_TIMING_ROW_PALETTE_BG
+	call BeginFullColorRuntimeTimingSampleSelected
+	push af
+	call CommitFullColorCanaryBGPaletteSelected
+	pop af
+	call nc, EndFullColorRuntimeTimingSampleSelected
+	ld a, FULL_COLOR_TIMING_ROW_PALETTE_OBJ
+	call BeginFullColorRuntimeTimingSampleSelected
+	push af
+	call CommitFullColorCanaryOBJPaletteSelected
+	pop af
+	call nc, EndFullColorRuntimeTimingSampleSelected
+	ld a, FULL_COLOR_TIMING_ROW_PALETTE_COMBINED
+	call BeginFullColorRuntimeTimingSampleSelected
+	push af
+	call CommitFullColorCanaryCombinedPalettesSelected
+	pop af
+	call nc, EndFullColorRuntimeTimingSampleSelected
+	ret
+
+CommitFullColorCanaryCombinedPalettesSelected:
+	call CommitFullColorCanaryBGPaletteSelected
+	; fallthrough
+CommitFullColorCanaryOBJPaletteSelected:
+	ld a, $80
+	ldh [rOBPI], a
+	ld hl, FullColorCanaryOBJPalettes
+	ld c, LOW(rOBPD)
+	jr CommitFullColorCanaryPaletteSelected
+
+CommitFullColorCanaryBGPaletteSelected:
+	ld a, $80
+	ldh [rBGPI], a
+	ld hl, FullColorCanaryBGPalettes
+	ld c, LOW(rBGPD)
+CommitFullColorCanaryPaletteSelected:
+	ld b, FULL_COLOR_PALETTE_EXTENT
+.copy
+	ld a, [hli]
+	ldh [c], a
+	dec b
+	jr nz, .copy
+	ret
+ENDC
 
 ; No inputs. Returns carry clear when Yellow owns before PartyMenuInit.
 ; Clobbers AF, BC, HL.
@@ -624,10 +710,33 @@ EnqueueFullColorOAMBatchFar::
 	ld l, e
 	jp EnqueueFullColorOAMBatch
 
+IF !DEF(PHASE2_AUDIT)
+; Interrupt-safe bank adapters for the normal-debug SameBoy marker ABI.
+; Begin returns carry set when this row was already sampled or another exact
+; operation currently owns the singleton marker record.
+BeginFullColorRuntimeTimingSampleFar::
+	select_renderer_state_e
+	call BeginFullColorRuntimeTimingSampleSelected
+	push af
+	restore_renderer_state_e
+	pop af
+	ret
+
+EndFullColorRuntimeTimingSampleFar::
+	select_renderer_state_e
+	call EndFullColorRuntimeTimingSampleSelected
+	restore_renderer_state_e
+	ret
+ENDC
+
 ; Carry clear means the owner consumed the VBlank. Yellow-visible writers must
 ; be skipped. Carry set means Yellow remains the VBlank owner.
 FullColorVBlankOwnerConsumed::
+	IF DEF(PHASE2_AUDIT)
 	call PollFullColorPhase2DebugCommand
+	ELSE
+	call PollFullColorDebugCommand
+	ENDC
 	call RetryFullColorProducer
 	call GetRendererOwner
 	cp RENDERER_FULL_COLOR_OVERWORLD
@@ -651,6 +760,962 @@ FullColorVBlankOwnerConsumed::
 	scf
 	ret
 
+IF !DEF(PHASE2_AUDIT)
+; Normal debug uses the Phase 1 SRAM mailbox as the transport but stores Phase
+; 2 observations in a separate FCP2 carrier. ARM only initializes metadata;
+; gameplay and presentation continue through ordinary production boundaries.
+OpenFullColorPhase2RuntimeCarrier:
+	ld a, RAMG_SRAM_ENABLE
+	ld [rRAMG], a
+	ld a, BANK(wFullColorPhase2RuntimeCarrierStart)
+	ld [rRAMB], a
+	ret
+
+CloseFullColorPhase2RuntimeCarrier:
+	xor a
+	ld [rRAMB], a
+	ld [rRAMG], a
+	ret
+
+RunFullColorPhase2RuntimeArm::
+	call OpenFullColorPhase2RuntimeCarrier
+	ld a, [wFullColorPhase2RuntimeScenario]
+	cp FULL_COLOR_PHASE2_RUNTIME_SCENARIO_HOSTILE_SLICE
+	jr z, .scenario_valid
+	call CloseFullColorPhase2RuntimeCarrier
+	ld a, FULL_COLOR_ASSERT_DEBUG_COMMAND
+	jp RecordRendererAssertion
+.scenario_valid
+	ld d, a
+	ld hl, wFullColorPhase2RuntimeCarrierStart
+	ld bc, FULL_COLOR_RUNTIME_CARRIER_BYTES
+	xor a
+	call FillMemory
+	ld hl, wFullColorPhase2RuntimeMagic
+	; Host protocol magic is ASCII, not the game's active text charmap.
+	ld a, $46
+	ld [hli], a
+	ld a, $43
+	ld [hli], a
+	ld a, $50
+	ld [hli], a
+	ld a, $32
+	ld [hl], a
+	ld a, FULL_COLOR_RUNTIME_CARRIER_LAYOUT_VERSION
+	ld [wFullColorPhase2RuntimeLayoutVersion], a
+	ld a, FULL_COLOR_RUNTIME_RECORD_BYTES
+	ld [wFullColorPhase2RuntimeRecordSize], a
+	ld a, FULL_COLOR_RUNTIME_RECORD_CAPACITY
+	ld [wFullColorPhase2RuntimeRecordCapacity], a
+	ld a, d
+	ld [wFullColorPhase2RuntimeScenario], a
+	ld a, 1
+	ld [wFullColorPhase2RuntimeFlags], a
+	ld a, FULL_COLOR_RUNTIME_COMMAND_ARM
+	ld [wFullColorPhase2RuntimeCommand], a
+	ld a, FULL_COLOR_RUNTIME_CHECKPOINT_ARMED
+	ld [wFullColorPhase2RuntimeCheckpoint], a
+	jp CloseFullColorPhase2RuntimeCarrier
+
+RunFullColorPhase2RuntimeSnapshot::
+	select_renderer_state_e
+	call OpenFullColorPhase2RuntimeCarrier
+	ld a, [wFullColorPhase2RuntimeWriteIndex]
+	ld e, a
+	ld d, 0
+	REPT 5
+		sla e
+		rl d
+	ENDR
+	ld hl, wFullColorPhase2RuntimeRecords
+	add hl, de
+	ld a, FULL_COLOR_PHASE2_RUNTIME_RECORD_CHECKPOINT
+	ld [hli], a
+	ld a, FULL_COLOR_RUNTIME_CHECKPOINT_SNAPSHOT
+	ld [hli], a
+	ld a, [wRendererOwner]
+	ld [hli], a
+	ld a, [wRendererPhase]
+	ld [hli], a
+	ld de, wRendererGeneration
+	REPT 4
+		ld a, [de]
+		ld [hli], a
+		inc de
+	ENDR
+	ldh a, [hLoadedROMBank]
+	ld [hli], a
+	ldh a, [hRendererStateSavedSVBK]
+	ld [hli], a
+	ldh a, [rVBK]
+	ld [hli], a
+	ldh a, [hRendererStateSavedIE]
+	ld [hli], a
+	ldh a, [rIF]
+	ld [hli], a
+	ld a, [wFullColorLastAdmissionResult]
+	ld [hli], a
+	ld a, [wFullColorRequestCount]
+	ld [hli], a
+	ld a, [wFullColorRuntimeTimingRow]
+	ld [hli], a ; final committed/request class
+	ld a, [wFullColorDebugReconstructionState]
+	ld [hli], a
+	ld a, [wFullColorReconstructionItems + 1]
+	ld [hli], a
+	ld a, [wFullColorReconstructionItems + 2]
+	ld [hli], a
+	ld a, [wFullColorReconstructionItems + 3]
+	ld [hli], a
+	xor a
+	ld [hli], a ; before attribute, populated by targeted OAM probes
+	ld [hli], a ; after attribute, populated by targeted OAM probes
+	ld a, [wFullColorRuntimeTimingRow]
+	ld [hli], a
+	ld a, [wFullColorRuntimeTimingEvent]
+	ld [hli], a
+	ld a, [wFullColorRuntimeTimingSequence]
+	ld [hli], a
+	ld a, [wFullColorRuntimeTimingSequence + 1]
+	ld [hli], a
+	ld a, [wFullColorRuntimeTimingProbeResult]
+	ld [hli], a
+	ld a, [wFullColorRuntimeTimingProbeCycles]
+	ld [hli], a
+	ld a, [wFullColorRuntimeTimingProbeCycles + 1]
+	ld [hli], a
+	ld a, 1 ; exact SameBoy core cycles required for authority
+	ld [hli], a
+	xor a
+	ld [hl], a
+	ld hl, wFullColorPhase2RuntimeRecordCount
+	ld a, [hl]
+	cp FULL_COLOR_RUNTIME_RECORD_CAPACITY
+	jr nc, .count_ready
+	inc [hl]
+.count_ready
+	ld hl, wFullColorPhase2RuntimeWriteIndex
+	ld a, [hl]
+	inc a
+	and FULL_COLOR_RUNTIME_RECORD_CAPACITY - 1
+	ld [hl], a
+	ld hl, wFullColorPhase2RuntimeSequence
+	inc [hl]
+	jr nz, .metadata
+	inc hl
+	inc [hl]
+.metadata
+	ld a, FULL_COLOR_RUNTIME_COMMAND_SNAPSHOT
+	ld [wFullColorPhase2RuntimeCommand], a
+	ld a, FULL_COLOR_RUNTIME_CHECKPOINT_SNAPSHOT
+	ld [wFullColorPhase2RuntimeCheckpoint], a
+	call CloseFullColorPhase2RuntimeCarrier
+	restore_renderer_state_e
+	ret
+
+RunFullColorPhase2RuntimeAck::
+	call OpenFullColorPhase2RuntimeCarrier
+	ld a, FULL_COLOR_RUNTIME_COMMAND_ACK
+	ld [wFullColorPhase2RuntimeCommand], a
+	ld a, FULL_COLOR_RUNTIME_CHECKPOINT_ACKNOWLEDGED
+	ld [wFullColorPhase2RuntimeCheckpoint], a
+	call CloseFullColorPhase2RuntimeCarrier
+	ret
+
+; A = the exact ordinal in the host-authored 14-case overlay corpus. Case zero
+; starts a new sequence; later cases must be presented in strict order. Each
+; bounded invocation executes one request through the production overlay
+; preparation, scheduler state machine, reservation, and paired VRAM commit.
+RunFullColorPhase2DiagnosticOverlayMatrix::
+	ld c, a
+	cp FULL_COLOR_PHASE2_DIAGNOSTIC_OVERLAY_CASES
+	jp nc, .overflow
+	and a
+	jr nz, .validate_sequence
+	call InitRendererOwnership
+	ld a, HANDOFF_TO_OVERWORLD
+	call BeginRendererHandoff
+	jp c, .request_failed
+	call SelectFullColorOwnerForDiagnostic
+	jp c, .request_failed
+	call ActivateFullColorOwnerForDiagnostic
+	jp c, .request_failed
+	select_renderer_state_e
+	ld hl, wFullColorPhase2SemanticSnapshotStart
+	ld bc, wFullColorPhase2BoundaryEnd - wFullColorPhase2SemanticSnapshotStart
+	xor a
+	call FillMemory
+	xor a
+	ld [wFullColorPhase2DiagnosticOverlayNextCase], a
+	restore_renderer_state_e
+.validate_sequence
+	select_renderer_state_e
+	ld a, [wFullColorPhase2DiagnosticOverlayNextCase]
+	cp c
+	jp nz, .sequence_error_selected
+	ld a, c
+	ld [wFullColorPhase2ObservationCaseID], a
+	ld [wFullColorPhase2DiagnosticOverlayCase], a
+	ld hl, wFullColorPhase2WriterTraceStart
+	ld bc, wFullColorPhase2WriterTraceEnd - wFullColorPhase2WriterTraceStart
+	xor a
+	call FillMemory
+	ld a, FULL_COLOR_PHASE2_OBSERVATION_CHECKPOINT_PREPARED
+	ld [wFullColorPhase2ObservationCheckpoint], a
+	call CaptureFullColorPhase2BoundaryBeforeSelected
+	call InitFullColorSchedulerSelected
+
+	; Clear both physical BG maps while the LCD is hidden. This makes every
+	; case an independent full-state observation, not a delta over its sibling.
+	ldh a, [rLCDC]
+	ld [wFullColorPhase2ObservationMetadata], a
+	res 7, a
+	ldh [rLCDC], a
+	ldh a, [rVBK]
+	ld [wFullColorPhase2ObservationMetadata + 1], a
+	xor a
+	ldh [rVBK], a
+	call ClearVramBanked
+	ld a, 1
+	ldh [rVBK], a
+	call ClearVramBanked
+
+	; Locate the fixed record: destination, clipped width/height, independent
+	; source/committed counts, selector, map, four clipped tiles, then the full
+	; authored source plane and the separately clipped committed plane.
+	ld hl, FullColorPhase2DiagnosticOverlayCases
+	ld a, [wFullColorPhase2DiagnosticOverlayCase]
+	and a
+	jr z, .case_record_ready
+	ld de, 20
+.seek_case_record
+	add hl, de
+	dec a
+	jr nz, .seek_case_record
+.case_record_ready
+	ld a, [hli]
+	ld e, a
+	ld a, [hli]
+	ld d, a
+	ld a, [hli]
+	ld b, a
+	ld a, [hli]
+	ld c, a
+	ld a, [hli]
+	ld [wFullColorPhase2DiagnosticOverlaySourceAttributeCount], a
+	ld a, [hli]
+	ld [wFullColorPhase2DiagnosticOverlayCommittedAttributeCount], a
+	ld [wFullColorPhase2DiagnosticOverlayWorkingAttributeCount], a
+	ld [wFullColorPhase2ObservationMetadata + 2], a
+	ld a, [hli]
+	ld [wFullColorPhase2ObservationMetadata + 3], a ; destination selector
+	ld a, [hli]
+	ld [wFullColorPhase2ObservationMetadata + 4], a ; map identity
+	push de
+	push bc
+	ld de, wTileMap
+	ld b, 4
+.copy_tiles
+	ld a, [hli]
+	ld [de], a
+	inc de
+	dec b
+	jr nz, .copy_tiles
+	ld de, wFullColorPhase2DiagnosticOverlaySourceAttributes
+	ld b, 4
+.copy_source_attributes
+	ld a, [hli]
+	ld [de], a
+	inc de
+	dec b
+	jr nz, .copy_source_attributes
+	ld de, wFullColorPhase2DiagnosticOverlayCommittedAttributes
+	ld b, 4
+.copy_committed_attributes
+	ld a, [hli]
+	ld [de], a
+	inc de
+	dec b
+	jr nz, .copy_committed_attributes
+	ld hl, wFullColorPhase2DiagnosticOverlayCommittedAttributes
+	ld de, wFullColorPhase2DiagnosticOverlayWorkingAttributes
+	ld b, 4
+.copy_working_attributes
+	ld a, [hli]
+	ld [de], a
+	inc de
+	dec b
+	jr nz, .copy_working_attributes
+	pop bc
+	pop de
+	ld a, [wFullColorPhase2DiagnosticOverlayCommittedAttributeCount]
+	and a
+	jr z, .no_visible_request
+	restore_renderer_state_e
+	ld hl, wTileMap
+	call EnqueueFullColorMapOverlay
+	jp c, .request_failed_restore_lcd
+	select_renderer_state_e
+	ld hl, wFullColorRequestDescriptors
+	ld de, wFullColorPhase2ObservationDescriptor
+	ld b, FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+.copy_descriptor
+	ld a, [hli]
+	ld [de], a
+	inc de
+	dec b
+	jr nz, .copy_descriptor
+	restore_renderer_state_e
+	call RunFullColorOwnershipVBlank
+	select_renderer_state_e
+.no_visible_request
+	call PublishFullColorPhase2ObservationSelected
+	ld a, [wFullColorPhase2DiagnosticOverlayCase]
+	inc a
+	ld [wFullColorPhase2DiagnosticOverlayNextCase], a
+	ld a, FULL_COLOR_PHASE2_OBSERVATION_CHECKPOINT_COMPLETE
+	ld [wFullColorPhase2ObservationCheckpoint], a
+	call CaptureFullColorPhase2BoundaryAfterSelected
+	ld a, [wFullColorPhase2ObservationMetadata + 1]
+	ldh [rVBK], a
+	ld a, [wFullColorPhase2ObservationMetadata]
+	ldh [rLCDC], a
+	restore_renderer_state_e
+	and a
+	ret
+.sequence_error_selected
+	ld hl, wFullColorPhase2ObservationFlags
+	set 1, [hl]
+	restore_renderer_state_e
+	scf
+	ret
+.overflow
+	select_renderer_state_e
+	ld [wFullColorPhase2ObservationCaseID], a
+	ld hl, wFullColorPhase2ObservationFlags
+	set 0, [hl]
+	restore_renderer_state_e
+	scf
+	ret
+.request_failed_restore_lcd
+	select_renderer_state_e
+	ld a, [wFullColorPhase2ObservationMetadata + 1]
+	ldh [rVBK], a
+	ld a, [wFullColorPhase2ObservationMetadata]
+	ldh [rLCDC], a
+	restore_renderer_state_e
+.request_failed
+	select_renderer_state_e
+	ld hl, wFullColorPhase2ObservationFlags
+	set 2, [hl]
+	restore_renderer_state_e
+	scf
+	ret
+
+CaptureFullColorPhase2BoundaryBeforeSelected:
+	ld hl, wFullColorPhase2BoundaryBefore
+	jr CaptureFullColorPhase2BoundarySelected
+CaptureFullColorPhase2BoundaryAfterSelected:
+	ld hl, wFullColorPhase2BoundaryAfter
+CaptureFullColorPhase2BoundarySelected:
+	ld a, [wFullColorPhase2DiagnosticOuterROMBank]
+	ld [hli], a
+	ld a, [wFullColorPhase2DiagnosticOuterROMBank + 1]
+	ld [hli], a
+	ldh a, [hRendererStateSavedSVBK]
+	ld [hli], a
+	ldh a, [rVBK]
+	ld [hli], a
+	ldh a, [hRendererStateSavedIE]
+	ld [hli], a
+	ldh a, [rIF]
+	ld [hli], a
+	ld a, [wRendererOwner]
+	ld [hli], a
+	ld a, [wRendererPhase]
+	ld [hli], a
+	ld de, wRendererGeneration
+	ld b, 4
+.generation
+	ld a, [de]
+	ld [hli], a
+	inc de
+	dec b
+	jr nz, .generation
+	xor a
+	ld [hli], a
+	ld [hli], a
+	ld [hli], a
+	ld [hl], a
+	ret
+
+PublishFullColorPhase2ObservationSelected:
+	ld hl, wFullColorPhase2ObservationMagic
+	ld a, $46 ; FCO2
+	ld [hli], a
+	ld a, $43
+	ld [hli], a
+	ld a, $4f
+	ld [hli], a
+	ld a, $32
+	ld [hli], a
+	ld a, FULL_COLOR_PHASE2_OBSERVATION_LAYOUT_VERSION
+	ld [wFullColorPhase2ObservationVersion], a
+	ld a, FULL_COLOR_PHASE2_OBSERVATION_SNAPSHOT_BYTES
+	ld [wFullColorPhase2ObservationSize], a
+	ld hl, wFullColorPhase2ObservationSequence
+	inc [hl]
+	jr nz, .sequence_ready
+	inc hl
+	inc [hl]
+	jr nz, .sequence_ready
+	ld hl, wFullColorPhase2ObservationFlags
+	set 0, [hl]
+.sequence_ready
+	ld hl, wFullColorPhase2ObservationMetadata + 5
+	ld a, [wRendererOwner]
+	ld [hli], a
+	ld a, [wRendererPhase]
+	ld [hli], a
+	ld de, wRendererGeneration
+	ld b, 4
+.generation
+	ld a, [de]
+	ld [hli], a
+	inc de
+	dec b
+	jr nz, .generation
+	ld a, [wFullColorLastAdmissionResult]
+	ld [hli], a
+	ld a, [wFullColorRequestCount]
+	ld [hli], a
+	ld a, [wFullColorRequestCursor]
+	ld [hli], a
+	ld de, wFullColorReconstructionItems
+	ld b, 4
+.reconstruction
+	ld a, [de]
+	ld [hli], a
+	inc de
+	dec b
+	jr nz, .reconstruction
+	ld a, [wFullColorTransitionCount]
+	ld [wFullColorPhase2ObservationTransitionCount], a
+	ld de, wFullColorTransitionLog
+	ld hl, wFullColorPhase2ObservationTransitionLog
+	ld b, 8
+.transitions
+	ld a, [de]
+	ld [hli], a
+	inc de
+	dec b
+	jr nz, .transitions
+	ret
+
+; destination, clipped width/height, source/committed attribute counts,
+; destination selector, map identity, four clipped tile bytes, four complete
+; request-authored attributes, and four independently clipped commit bytes.
+FullColorPhase2DiagnosticOverlayCases:
+	dw $9884
+	db 1, 1, 1, 1, 0, 0, $10, 0, 0, 0, $ef, 0, 0, 0, $ef, 0, 0, 0
+	dw $9885
+	db 1, 1, 1, 1, 0, 0, $10, 0, 0, 0, $02, 0, 0, 0, $02, 0, 0, 0
+	dw $9886
+	db 1, 1, 1, 1, 0, 0, $17, 0, 0, 0, $07, 0, 0, 0, $07, 0, 0, 0
+	dw $9887
+	db 1, 1, 1, 1, 0, 0, $10, 0, 0, 0, $87, 0, 0, 0, $87, 0, 0, 0
+	dw $9800
+	db 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, $ef, $07, $02, $03, 0, 0, 0, 0
+	dw $9fc0
+	db 1, 2, 4, 2, 1, 0, $11, $13, 0, 0, $0f, $07, $02, $03, $07, $03, 0, 0
+	dw $987f
+	db 1, 2, 4, 2, 0, 0, $10, $12, 0, 0, $ef, $07, $02, $03, $ef, $02, 0, 0
+	dw $9803
+	db 2, 1, 4, 2, 0, 0, $12, $13, 0, 0, $ef, $07, $02, $03, $02, $03, 0, 0
+	dw $9be3
+	db 2, 1, 4, 2, 0, 0, $10, $11, 0, 0, $ef, $07, $02, $03, $ef, $07, 0, 0
+	dw $9bde
+	db 2, 2, 4, 4, 0, 0, $10, $11, $12, $13, $ef, $02, $02, $87, $ef, $02, $02, $87
+	dw $9800
+	db 2, 2, 4, 4, 0, 1, $10, $11, $12, $13, $ef, $02, $02, $87, $ef, $02, $02, $87
+	dw $9c21
+	db 2, 2, 4, 4, 1, 0, $10, $11, $12, $13, $ef, $02, $02, $87, $ef, $02, $02, $87
+	dw $9c21
+	db 2, 2, 4, 4, 2, 0, $10, $11, $12, $13, $ef, $02, $02, $87, $ef, $02, $02, $87
+	dw $9821
+	db 2, 2, 4, 4, 0, 2, $10, $11, $12, $13, $ef, $02, $02, $87, $ef, $02, $02, $87
+FullColorPhase2DiagnosticOverlayCasesEnd:
+ASSERT FullColorPhase2DiagnosticOverlayCasesEnd - FullColorPhase2DiagnosticOverlayCases == FULL_COLOR_PHASE2_DIAGNOSTIC_OVERLAY_CASES * 20
+
+; A = exact ordinal 14..24 in the fixed hostile corpus. The caller must first
+; execute the unchanged 0..13 overlay matrix in the same emulator. Every case
+; crosses its production commit/barrier before FCO2 is published; the strict
+; next-case byte makes omission, reordering, repetition, and overflow fail
+; closed instead of silently rebinding an actual to a checker case.
+RunFullColorPhase2DiagnosticNonOverlayCase::
+	cp FULL_COLOR_PHASE2_DIAGNOSTIC_NONOVERLAY_FIRST
+	jp c, .overflow
+	cp FULL_COLOR_PHASE2_DIAGNOSTIC_CASES
+	jp nc, .overflow
+	ld c, a
+	ld [wTileMap + SCREEN_AREA - 1], a
+	select_renderer_state_e
+	ld a, [wFullColorPhase2DiagnosticOverlayNextCase]
+	cp c
+	jp nz, .sequence_error_selected
+	ld a, c
+	ld [wFullColorPhase2ObservationCaseID], a
+	ld [wFullColorPhase2DiagnosticOverlayCase], a
+	xor a
+	ld [wFullColorPhase2ObservationFlags], a
+	ld hl, wFullColorPhase2DiagnosticOverlaySourceAttributeCount
+	ld bc, 15
+	call FillMemory
+	ld hl, wFullColorPhase2WriterTraceStart
+	ld bc, wFullColorPhase2WriterTraceEnd - wFullColorPhase2WriterTraceStart
+	call FillMemory
+	ld a, FULL_COLOR_PHASE2_OBSERVATION_CHECKPOINT_PREPARED
+	ld [wFullColorPhase2ObservationCheckpoint], a
+	call InitFullColorSchedulerSelected
+	call SetFullColorPhase2DiagnosticGenerationSelected
+	call CaptureFullColorPhase2BoundaryBeforeSelected
+	restore_renderer_state_e
+
+	ld a, [wTileMap + SCREEN_AREA - 1]
+	cp 17
+	jr c, .transfer
+	cp 19
+	jr c, .palette
+	cp 22
+	jr c, .oam
+	jr z, .reconstruction
+	cp 23
+	jr z, .ownership
+	call RunFullColorPhase2MachineDiagnostic
+	jr .operation_complete
+.transfer
+	call RunFullColorPhase2TransferDiagnostic
+	jr .operation_complete
+.palette
+	call RunFullColorPhase2PaletteDiagnostic
+	jr .operation_complete
+.oam
+	call RunFullColorPhase2OAMDiagnostic
+	jr .operation_complete
+.reconstruction
+	call RunFullColorPhase2ReconstructionDiagnostic
+	jr .operation_complete
+.ownership
+	call RunFullColorPhase2OwnershipDiagnostic
+.operation_complete
+	jp c, .request_failed
+	select_renderer_state_e
+	ld a, [wTileMap + SCREEN_AREA - 1]
+	inc a
+	ld [wFullColorPhase2DiagnosticOverlayNextCase], a
+	ld a, FULL_COLOR_PHASE2_OBSERVATION_CHECKPOINT_COMPLETE
+	ld [wFullColorPhase2ObservationCheckpoint], a
+	call CaptureFullColorPhase2BoundaryAfterSelected
+	call PublishFullColorPhase2NonOverlayTraceSelected
+	call PublishFullColorPhase2ObservationSelected
+	restore_renderer_state_e
+	and a
+	ret
+.sequence_error_selected
+	ld hl, wFullColorPhase2ObservationFlags
+	set 1, [hl]
+	restore_renderer_state_e
+	scf
+	ret
+.overflow
+	select_renderer_state_e
+	ld [wFullColorPhase2ObservationCaseID], a
+	ld hl, wFullColorPhase2ObservationFlags
+	set 0, [hl]
+	restore_renderer_state_e
+	scf
+	ret
+.request_failed
+	select_renderer_state_e
+	ld hl, wFullColorPhase2ObservationFlags
+	set 2, [hl]
+	restore_renderer_state_e
+	scf
+	ret
+
+; The corpus generations are independently fixed inputs. Setting the entry
+; fixture does not claim a transition; ownership replacement below advances
+; seven to eight through the real generation primitive.
+SetFullColorPhase2DiagnosticGenerationSelected:
+	ld a, [wTileMap + SCREEN_AREA - 1]
+	cp 17
+	ld a, 3
+	jr c, .store
+	ld a, [wTileMap + SCREEN_AREA - 1]
+	cp 19
+	ld a, 4
+	jr c, .store
+	ld a, [wTileMap + SCREEN_AREA - 1]
+	cp 22
+	ld a, 5
+	jr c, .store
+	ld a, [wTileMap + SCREEN_AREA - 1]
+	cp 23
+	ld a, 6
+	jr c, .store
+	ld a, [wTileMap + SCREEN_AREA - 1]
+	cp 24
+	ld a, 7
+	jr c, .store
+	ld a, 9
+.store
+	ld [wRendererGeneration], a
+	xor a
+	ld [wRendererGeneration + 1], a
+	ld [wRendererGeneration + 2], a
+	ld [wRendererGeneration + 3], a
+	ret
+
+RunFullColorPhase2TransferDiagnostic:
+	; Copy independently authored tiles and attributes into fixed WRAM. The
+	; ordinary semantic producer freezes them, and the scheduler performs the
+	; real paired VRAM commit.
+	ld a, [wTileMap + SCREEN_AREA - 1]
+	sub 14
+	ld c, a
+	ld hl, FullColorPhase2DiagnosticTransferCases
+	and a
+	jr z, .record
+	ld de, 12
+.seek
+	add hl, de
+	dec a
+	jr nz, .seek
+.record
+	ld a, [hli]
+	ld e, a
+	ld a, [hli]
+	ld d, a
+	ld a, [hli]
+	ld b, a
+	ld a, [hli]
+	ld c, a
+	push de
+	push bc
+	ld de, wTileMap
+	ld b, 4
+.tiles
+	ld a, [hli]
+	ld [de], a
+	inc de
+	dec b
+	jr nz, .tiles
+	select_renderer_state_e
+	ld de, wFullColorPhase2DiagnosticOverlayCommittedAttributes
+	ld b, 4
+.attributes
+	ld a, [hli]
+	ld [de], a
+	inc de
+	dec b
+	jr nz, .attributes
+	pop bc
+	push bc
+	ld a, b
+	ld d, a
+	ld a, c
+	and a
+	jr z, .count_ready
+	ld a, d
+.count_loop
+	dec c
+	jr z, .count_ready
+	add d
+	jr .count_loop
+.count_ready
+	ld [wFullColorPhase2DiagnosticOverlayCommittedAttributeCount], a
+	restore_renderer_state_e
+	pop bc
+	pop de
+	ld hl, wTileMap
+	ld a, [wTileMap + SCREEN_AREA - 1]
+	cp 14
+	jr z, .row
+	cp 15
+	jr z, .column
+	call EnqueueFullColorMapConnection
+	jr .admitted
+.row
+	call EnqueueFullColorMapRow
+	jr .admitted
+.column
+	call EnqueueFullColorMapColumn
+.admitted
+	ret c
+	call CopyFullColorPhase2DiagnosticDescriptor
+	call RunFullColorOwnershipVBlank
+	and a
+	ret
+
+; destination, width, height, four tile bytes, four attribute bytes.
+FullColorPhase2DiagnosticTransferCases:
+	dw $9862
+	db 3, 1, $10, $20, $30, 0, $81, $92, $a3, 0
+	dw $985f
+	db 1, 3, $40, $50, $60, 0, $b4, $c5, $d6, 0
+	dw $9800
+	db 2, 2, $70, $80, $90, $a0, $e7, $f8, $09, $1a
+ASSERT @ - FullColorPhase2DiagnosticTransferCases == 3 * 12
+
+RunFullColorPhase2PaletteDiagnostic:
+	; Source bytes are copied to fixed WRAM, then admitted through the complete
+	; 64-byte production palette request. Case 18 leaves both BG and OBJ actual
+	; buffers/hardware populated, proving the combined state without inventing
+	; a third checker case.
+	ld hl, wTileMap + FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+	ld b, FULL_COLOR_PALETTE_EXTENT
+	xor a
+.payload
+	ld [hli], a
+	inc a
+	dec b
+	jr nz, .payload
+	ld hl, wTileMap
+	ld bc, FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+	xor a
+	call FillMemory
+	ld hl, wTileMap
+	ld a, [wTileMap + SCREEN_AREA - 1]
+	cp 17
+	ld a, FULL_COLOR_REQUEST_BG_PALETTE_PAYLOAD
+	jr z, .class_ready
+	ld a, FULL_COLOR_REQUEST_OBJ_PALETTE_PAYLOAD
+.class_ready
+	ld [hli], a
+	ld a, RENDERER_FULL_COLOR_OVERWORLD
+	ld [hli], a
+	select_renderer_state_e
+	ld de, wRendererGeneration
+	REPT 4
+		ld a, [de]
+		ld [hli], a
+		inc de
+	ENDR
+	restore_renderer_state_e
+	ld a, [wTileMap + SCREEN_AREA - 1]
+	cp 17
+	ld de, FULL_COLOR_BG_PALETTE_DESTINATION
+	jr z, .destination_ready
+	ld de, FULL_COLOR_OBJ_PALETTE_DESTINATION
+.destination_ready
+	ld a, e
+	ld [hli], a
+	ld a, d
+	ld [hli], a
+	ld de, wTileMap + FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+	ld a, e
+	ld [hli], a
+	ld a, d
+	ld [hli], a
+	xor a
+	ld [hli], a
+	ld [hli], a
+	ld a, FULL_COLOR_RESOURCE_PALETTES
+	ld [hli], a
+	xor a
+	ld [hli], a
+	ld a, LOW(FULL_COLOR_PALETTE_EXTENT)
+	ld [hli], a
+	xor a
+	ld [hli], a
+	ld a, LOW(FULL_COLOR_PALETTE_RESERVATION)
+	ld [hli], a
+	xor a
+	ld [hli], a
+	ld [hli], a
+	ld [hl], a
+	ld hl, wTileMap
+	call AdmitFullColorRequest
+	ret c
+	call CopyFullColorPhase2DiagnosticDescriptor
+	call RunFullColorOwnershipVBlank
+	and a
+	ret
+
+RunFullColorPhase2OAMDiagnostic:
+	ld hl, wShadowOAM
+	ld bc, FULL_COLOR_OAM_EXTENT
+	xor a
+	call FillMemory
+	ld a, 37
+	ld [wShadowOAM + 2], a
+	ld a, $fd
+	ld [wShadowOAM + 3], a
+	ld a, [wTileMap + SCREEN_AREA - 1]
+	cp 19
+	ld de, $ffff
+	jr z, .identity_ready
+	ld a, [wTileMap + SCREEN_AREA - 1]
+	cp 20
+	ld de, 300
+	jr z, .identity_ready
+	ld de, 42
+.identity_ready
+	select_renderer_state_e
+	ld a, e
+	ld [wFullColorPhase2DiagnosticOAMSourceIdentity], a
+	ld a, d
+	ld [wFullColorPhase2DiagnosticOAMSourceIdentity + 1], a
+	restore_renderer_state_e
+	ld hl, wShadowOAM + 3
+	ld b, OAM_COUNT
+	ld a, [wTileMap + SCREEN_AREA - 1]
+	cp 20
+	jr z, .out_of_range
+	cp 19
+	ld a, $ff
+	jr z, .map_byte
+	select_renderer_state_e
+	ld a, 42
+	call MapFullColorOAMUnmappedAttributeSelected
+	restore_renderer_state_e
+	jr .mapped
+.map_byte
+	call MapFullColorOAMAttribute
+	jr .mapped
+.out_of_range
+	select_renderer_state_e
+	ld de, 300
+	call MapFullColorOAMAttribute16Selected
+	restore_renderer_state_e
+.mapped
+	; Carry is the expected fallback result. The mapped byte is authoritative;
+	; publish it through the same hardware DMA used after a complete OAM batch.
+	call hDMARoutine
+	and a
+	ret
+
+RunFullColorPhase2ReconstructionDiagnostic:
+	ldh a, [rLCDC]
+	push af
+	res 7, a
+	ldh [rLCDC], a
+	select_renderer_state_e
+	ld a, OVERWORLD_RECONSTRUCTING
+	ld [wRendererPhase], a
+	xor a
+	ld [wRendererAdmissionOpen], a
+	ld a, LOW($9800)
+	ld [wFullColorAuthorityVRAMView], a
+	ld a, HIGH($9800)
+	ld [wFullColorAuthorityVRAMView + 1], a
+	restore_renderer_state_e
+	call ReconstructFullColorMapEntry
+	pop bc
+	ld a, b
+	ldh [rLCDC], a
+	ret
+
+RunFullColorPhase2OwnershipDiagnostic:
+	; Exercise replacement through the real cancellation and generation APIs.
+	call AdvanceRendererGeneration
+	ret c
+	select_renderer_state_e
+	ld a, OVERWORLD_ACTIVE
+	ld [wRendererPhase], a
+	ld a, TRUE
+	ld [wRendererAdmissionOpen], a
+	restore_renderer_state_e
+	and a
+	ret
+
+RunFullColorPhase2MachineDiagnostic:
+	; The host enters with non-default ROM/WRAM/VRAM/IE/IF. This production far
+	; wrapper must preserve that machine boundary while mapping a real object.
+	ld a, $fd
+	ld [wShadowOAM + 3], a
+	ld de, wShadowOAM + 3
+	ld c, SPRITE_RED
+	call MapFullColorOAMAttributeFar
+	and a
+	ret
+
+CopyFullColorPhase2DiagnosticDescriptor:
+	select_renderer_state_e
+	ld hl, wFullColorRequestDescriptors
+	ld de, wFullColorPhase2ObservationDescriptor
+	ld b, FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+.copy
+	ld a, [hli]
+	ld [de], a
+	inc de
+	dec b
+	jr nz, .copy
+	restore_renderer_state_e
+	ret
+
+; FCO2 trace-reserved bytes remain zero for overlay cases. Non-overlay cases
+; publish this bounded actual-state record after the real operation completes:
+; magic, case, COMPLETE, request class, admission, pending count, owner, phase,
+; generation[4], OAM before/after, fallback kind, u16 source identity, object,
+; reconstruction barrier, u16 outer ROM bank, WRAM/VRAM banks, IE, IF. The host
+; rejects any other version, length, or order.
+PublishFullColorPhase2NonOverlayTraceSelected:
+	ld hl, wFullColorPhase2ObservationTraceReserved
+	ld a, FULL_COLOR_PHASE2_NONOVERLAY_TRACE_MAGIC
+	ld [hli], a
+	ld a, [wTileMap + SCREEN_AREA - 1]
+	ld [hli], a
+	ld a, COMPLETE
+	ld [hli], a
+	ld a, [wFullColorPhase2ObservationDescriptor]
+	and FULL_COLOR_DESCRIPTOR_CLASS_MASK
+	ld [hli], a
+	ld a, [wFullColorLastAdmissionResult]
+	ld [hli], a
+	ld a, [wFullColorRequestCount]
+	ld [hli], a
+	ld a, [wRendererOwner]
+	ld [hli], a
+	ld a, [wRendererPhase]
+	ld [hli], a
+	ld de, wRendererGeneration
+	ld b, 4
+.generation
+	ld a, [de]
+	ld [hli], a
+	inc de
+	dec b
+	jr nz, .generation
+	ld a, $fd
+	ld [hli], a
+	ld a, [wShadowOAM + 3]
+	ld [hli], a
+	ld a, [wFullColorReconstructionItems + 1]
+	ld [hli], a
+	ld a, [wFullColorPhase2DiagnosticOAMSourceIdentity]
+	ld [hli], a
+	ld a, [wFullColorPhase2DiagnosticOAMSourceIdentity + 1]
+	ld [hli], a
+	ld a, [wFullColorReconstructionItems + 3]
+	ld [hli], a
+	ld a, [wFullColorDebugReconstructionState]
+	ld [hli], a
+	ld a, [wFullColorPhase2DiagnosticOuterROMBank]
+	ld [hli], a
+	ld a, [wFullColorPhase2DiagnosticOuterROMBank + 1]
+	ld [hli], a
+	ldh a, [hRendererStateSavedSVBK]
+	ld [hli], a
+	ldh a, [rVBK]
+	ld [hli], a
+	ldh a, [hRendererStateSavedIE]
+	ld [hli], a
+	ldh a, [rIF]
+	ld [hli], a
+	ret
+ENDC
+
 EXPORT SnapshotFullColorMapAuthority, PoisonLegacyVideoRequests
 EXPORT BeginFullColorMapEntry, CompleteFullColorMapReconstruction
 EXPORT ReconstructFullColorMapEntry
@@ -667,3 +1732,11 @@ EXPORT EnqueueFullColorWindowTileMapOverlayFar
 EXPORT MapFullColorOAMAttributeFar, EnqueueFullColorOAMBatchFar
 EXPORT FullColorVBlankOwnerConsumed
 EXPORT InitFullColorPhase2LifecycleSelected
+IF !DEF(PHASE2_AUDIT)
+EXPORT RunFullColorPhase2RuntimeArm, RunFullColorPhase2RuntimeSnapshot
+EXPORT RunFullColorPhase2RuntimeAck
+EXPORT RunFullColorPhase2DiagnosticOverlayMatrix
+EXPORT RunFullColorPhase2DiagnosticNonOverlayCase
+EXPORT BeginFullColorRuntimeTimingSampleFar
+EXPORT EndFullColorRuntimeTimingSampleFar
+ENDC

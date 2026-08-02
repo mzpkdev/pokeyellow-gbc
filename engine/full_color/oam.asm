@@ -2,6 +2,7 @@
 ; fallback happen while the producer constructs the final batch; deferred
 ; scheduler preparation never rereads mutable sprite authority.
 
+IF DEF(FULL_COLOR_PHASE2_ACTIVE)
 PrepareFullColorOAMBatchSelected::
 	push hl
 	ld de, FULL_COLOR_DESCRIPTOR_SOURCE
@@ -48,6 +49,7 @@ PrepareFullColorOAMBatchSelected::
 .finished
 	and a
 	ret
+ENDC
 
 ; Map one final-picture identity into a finished fixed-WRAM batch before it is
 ; enqueued. Input A=identity, B=reverse object cursor (40..1), HL=attribute
@@ -72,6 +74,25 @@ MapFullColorOAMAttribute::
 	ret z
 	scf
 	ret
+
+; Release and VC retain the production mapper without the hostile renderer's
+; lifecycle, scheduler, canary data, or debug recorder. Active products define
+; the identical adapter in lifecycle.asm.
+IF !DEF(FULL_COLOR_PHASE2_ACTIVE)
+MapFullColorOAMAttributeFar::
+	ld h, d
+	ld l, e
+	ld a, e
+	sub LOW(wShadowOAM + 3)
+	srl a
+	srl a
+	ld b, a
+	ld a, OAM_COUNT
+	sub b
+	ld b, a
+	ld a, c
+	jp MapFullColorOAMAttribute
+ENDC
 
 MapFullColorOAMAttributeSelected:
 	ld d, a
@@ -100,7 +121,9 @@ MapFullColorOAMAttributeSelected:
 	ld c, FULL_COLOR_FALLBACK_UNMAPPED
 .fallback
 	xor a
+IF DEF(FULL_COLOR_PHASE2_ACTIVE)
 	call RecordFullColorOAMFallbackSelected
+ENDC
 	ld c, 1
 	jr .write
 .red
@@ -132,12 +155,16 @@ MapFullColorOAMAttributeSelected:
 	scf
 	ret
 
+; Map a complete unsigned picture identity. DE is the authored u16 identity;
+; identities above the byte-sized production namespace take the same bounded
+; palette-0 fallback path without being collapsed to a diagnostic sentinel.
 ; A palette (zero for fallback), B reverse object cursor, C fallback kind,
 ; D rejected identity. The fixed four-byte bounded record is a seven-bit
 ; saturating count with an explicit high-bit overflow marker, then last kind,
 ; rejected identity, and object index. Together the total and final event
 ; distinguish an expected late fallback from hidden earlier fallbacks without
 ; touching write-only SRAM controls.
+IF DEF(FULL_COLOR_PHASE2_ACTIVE)
 RecordFullColorOAMFallbackSelected:
 	push hl
 	ld hl, wFullColorReconstructionItems
@@ -162,7 +189,9 @@ RecordFullColorOAMFallbackSelected:
 	pop hl
 	xor a
 	ret
+ENDC
 
+IF DEF(FULL_COLOR_PHASE2_ACTIVE)
 CommitFullColorOAMBatchSelected:
 	push hl
 	ld hl, wFullColorShadowOAMBatch
@@ -177,5 +206,9 @@ CommitFullColorOAMBatchSelected:
 	call hDMARoutine
 	pop hl
 	ret
+ENDC
 
 EXPORT MapFullColorOAMAttribute
+IF !DEF(FULL_COLOR_PHASE2_ACTIVE)
+EXPORT MapFullColorOAMAttributeFar
+ENDC

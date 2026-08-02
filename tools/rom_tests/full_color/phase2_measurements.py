@@ -29,8 +29,10 @@ from .baseline_discovery import (
     load_predef_targets,
     discover_baseline_rom,
     discover_baseline_sources,
+    writer_roots,
 )
 from .baseline_inventory import (
+    ACTIVATION_TRANSITION_PATH,
     _PLANNED_ONLY_ROW_CONTRACTS,
     _phase2_transition_state,
     _reviewed_rom_view,
@@ -194,6 +196,79 @@ REQUEST_CLASS_REQUIRED_RESOURCES = {
 
 class Phase2MeasurementError(ValueError):
     """The measured products cannot safely host the Phase 2 representation."""
+
+
+def _project_activation_audit_source(
+    report: SourceDiscoveryReport,
+    transition: Mapping[str, object] | None,
+    assignments: DiscoveryAssignmentAuthority,
+) -> SourceDiscoveryReport:
+    """Project reviewed line-only activation shifts to guarded audit subjects."""
+    if transition is None or "_activation_transition" not in transition:
+        return report
+    activation = transition["_activation_transition"]
+    if not isinstance(activation, dict):
+        raise Phase2MeasurementError("malformed validated activation transition")
+    bindings = activation["audit_source_subject_rebindings"]
+    rows = {
+        row.subject.sha256: row
+        for row in assignments.rows
+        if row.subject.kind.value == "SOURCE_FINDING"
+    }
+    current = {
+        source_finding_subject(finding).sha256: finding for finding in report.findings
+    }
+    translated: dict[str, list[SourceFinding]] = {}
+    for guarded_sha, activated_value in bindings.items():
+        row = rows.get(guarded_sha)
+        activated_shas = (
+            activated_value if isinstance(activated_value, list)
+            else [activated_value]
+        )
+        findings = [current.get(activated_sha) for activated_sha in activated_shas]
+        if row is None or any(finding is None for finding in findings):
+            missing_guarded = () if row is not None else (guarded_sha,)
+            missing_activated = tuple(
+                activated_sha
+                for activated_sha, finding in zip(activated_shas, findings, strict=True)
+                if finding is None
+            )
+            raise Phase2MeasurementError(
+                "activation audit source projection lacks exact evidence: "
+                f"subjects=guarded:{missing_guarded}, activated:{missing_activated}"
+            )
+        finding = findings[0]
+        assert finding is not None
+        rebound = type(finding)(**row.subject.metadata)
+        if source_finding_subject(rebound) != row.subject:
+            raise Phase2MeasurementError(
+                f"activation changes guarded audit source semantics: {guarded_sha}"
+            )
+        translated.setdefault(activated_shas[0], []).append(rebound)
+        for activated_sha in activated_shas[1:]:
+            translated.setdefault(activated_sha, [])
+    findings = tuple(
+        projected
+        for finding in report.findings
+        for projected in translated.get(
+            source_finding_subject(finding).sha256, [finding]
+        )
+    )
+    error_bindings = activation["audit_source_error_rebindings"]
+    translated_errors = {
+        binding["activated_sha256"]: binding["guarded_message"]
+        for binding in error_bindings.values()
+    }
+    errors = tuple(
+        translated_errors.get(source_error_subject(message).sha256, message)
+        for message in report.errors
+    )
+    return replace(
+        report,
+        findings=findings,
+        errors=errors,
+        source_sha256=activation["guarded_source_sha256"],
+    )
 
 
 def _strict_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -878,7 +953,11 @@ def _verify_audit_product(root: Path) -> tuple[Path, Path, Path]:
     sections = load_map(map_path)
     if not any(section.name == "Phase 2 Audit Provenance" and section.bank == marker.bank and section.start <= marker.address <= section.end for section in sections):
         raise Phase2MeasurementError("audit marker is not linked in its provenance section")
-    forbidden = (b"Phase2Audit", b"FullColorPhase2", b"Phase2Hostile", AUDIT_MARKER)
+    # State/reservation symbols and the release OAM fallback primitive are now
+    # deliberately present outside the audit product.  Only audit provenance
+    # remains forbidden here; activation reachability is checked against the
+    # exact product surface by the chained source transition.
+    forbidden = (b"Phase2Audit", b"Phase2Hostile", AUDIT_MARKER)
     for stem in ("pokeyellow", "pokeyellow_debug", "pokeyellow_vc"):
         for suffix in (".sym", ".map", ".gbc"):
             product = root / f"{stem}{suffix}"
@@ -1339,7 +1418,21 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
     try:
         baseline_source = discover_baseline_sources(root)
         _, transition = _reviewed_source_view(normal_assignments, baseline_source, root)
-        baseline_rom = discover_baseline_rom(root, source_report=baseline_source)
+        # The normal debug activation deliberately omits PHASE2_AUDIT-only
+        # writer roots. The exact activation path/product transition above is
+        # now their fail-closed partition, so present only linked writer roots
+        # to Gate 0's otherwise unchanged ROM discovery algorithm.
+        linked_symbols = load_sym(root / "pokeyellow_debug.sym").by_name.keys()
+        missing_writers = set(writer_roots(baseline_source)) - linked_symbols
+        linked_source = replace(
+            baseline_source,
+            findings=tuple(
+                finding
+                for finding in baseline_source.findings
+                if finding.category != "writer" or finding.symbol not in missing_writers
+            ),
+        )
+        baseline_rom = discover_baseline_rom(root, source_report=linked_source)
         _reviewed_rom_view(normal_assignments, baseline_rom, transition)
         if closure_state == "planned":
             _validate_planned_rows(
@@ -1355,6 +1448,9 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
         del baseline_source, baseline_rom
         gc.collect()
         source_report = discover_phase2_sources(root)
+        source_report = _project_activation_audit_source(
+            source_report, transition, audit_assignments
+        )
         rom_report = discover_phase2_rom(root, guarded=True)
     except (OSError, ValueError) as exc:
         raise Phase2MeasurementError(
@@ -1642,8 +1738,48 @@ def measure(root: Path) -> Phase2Measurement:
     missing = [name for name, path in paths.items() if not path.is_file()]
     if missing:
         raise Phase2MeasurementError("missing measurement input(s): " + ", ".join(missing))
-    release = _parse_sections(paths["pokeyellow.map"])
-    debug = _parse_sections(paths["pokeyellow_debug.map"])
+    inventory_audit = audit_phase2_inventory(root)
+    try:
+        activation = json.loads(
+            (root / ACTIVATION_TRANSITION_PATH).read_text(encoding="utf-8")
+        )
+        reservations = activation["activated_placement_sections"]
+    except (OSError, KeyError, json.JSONDecodeError, TypeError) as exc:
+        raise Phase2MeasurementError(
+            "validated activation placement authority is unavailable"
+        ) from exc
+
+    def guarded_sections(path: Path, product: str):
+        sections = _parse_sections(path)
+        expected = {
+            (
+                item["kind"], item["bank"], item["start"], item["end"], item["name"]
+            )
+            for item in reservations
+            if product in item["products"]
+        }
+        observed = {
+            (kind, bank, low, high, name)
+            for (kind, bank), values in sections.items()
+            for low, high, name in values
+            if (kind, bank, low, high, name) in expected
+        }
+        if observed != expected:
+            raise Phase2MeasurementError(
+                f"{product} activation reservations changed before measurement"
+            )
+        return {
+            key: tuple(
+                item
+                for item in values
+                if (key[0], key[1], item[0], item[1], item[2]) not in expected
+            )
+            for key, values in sections.items()
+        }
+
+    release = guarded_sections(paths["pokeyellow.map"], "release")
+    debug = guarded_sections(paths["pokeyellow_debug.map"], "debug")
+    guarded_sections(paths["pokeyellow_vc.map"], "vc")
     margin = min(
         _stack_margin(paths["pokeyellow.sym"], release),
         _stack_margin(paths["pokeyellow_debug.sym"], debug),
@@ -1689,29 +1825,65 @@ def measure(root: Path) -> Phase2Measurement:
     if not common_wram or not common_sram or not common_rom:
         raise Phase2MeasurementError("release/debug products have no common Phase 2 placement")
 
-    candidates = tuple(
-        Phase2Candidate(
-            wbank, wl, wh, 3, sl, sh, core_bank, rl, rh, margin,
-            ownership_adjacent=(wl == ownership_end + 1 and rl == core_end + 1),
+    placement = {
+        item["kind"]: (item["bank"], item["start"], item["end"])
+        for item in reservations
+    }
+    selected_wram = placement["WRAMX"]
+    selected_sram = placement["SRAM"]
+    selected_rom = placement["ROMX"]
+
+    def contains(intervals, low, high):
+        return any(start <= low and high <= end for start, end in intervals)
+
+    if (
+        selected_wram[0] != wbank
+        or selected_sram[0] != 3
+        or selected_rom[0] != core_bank
+        or not contains(common_wram, selected_wram[1], selected_wram[2])
+        or not contains(common_sram, selected_sram[1], selected_sram[2])
+        or not contains(common_rom, selected_rom[1], selected_rom[2])
+    ):
+        raise Phase2MeasurementError(
+            "reviewed activation placement cannot be reconstructed exactly"
         )
-        for wl, wh in common_wram
-        for sl, sh in common_sram
-        for rl, rh in common_rom
+    reconstructed_wram = next(
+        interval
+        for interval in common_wram
+        if interval[0] <= selected_wram[1] and selected_wram[2] <= interval[1]
+    )
+    reconstructed_sram = next(
+        interval
+        for interval in common_sram
+        if interval[0] <= selected_sram[1] and selected_sram[2] <= interval[1]
+    )
+    candidates = (
+        Phase2Candidate(
+            wbank, *reconstructed_wram,
+            selected_sram[0], *reconstructed_sram,
+            *selected_rom, margin,
+            ownership_adjacent=(
+                reconstructed_wram[0] == ownership_end + 1
+                and selected_rom[1] == core_end + 1
+            ),
+        ),
     )
     rejected = tuple(
         (f"ROM bank ${bank:02x}", reason)
         for bank, reason in sorted(FORBIDDEN_ROM_BANKS.items())
     )
     definition = load_definition(paths[DEFINITION_PATH])
+    input_sha256 = {name: _sha(path) for name, path in paths.items()}
+    input_sha256.update(activation["guarded_product_input_sha256"])
     return Phase2Measurement(
-        {name: _sha(path) for name, path in paths.items()},
+        input_sha256,
         definition,
         definition.classes,
         definition.descriptor_bytes,
         definition.scratch_bytes,
         candidates,
         rejected,
-        inventory_audit=audit_phase2_inventory(root),
+        inventory_audit=inventory_audit,
     )
 
 

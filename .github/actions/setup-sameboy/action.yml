@@ -1,0 +1,71 @@
+name: Set up SameBoy timing authority
+description: Build the hash-pinned SameBoy v1.0.3 tester and Phase 2 core-cycle bridge.
+
+outputs:
+  tester:
+    description: Exact SameBoy tester path.
+    value: ${{ steps.expose.outputs.tester }}
+  timing-bridge:
+    description: Exact SameBoy core-cycle bridge path.
+    value: ${{ steps.expose.outputs.timing-bridge }}
+
+runs:
+  using: composite
+  steps:
+    - name: Restore pinned SameBoy source and build
+      id: sameboy-cache
+      uses: actions/cache@v5
+      with:
+        path: ~/.cache/pokeyellow/sameboy/v1.0.3
+        key: sameboy-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/rom_tests/vendor/sameboy.lock') }}
+
+    - name: Download and verify SameBoy v1.0.3
+      if: steps.sameboy-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        install_root="$HOME/.cache/pokeyellow/sameboy/v1.0.3"
+        mkdir -p "$install_root/source"
+        curl --fail --location --silent --show-error \
+          https://codeload.github.com/LIJI32/SameBoy/tar.gz/refs/tags/v1.0.3 \
+          --output "$RUNNER_TEMP/sameboy-v1.0.3.tar.gz"
+        echo "7da338458e19396cb43dfe1a4df4555882ebea92540565dc993c1c706c981dc3  $RUNNER_TEMP/sameboy-v1.0.3.tar.gz" | sha256sum --check --strict
+        tar --extract --gzip --file "$RUNNER_TEMP/sameboy-v1.0.3.tar.gz" \
+          --directory "$install_root/source" --strip-components=1
+
+    - name: Build pinned SameBoy tester and core
+      if: steps.sameboy-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        source_root="$HOME/.cache/pokeyellow/sameboy/v1.0.3/source"
+        make --directory "$source_root" tester CONF=release -j"$(nproc)"
+
+    - name: Build hash-bound timing bridge
+      shell: bash
+      run: |
+        set -euo pipefail
+        source_root="$HOME/.cache/pokeyellow/sameboy/v1.0.3/source"
+        output_root="$RUNNER_TEMP/pokeyellow-sameboy/bin"
+        mkdir -p "$output_root"
+        cc -std=gnu11 -Wall -Wextra -Werror -Wno-multichar -O2 \
+          -I "$source_root/Core" \
+          tools/rom_tests/full_color/sameboy_timing_bridge_v1.c \
+          "$source_root"/build/obj/Core/*.o -lm -ldl \
+          -o "$output_root/phase2-sameboy-timing"
+        cp "$source_root/build/bin/tester/sameboy_tester" "$output_root/sameboy_tester"
+        cp "$source_root/build/bin/tester/cgb_boot.bin" "$output_root/cgb_boot.bin"
+
+    - name: Verify and expose exact SameBoy tools
+      id: expose
+      shell: bash
+      run: |
+        set -euo pipefail
+        output_root="$RUNNER_TEMP/pokeyellow-sameboy/bin"
+        test "$("$output_root/phase2-sameboy-timing" --version)" = "SameBoy Timing Bridge v1.0.3"
+        tester_version="$("$output_root/sameboy_tester" 2>&1 || true)"
+        grep -Fx "SameBoy Tester v1.0.3" <<< "$tester_version"
+        echo "SAMEBOY_TESTER=$output_root/phase2-sameboy-timing" >> "$GITHUB_ENV"
+        echo "SAMEBOY_UPSTREAM_TESTER=$output_root/sameboy_tester" >> "$GITHUB_ENV"
+        echo "tester=$output_root/sameboy_tester" >> "$GITHUB_OUTPUT"
+        echo "timing-bridge=$output_root/phase2-sameboy-timing" >> "$GITHUB_OUTPUT"

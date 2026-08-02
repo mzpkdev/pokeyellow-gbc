@@ -5,6 +5,8 @@ IF DEF(PHASE2_AUDIT)
 ; file retains only the pre-existing debug product's Phase 1 SRAM protocol.
 ELSE
 
+DEF FULL_COLOR_DEBUG_COMMAND_PUBLISH_PHASE1 EQU $fe
+
 ; Poll one debug-only SRAM mailbox from the production VBlank route. Commands
 ; are accepted once, cleared before execution, and finish at a stable checkpoint.
 PollFullColorDebugCommand::
@@ -27,11 +29,52 @@ PollFullColorDebugCommand::
 	and a
 	ret z
 	cp FULL_COLOR_DEBUG_COMMAND_OWNERSHIP_REPLACEMENT
-	jp z, RunPhase1OwnershipReplacementScenario
+	jr z, .phase1_replacement
 	cp FULL_COLOR_DEBUG_COMMAND_RESTORE_YELLOW
-	jp z, RestoreYellowAfterPhase1Diagnostic
+	jr z, .phase1_restore
+	cp FULL_COLOR_DEBUG_COMMAND_PUBLISH_PHASE1
+	jr z, .publish_phase1
 	ld a, FULL_COLOR_ASSERT_DEBUG_COMMAND
 	call RecordRendererAssertion
+	and a
+	ret
+.phase1_replacement
+	call RunPhase1OwnershipReplacementScenario
+	jr c, .phase1_failed
+	jr ArmFullColorPhase1CheckpointPublication
+.phase1_restore
+	call RestoreYellowAfterPhase1Diagnostic
+	jr c, .phase1_failed
+	jr ArmFullColorPhase1CheckpointPublication
+.phase1_failed
+	xor a
+	scf
+	ret
+.publish_phase1
+	call OpenFullColorDebugCarrier
+	; Publish only after restoring the raw VBlank-entry guard view. The farcall
+	; wrapper restores the physical ROM bank immediately after this routine;
+	; interrupts remain masked throughout the short debug-only fence.
+	ld a, 1
+	ldh [rSVBK], a
+	ld a, [wVBlankSavedROMBank]
+	ldh [hLoadedROMBank], a
+	ld hl, wFullColorDebugCheckpoint
+	inc [hl]
+	call CloseFullColorDebugCarrier
+	xor a
+	scf
+	ret
+
+ArmFullColorPhase1CheckpointPublication:
+	call OpenFullColorDebugCarrier
+	ld a, FULL_COLOR_DEBUG_COMMAND_PUBLISH_PHASE1
+	ld [wFullColorDebugCommand], a
+	call CloseFullColorDebugCarrier
+	ld a, 1
+	ldh [hFullColorDebugCommandPending], a
+	and a
+	scf
 	ret
 
 RunPhase1OwnershipReplacementScenario::
@@ -48,7 +91,9 @@ RunPhase1OwnershipReplacementScenario::
 ; 8. Boot begins at 1 and the handoff established generation 2.
 	ld d, 5
 .advance_to_old_generation
+	push de
 	call AdvanceRendererGeneration
+	pop de
 	ret c
 	dec d
 	jr nz, .advance_to_old_generation
@@ -168,8 +213,6 @@ RunPhase1OwnershipReplacementScenario::
 	ld [wFullColorDebugCommitUnitID], a
 	ld a, FULL_COLOR_DEBUG_RESOURCE_OWNERSHIP_GENERATION
 	ld [wFullColorDebugLastResourceID], a
-	ld a, FULL_COLOR_DEBUG_CHECKPOINT_OWNERSHIP_REPLACEMENT
-	ld [wFullColorDebugCheckpoint], a
 	jp CloseFullColorDebugCarrier
 .failed
 	ld a, FULL_COLOR_ASSERT_DEBUG_COMMAND
@@ -184,8 +227,6 @@ RestoreYellowAfterPhase1Diagnostic::
 	ret c
 	call OpenFullColorDebugCarrier
 	call CopyRendererStateToDebugCarrier
-	ld a, FULL_COLOR_DEBUG_CHECKPOINT_RESTORED_YELLOW
-	ld [wFullColorDebugCheckpoint], a
 	jp CloseFullColorDebugCarrier
 
 OpenFullColorDebugCarrier:

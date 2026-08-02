@@ -13,7 +13,11 @@ from tools.rom_tests.full_color.artifacts import (
 )
 from tools.rom_tests.full_color.snapshots import SemanticSnapshot
 from tools.rom_tests.full_color.trace import WriterTrace
-from tools.rom_tests.full_color.visual_pipeline import write_visual_evidence
+from tools.rom_tests.full_color.visual_pipeline import (
+    VisualCheckpointContract,
+    write_runtime_visual_evidence,
+    write_visual_evidence,
+)
 
 from .test_snapshots import snapshot_dict
 
@@ -127,3 +131,51 @@ def test_visual_pipeline_rejects_unbounded_or_ambiguous_frames(
             snapshot=_snapshot(),
             trace=_trace(),
         )
+
+
+def test_runtime_visuals_compare_real_frames_and_link_fixed_roles(tmp_path: Path) -> None:
+    snapshot = _snapshot()
+    frames = (
+        Image.new("RGB", (8, 8), "black"),
+        Image.new("RGB", (8, 8), "black"),
+        Image.new("RGB", (8, 8), "black"),
+    )
+    frames[2].putpixel((4, 4), (255, 0, 0))
+    write_runtime_visual_evidence(
+        tmp_path,
+        contract=VisualCheckpointContract(snapshot.scenario, snapshot.checkpoint, 2, 5),
+        frames=frames,
+        frame_numbers=(20, 21, 22),
+        checkpoint_index=2,
+        snapshot=snapshot,
+        trace=_trace(),
+    )
+    assert {path.name for path in tmp_path.iterdir()} == {
+        "screenshot.png", "frame-strip.png", "contact-sheet.png",
+        "localized-diff.png", "localized-diff.json",
+        "semantic-snapshot.json", "writer-trace.json",
+    }
+    metadata = json.loads((tmp_path / "localized-diff.json").read_text())
+    assert metadata["kind"] == "CAPTURED_FRAME_COMPARISON"
+    assert metadata["changed_pixels"] == 1
+    assert metadata["reference_frame"] == 20
+    assert metadata["actual_frame"] == 22
+    linked = SemanticSnapshot.from_json((tmp_path / "semantic-snapshot.json").read_text())
+    assert dict(linked.artifacts)["screenshot"] == "visuals/screenshot.png"
+
+
+def test_runtime_visuals_do_not_invent_a_difference(tmp_path: Path) -> None:
+    snapshot = _snapshot()
+    frames = tuple(Image.new("RGB", (8, 8), "black") for _ in range(2))
+    write_runtime_visual_evidence(
+        tmp_path,
+        contract=VisualCheckpointContract(snapshot.scenario, snapshot.checkpoint, 2, 2),
+        frames=frames,
+        frame_numbers=(30, 31),
+        checkpoint_index=1,
+        snapshot=snapshot,
+        trace=_trace(),
+    )
+    metadata = json.loads((tmp_path / "localized-diff.json").read_text())
+    assert metadata["bbox"] is None
+    assert metadata["changed_pixels"] == 0

@@ -347,18 +347,20 @@ SECTION "Full Color Ownership Core", ROMX[$4000], BANK[PHASE1_OWNERSHIP_ROM_BANK
 INCLUDE "engine/full_color/ownership.asm"
 
 
-IF DEF(PHASE2_AUDIT)
 SECTION "Full Color Phase 2 Pipelines", ROMX[FULL_COLOR_PHASE2_ROM_START], BANK[FULL_COLOR_PHASE2_ROM_BANK]
 
+IF DEF(PHASE2_AUDIT)
 INCLUDE "engine/full_color/scheduler.asm"
 INCLUDE "engine/full_color/palettes.asm"
 INCLUDE "engine/full_color/transfers.asm"
+ENDC
 INCLUDE "engine/full_color/oam.asm"
+IF DEF(PHASE2_AUDIT)
 INCLUDE "data/tilesets/full_color_canary.asm"
+ENDC
 
 	ds FULL_COLOR_PHASE2_ROM_END - @
 ASSERT @ == FULL_COLOR_PHASE2_ROM_END
-ENDC
 
 
 SECTION "Full Color Debug Runtime", ROMX[FULL_COLOR_PHASE2_ROM_END], BANK[FULL_COLOR_PHASE2_ROM_BANK]

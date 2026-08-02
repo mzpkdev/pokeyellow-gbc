@@ -143,4 +143,29 @@ wFullColorPhase2DebugEnd::
 
 ASSERT @ == FULL_COLOR_PHASE2_SRAM_END
 ASSERT wFullColorPhase2DebugEnd - wFullColorPhase2DebugStart == 288
+ELIF DEF(_DEBUG)
+SECTION "Full Color Phase 2 Runtime Carrier", SRAM[FULL_COLOR_PHASE2_SRAM_START], BANK[FULL_COLOR_PHASE2_SRAM_BANK]
+
+; Closed FCP2 v1 host contract. Runtime commands arm and snapshot the real
+; scenario; they never execute presentation work synchronously.
+wFullColorPhase2RuntimeCarrierStart::
+wFullColorPhase2RuntimeMagic:: ds 4
+wFullColorPhase2RuntimeLayoutVersion:: db
+wFullColorPhase2RuntimeRecordSize:: db
+wFullColorPhase2RuntimeRecordCapacity:: db
+wFullColorPhase2RuntimeRecordCount:: db
+wFullColorPhase2RuntimeSequence:: dw
+wFullColorPhase2RuntimeScenario:: db
+wFullColorPhase2RuntimeFlags:: db
+wFullColorPhase2RuntimeCommand:: db
+wFullColorPhase2RuntimeCheckpoint:: db
+wFullColorPhase2RuntimeWriteIndex:: db
+wFullColorPhase2RuntimeReservedHeader:: db
+wFullColorPhase2RuntimeRecords:: ds FULL_COLOR_RUNTIME_RECORD_CAPACITY * FULL_COLOR_RUNTIME_RECORD_BYTES
+wFullColorPhase2RuntimeReservedTail:: ds 16
+wFullColorPhase2RuntimeCarrierEnd::
+
+ASSERT wFullColorPhase2RuntimeRecords - wFullColorPhase2RuntimeCarrierStart == 16
+ASSERT wFullColorPhase2RuntimeCarrierEnd - wFullColorPhase2RuntimeCarrierStart == FULL_COLOR_RUNTIME_CARRIER_BYTES
+ASSERT @ == FULL_COLOR_PHASE2_SRAM_END
 ENDC

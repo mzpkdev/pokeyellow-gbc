@@ -7,6 +7,12 @@ _RunPaletteCommand:
 .not_default
 	cp SET_PAL_PARTY_MENU_HP_BARS
 	jp z, UpdatePartyMenuBlkPacket
+	IF DEF(_DEBUG) && !DEF(PHASE2_AUDIT)
+	; Carry the command being dispatched to SendSGBPackets. Persistent default
+	; state is not publication identity: explicit party/menu commands may run
+	; while the overworld default remains selected.
+	push af
+	ENDC
 	ld l, a
 	ld h, 0
 	add hl, hl
@@ -715,11 +721,19 @@ Wait7000:
 	ret
 
 SendSGBPackets:
+	IF DEF(_DEBUG) && !DEF(PHASE2_AUDIT)
+	pop bc
+	ld c, b
+	ENDC
 	ldh a, [hOnCGB]
 	and a
 	jr z, .notCGB
 	push de
+	IF DEF(_DEBUG) && !DEF(PHASE2_AUDIT)
+	call InitCGBPalettesWithCommand
+	ELSE
 	call InitCGBPalettes
+	ENDC
 	pop hl
 	call InitCGBPalettes
 	ldh a, [rLCDC]
@@ -734,6 +748,10 @@ SendSGBPackets:
 	jp SendSGBPacket
 
 InitCGBPalettes:
+	IF DEF(_DEBUG) && !DEF(PHASE2_AUDIT)
+	ld c, $ff
+InitCGBPalettesWithCommand:
+	ENDC
 	ld a, [hl]
 	and $f8
 	cp $20
@@ -759,11 +777,25 @@ InitCGBPalettes:
 		ld a, d
 		ld [wCGBBasePalPointers + index * 2 + 1], a
 
+		IF DEF(_DEBUG) && !DEF(PHASE2_AUDIT)
+		call SelectYellowDebugOverworldBGPalette
+		jr c, :+
+		ENDC
 		xor a ; CONVERT_BGP
 		call DMGPalToCGBPal
+		IF DEF(_DEBUG) && !DEF(PHASE2_AUDIT)
+:
+		ENDC
 		ld a, index
 		call TransferCurBGPData
 
+		IF DEF(_DEBUG) && !DEF(PHASE2_AUDIT)
+		; BG selection must not leak into Yellow's shared OBJ pointer lane.
+		ld a, [wCGBBasePalPointers + index * 2]
+		ld e, a
+		ld a, [wCGBBasePalPointers + index * 2 + 1]
+		ld d, a
+		ENDC
 		ld a, CONVERT_OBP0
 		call DMGPalToCGBPal
 		ld a, index
@@ -775,6 +807,24 @@ InitCGBPalettes:
 		call TransferCurOBPData
 	ENDR
 
+	IF DEF(_DEBUG) && !DEF(PHASE2_AUDIT)
+	; The custom map payload is already the final 3210 publication. Prime the
+	; ordinary Yellow cache so the immediately following LoadGBPal recognizes
+	; its E4 write as redundant. Later explicit fades carry no Overworld token,
+	; update this cache normally, and publish stock fade bytes unchanged.
+	ld a, c
+	cp SET_PAL_OVERWORLD
+	jr nz, .done
+	ld a, [wCurMap]
+	cp PALLET_TOWN
+	jr z, .markNormalMapBGP
+	cp ROUTE_1
+	jr nz, .done
+.markNormalMapBGP
+	ld a, %11100100
+	ld [wLastBGP], a
+.done
+	ENDC
 	ret
 
 GetCGBBasePalAddress::
@@ -795,6 +845,51 @@ GetCGBBasePalAddress::
 	ld d, a
 	pop hl
 	ret
+
+IF DEF(_DEBUG) && !DEF(PHASE2_AUDIT)
+; Keep Yellow as the sole CGB palette publisher. Only its overworld palette
+; command may substitute the selected BG base palette; DE is unchanged for all
+; other maps and commands. Callers restore Yellow's original pointer before
+; publishing OBJ palettes.
+SelectYellowDebugOverworldBGPalette:
+	ld a, c
+	cp SET_PAL_OVERWORLD
+	jr nz, .notSelected
+	ld a, [wCurMap]
+	cp PALLET_TOWN
+	jr z, .pallet
+	cp ROUTE_1
+	jr nz, .notSelected
+	ld de, YellowDebugRouteBGPalette
+	jr .copy
+.pallet
+	ld de, YellowDebugPalletBGPalette
+
+.copy
+	push hl
+	ld hl, wCGBPal
+	ld b, PAL_SIZE
+.copyLoop
+	ld a, [de]
+	ld [hli], a
+	inc de
+	dec b
+	jr nz, .copyLoop
+	pop hl
+	scf
+	ret
+.notSelected
+	and a
+	ret
+
+; Readable, high-contrast map canaries. Each keeps Yellow's white/black
+; endpoints and monotonically descends in luminance; the middle colors are
+; deliberately far from the stock CGB map palettes and from each other.
+YellowDebugPalletBGPalette:
+	RGB 31, 31, 31, 4, 27, 20, 6, 10, 27, 0, 0, 0
+YellowDebugRouteBGPalette:
+	RGB 31, 31, 31, 10, 29, 10, 25, 12, 4, 0, 0, 0
+ENDC
 
 DMGPalToCGBPal::
 ; Populate wCGBPal with colors from a base palette, selected using one of the

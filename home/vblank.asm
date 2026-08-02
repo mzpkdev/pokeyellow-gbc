@@ -31,7 +31,6 @@ ELSE
 	; Its full-color route is a no-op; Yellow's mechanics continue unchanged.
 	farcall RouteRendererOwnershipVBlank
 ENDC
-
 	ldh a, [hSCX]
 	ldh [rSCX], a
 	ldh a, [hSCY]
@@ -43,7 +42,6 @@ ENDC
 	ldh a, [hWY]
 	ldh [rWY], a
 .ok
-
 	call AutoBgMapTransfer
 	call VBlankCopyBgMap
 	call RedrawRowOrColumn
@@ -55,8 +53,12 @@ ENDC
 	call BankswitchCommon
 	call PrepareOAMData
 
+IF DEF(PHASE2_AUDIT)
 :
-	; VBlank-sensitive operations end.
+ENDC
+IF !DEF(PHASE2_AUDIT)
+.mailbox_command_consumed
+ENDC
 	call TrackPlayTime ; keep track of time played
 
 	call Random

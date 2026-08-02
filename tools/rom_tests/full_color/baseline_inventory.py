@@ -8,6 +8,8 @@ import hashlib
 import json
 from pathlib import Path
 from pathlib import PurePosixPath
+import re
+import subprocess
 from typing import Any, Sequence
 
 from .baseline_discovery import discover_baseline_rom, discover_baseline_sources
@@ -17,7 +19,7 @@ from .discovery_assignment import (
     PHASE2_AUDIT_PRODUCT,
     StaleDiscoveryAssignmentError,
 )
-from .discovery_review import rom_finding_subject, source_finding_subject
+from .discovery_review import rom_finding_subject, source_error_subject, source_finding_subject
 from .inventory import (
     InventoryReconciliationError,
     MutationInventory,
@@ -45,6 +47,9 @@ _OWNER_GATED_ROM_RESOURCES = frozenset(
 
 SOURCE_TRANSITION_PATH = Path(
     "specs/full-colors/definitions/phase1-audit-source-transition.json"
+)
+ACTIVATION_TRANSITION_PATH = Path(
+    "specs/full-colors/definitions/phase2-activation-source-transition.json"
 )
 
 PHASE2_PLANNED_ROW_IDS = frozenset(
@@ -145,6 +150,325 @@ def _sha256_text(value: object) -> bool:
     )
 
 
+def _symbol_names(path: Path) -> frozenset[str]:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise InventoryReconciliationError(
+            f"activation product authority is unavailable: {path.name}"
+        ) from exc
+    return frozenset(
+        fields[1]
+        for line in lines
+        if len(fields := line.split(maxsplit=1)) == 2 and ":" in fields[0]
+    )
+
+
+def _validate_activation_transition(
+    repository: Path,
+    source_report: Any,
+    guarded_source_sha256: str,
+    current_manifest: dict[str, str],
+) -> tuple[dict[str, str], dict[str, Any]]:
+    """Project one reviewed debug-only activation back to guarded closure."""
+    path = repository / ACTIVATION_TRANSITION_PATH
+    try:
+        transition = json.loads(
+            path.read_text(encoding="utf-8"), object_pairs_hook=_strict_json_object
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise InventoryReconciliationError(
+            "guarded audit closure changed without a valid activation transition"
+        ) from exc
+    expected_keys = {
+        "schema", "baseline_commit", "guarded_commit", "guarded_source_sha256",
+        "activated_source_sha256", "audit_rom_sha256", "audit_sym_sha256",
+        "activation_paths", "guarded_debug_identity", "activated_debug_identity",
+        "guarded_path_manifest_sha256", "guarded_product_input_sha256",
+        "activated_product_input_sha256",
+        "debug_rom_subject_rebindings", "debug_source_subject_rebindings",
+        "audit_source_subject_rebindings", "audit_source_error_rebindings",
+        "activated_placement_sections", "product_guard",
+    }
+    if set(transition) != expected_keys or transition["schema"] != (
+        "full-color-phase2-activation-source-transition-v1"
+    ):
+        raise InventoryReconciliationError("malformed Phase 2 activation transition")
+    if transition["guarded_source_sha256"] != guarded_source_sha256:
+        raise InventoryReconciliationError(
+            "activation transition does not bind guarded source identity"
+        )
+    if transition["activated_source_sha256"] != source_report.source_sha256:
+        raise InventoryReconciliationError(
+            "activation transition does not bind current source identity"
+        )
+    baseline_commit = transition["baseline_commit"]
+    commit = transition["guarded_commit"]
+    if any(
+        not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{40}", value)
+        for value in (baseline_commit, commit)
+    ):
+        raise InventoryReconciliationError("malformed guarded checkpoint identity")
+    try:
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", baseline_commit, commit],
+            cwd=repository,
+            check=True,
+            capture_output=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise InventoryReconciliationError(
+            "activation transition has wrong baseline or guarded parent"
+        ) from exc
+
+    bindings = transition["activation_paths"]
+    if not isinstance(bindings, dict) or not bindings:
+        raise InventoryReconciliationError("activation transition has no reviewed path delta")
+    guarded_manifest = dict(current_manifest)
+    for relative, binding in bindings.items():
+        relative = _transition_path(relative)
+        if set(binding) != {"guarded_sha256", "activated_sha256"}:
+            raise InventoryReconciliationError(
+                f"malformed activation path binding: {relative}"
+            )
+        guarded = binding["guarded_sha256"]
+        activated = binding["activated_sha256"]
+        if not _sha256_text(guarded) or not _sha256_text(activated):
+            raise InventoryReconciliationError(
+                f"malformed activation path hash: {relative}"
+            )
+        if guarded == activated:
+            raise InventoryReconciliationError(
+                f"activation path has no actual delta: {relative}"
+            )
+        if current_manifest.get(relative) != activated:
+            raise InventoryReconciliationError(f"activation path changed: {relative}")
+        try:
+            guarded_bytes = subprocess.run(
+                ["git", "show", f"{commit}:{relative}"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            ).stdout
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise InventoryReconciliationError(
+                f"activation transition has stale guarded checkpoint: {commit}"
+            ) from exc
+        if hashlib.sha256(guarded_bytes).hexdigest() != guarded:
+            raise InventoryReconciliationError(
+                f"activation path does not bind guarded checkpoint: {relative}"
+            )
+        guarded_manifest[relative] = guarded
+
+    guarded_manifest_sha256 = transition["guarded_path_manifest_sha256"]
+    if (
+        not _sha256_text(guarded_manifest_sha256)
+        or _manifest_sha256(guarded_manifest) != guarded_manifest_sha256
+    ):
+        raise InventoryReconciliationError(
+            "activation source drift exists outside the exact reviewed path delta"
+        )
+
+    for key, artifact in (
+        ("audit_rom_sha256", "pokeyellow_phase2_audit.gbc"),
+        ("audit_sym_sha256", "pokeyellow_phase2_audit.sym"),
+    ):
+        expected = transition[key]
+        if not _sha256_text(expected):
+            raise InventoryReconciliationError("malformed guarded audit artifact identity")
+        try:
+            actual = hashlib.sha256((repository / artifact).read_bytes()).hexdigest()
+        except OSError as exc:
+            raise InventoryReconciliationError(
+                f"guarded audit artifact is unavailable: {artifact}"
+            ) from exc
+        if actual != expected:
+            raise InventoryReconciliationError(
+                f"guarded audit artifact identity changed: {artifact}"
+            )
+
+    rom_bindings = transition["debug_rom_subject_rebindings"]
+    if (
+        not isinstance(rom_bindings, dict)
+        or not rom_bindings
+        or any(
+            not _sha256_text(guarded)
+            or not _sha256_text(activated)
+            or guarded == activated
+            for guarded, activated in rom_bindings.items()
+        )
+        or len(set(rom_bindings.values())) != len(rom_bindings)
+    ):
+        raise InventoryReconciliationError(
+            "malformed activation debug ROM subject bindings"
+        )
+    source_bindings = transition["audit_source_subject_rebindings"]
+    activated_source_subjects = tuple(
+        activated
+        for value in source_bindings.values()
+        for activated in (value if isinstance(value, list) else (value,))
+    ) if isinstance(source_bindings, dict) else ()
+    if (
+        not isinstance(source_bindings, dict)
+        or not source_bindings
+        or any(not _sha256_text(guarded) for guarded in source_bindings)
+        or any(
+            not isinstance(value, (str, list))
+            or isinstance(value, list) and not value
+            for value in source_bindings.values()
+        )
+        or any(not _sha256_text(activated) for activated in activated_source_subjects)
+    ):
+        raise InventoryReconciliationError(
+            "malformed activation audit source subject bindings"
+        )
+    debug_source_bindings = transition["debug_source_subject_rebindings"]
+    try:
+        guarded_transition = json.loads(
+            (repository / SOURCE_TRANSITION_PATH).read_text(encoding="utf-8"),
+            object_pairs_hook=_strict_json_object,
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise InventoryReconciliationError(
+            "activation debug source bindings lack guarded authority"
+        ) from exc
+    current_subjects = {
+        source_finding_subject(finding).sha256 for finding in source_report.findings
+    }
+    guarded_targets = set(guarded_transition.get("subject_rebindings", {}).values())
+    missing_guarded_targets = guarded_targets - current_subjects
+    if (
+        not isinstance(debug_source_bindings, dict)
+        or set(debug_source_bindings) != missing_guarded_targets
+        or any(
+            not _sha256_text(guarded)
+            or not _sha256_text(activated)
+            or guarded == activated
+            or activated not in current_subjects
+            for guarded, activated in debug_source_bindings.items()
+        )
+        or len(set(debug_source_bindings.values())) != len(debug_source_bindings)
+    ):
+        raise InventoryReconciliationError(
+            "malformed activation debug source subject bindings"
+        )
+    error_bindings = transition["audit_source_error_rebindings"]
+    current_errors = {
+        source_error_subject(message).sha256: message
+        for message in source_report.errors
+    }
+    if (
+        not isinstance(error_bindings, dict)
+        or not error_bindings
+        or any(
+            not _sha256_text(guarded)
+            or not isinstance(binding, dict)
+            or set(binding) != {"activated_sha256", "guarded_message"}
+            or not _sha256_text(binding.get("activated_sha256"))
+            or not isinstance(binding.get("guarded_message"), str)
+            or source_error_subject(binding.get("guarded_message", "")).sha256
+            != guarded
+            or binding.get("activated_sha256") not in current_errors
+            or guarded in current_errors
+            for guarded, binding in error_bindings.items()
+        )
+        or len({
+            binding["activated_sha256"] for binding in error_bindings.values()
+            if isinstance(binding, dict) and "activated_sha256" in binding
+        }) != len(error_bindings)
+    ):
+        raise InventoryReconciliationError(
+            "malformed activation audit source diagnostic bindings"
+        )
+    for name in ("guarded_debug_identity", "activated_debug_identity"):
+        identity = transition[name]
+        if (
+            not isinstance(identity, dict)
+            or set(identity) != {"rom_sha256", "sym_sha256", "map_sha256"}
+            or any(not _sha256_text(value) for value in identity.values())
+        ):
+            raise InventoryReconciliationError(
+                f"malformed activation {name.replace('_', ' ')}"
+            )
+    product_names = {
+        f"pokeyellow{suffix}.{extension}"
+        for suffix in ("", "_debug", "_vc")
+        for extension in ("gbc", "map", "sym")
+    }
+    guarded_inputs = transition["guarded_product_input_sha256"]
+    activated_inputs = transition["activated_product_input_sha256"]
+    if (
+        not isinstance(guarded_inputs, dict)
+        or not isinstance(activated_inputs, dict)
+        or set(guarded_inputs) != product_names
+        or set(activated_inputs) != product_names
+        or any(not _sha256_text(value) for value in guarded_inputs.values())
+        or any(not _sha256_text(value) for value in activated_inputs.values())
+        or any(guarded_inputs[name] == activated_inputs[name] for name in product_names)
+    ):
+        raise InventoryReconciliationError("malformed frozen product input projection")
+    for name in product_names:
+        try:
+            actual = hashlib.sha256((repository / name).read_bytes()).hexdigest()
+        except OSError as exc:
+            raise InventoryReconciliationError(
+                f"activation product input is unavailable: {name}"
+            ) from exc
+        if actual != activated_inputs[name]:
+            raise InventoryReconciliationError(
+                f"activation product input changed: {name}"
+            )
+    placements = transition["activated_placement_sections"]
+    expected_placements = [
+        {
+            "kind": "ROMX", "bank": 59, "start": 0x452B, "end": 0x552A,
+            "name": "Full Color Phase 2 Pipelines",
+            "products": ["release", "debug", "vc"],
+        },
+        {
+            "kind": "WRAMX", "bank": 2, "start": 0xD00D, "end": 0xD3D4,
+            "name": "Full Color Phase 2 State",
+            "products": ["debug"],
+        },
+        {
+            "kind": "SRAM", "bank": 3, "start": 0xBEAF, "end": 0xBFCE,
+            "name": "Full Color Phase 2 Runtime Carrier", "products": ["debug"],
+        },
+    ]
+    if placements != expected_placements:
+        raise InventoryReconciliationError("malformed activated placement authority")
+
+    guard = transition["product_guard"]
+    if not isinstance(guard, dict) or set(guard) != {"active", "inactive"}:
+        raise InventoryReconciliationError("malformed activation product guard")
+    active = guard["active"]
+    inactive = guard["inactive"]
+    if set(active) != {"pokeyellow_debug.sym", "pokeyellow_phase2_audit.sym"} or set(
+        inactive
+    ) != {"pokeyellow.sym", "pokeyellow_vc.sym"}:
+        raise InventoryReconciliationError("activation product guard has widened products")
+    required = set(active["pokeyellow_debug.sym"])
+    if not required or required != set(active["pokeyellow_phase2_audit.sym"]):
+        raise InventoryReconciliationError("activation product guard is not one exact surface")
+    if any(not isinstance(symbol, str) or not symbol for symbol in required):
+        raise InventoryReconciliationError("activation product guard has malformed symbols")
+    for product in active:
+        if not required <= _symbol_names(repository / product):
+            raise InventoryReconciliationError(
+                f"activation product lacks reviewed guarded surface: {product}"
+            )
+    for product, forbidden in inactive.items():
+        if set(forbidden) != required:
+            raise InventoryReconciliationError(
+                "inactive product guard does not forbid the exact activation surface"
+            )
+        if required & _symbol_names(repository / product):
+            raise InventoryReconciliationError(
+                f"activation surface widened into inactive product: {product}"
+            )
+    return guarded_manifest, transition
+
+
 def _reviewed_source_view(
     assignments: DiscoveryAssignmentAuthority,
     source_report: Any,
@@ -180,11 +504,21 @@ def _reviewed_source_view(
         raise InventoryReconciliationError("malformed audit-only source transition")
     if transition["reviewed_source_sha256"] != reviewed_hash:
         raise InventoryReconciliationError("audit transition does not bind reviewed source hash")
-    if transition["audit_source_sha256"] != source_report.source_sha256:
-        raise InventoryReconciliationError("audit transition does not bind current source hash")
     current_manifest = _source_path_manifest(
         repository, (path for path, _ in source_report.include_graph)
     )
+    effective_source_sha256 = source_report.source_sha256
+    activation_transition = None
+    if transition["audit_source_sha256"] != effective_source_sha256:
+        current_manifest, activation_transition = _validate_activation_transition(
+            repository,
+            source_report,
+            transition["audit_source_sha256"],
+            current_manifest,
+        )
+        effective_source_sha256 = transition["audit_source_sha256"]
+    if transition["audit_source_sha256"] != effective_source_sha256:
+        raise InventoryReconciliationError("audit transition does not bind current source hash")
     baseline_manifest = dict(current_manifest)
     for relative, binding in transition["audit_only_paths"].items():
         relative = _transition_path(relative)
@@ -232,28 +566,40 @@ def _reviewed_source_view(
         source_finding_subject(finding).sha256: finding
         for finding in source_report.findings
     }
+    activation_source_bindings = (
+        activation_transition["debug_source_subject_rebindings"]
+        if activation_transition is not None else {}
+    )
     if set(transition["subject_rebindings"]) != set(source_rows):
         raise InventoryReconciliationError(
             "audit-only transition does not enumerate reviewed semantic subjects"
         )
     translated: dict[str, Any] = {}
     for old_sha, new_sha in transition["subject_rebindings"].items():
-        finding = current_by_subject.get(new_sha)
+        activated_sha = activation_source_bindings.get(new_sha, new_sha)
+        finding = current_by_subject.get(activated_sha)
         row = source_rows[old_sha]
         if finding is None:
             raise InventoryReconciliationError(
-                f"audit-only transition target subject is absent: {new_sha}"
+                f"audit-only transition target subject is absent: {activated_sha}"
             )
-        rebound = replace(finding, symbol=row.subject.metadata["symbol"])
+        rebound = (
+            type(finding)(**row.subject.metadata)
+            if activated_sha != new_sha
+            else replace(finding, symbol=row.subject.metadata["symbol"])
+        )
         if source_finding_subject(rebound) != row.subject:
             raise InventoryReconciliationError(
                 f"audit-only transition changes reviewed subject semantics: {old_sha}"
             )
-        translated[new_sha] = rebound
+        translated[activated_sha] = rebound
     findings = tuple(
         translated.get(source_finding_subject(finding).sha256, finding)
         for finding in source_report.findings
     )
+    if activation_transition is not None:
+        transition = dict(transition)
+        transition["_activation_transition"] = activation_transition
     return replace(source_report, findings=findings, source_sha256=reviewed_hash), transition
 
 
@@ -273,6 +619,42 @@ def _reviewed_rom_view(
     current = {
         rom_finding_subject(finding).sha256: finding for finding in rom_report.findings
     }
+    activation = transition.get("_activation_transition")
+    activation_bindings = (
+        None if activation is None else activation["debug_rom_subject_rebindings"]
+    )
+    activation_translated: dict[str, Any] = {}
+    if activation_bindings is not None:
+        guarded_subjects = set(transition["rom_subject_rebindings"].values())
+        if not activation_bindings or not set(activation_bindings) <= guarded_subjects:
+            raise InventoryReconciliationError(
+                "activation transition names an unknown guarded debug ROM subject"
+            )
+        rebound_current: dict[str, Any] = {}
+        for guarded_sha, activated_sha in activation_bindings.items():
+            if guarded_sha == activated_sha:
+                raise InventoryReconciliationError(
+                    "activation debug ROM subject binding has no actual delta"
+                )
+            finding = current.get(activated_sha)
+            if finding is None:
+                raise InventoryReconciliationError(
+                    f"activation debug ROM target subject is absent: {activated_sha}"
+                )
+            old_sha = next(
+                old
+                for old, guarded in transition["rom_subject_rebindings"].items()
+                if guarded == guarded_sha
+            )
+            row = rows[old_sha]
+            rebound = type(finding)(**row.subject.metadata)
+            if rom_finding_subject(rebound) != row.subject:
+                raise InventoryReconciliationError(
+                    f"activation changes reviewed debug ROM semantics: {guarded_sha}"
+                )
+            rebound_current[guarded_sha] = rebound
+            activation_translated[activated_sha] = rebound
+        current.update(rebound_current)
     bindings = transition["rom_subject_rebindings"]
     if set(bindings) != set(rows):
         raise InventoryReconciliationError(
@@ -296,11 +678,77 @@ def _reviewed_rom_view(
                 f"audit-only transition changes reviewed ROM semantics: {old_sha}"
             )
         translated[new_sha] = rebound
-    findings = tuple(
-        translated.get(rom_finding_subject(finding).sha256, finding)
-        for finding in rom_report.findings
+    def project(findings: Sequence[Any]) -> tuple[Any, ...]:
+        result = []
+        for finding in findings:
+            finding = activation_translated.get(
+                rom_finding_subject(finding).sha256, finding
+            )
+            finding = translated.get(rom_finding_subject(finding).sha256, finding)
+            result.append(finding)
+        return tuple(result)
+
+    projected = replace(
+        rom_report,
+        findings=project(rom_report.findings),
+        candidate_findings=project(rom_report.candidate_findings),
     )
-    return replace(rom_report, findings=findings)
+    if activation is not None:
+        actual_identity = {
+            "rom_sha256": rom_report.rom_sha256,
+            "sym_sha256": rom_report.sym_sha256,
+            "map_sha256": rom_report.map_sha256,
+        }
+        if actual_identity != activation["activated_debug_identity"]:
+            raise InventoryReconciliationError(
+                "activation transition does not bind current debug product identity"
+            )
+        projected = replace(projected, **activation["guarded_debug_identity"])
+    return projected
+
+
+def _reviewed_rom_bytes(
+    assignments: DiscoveryAssignmentAuthority,
+    rom_report: Any,
+    transition: dict[str, Any] | None,
+    rom: bytes,
+) -> bytes:
+    """Project only reviewed activation-shifted machine bytes to guarded sites."""
+    if transition is None or "_activation_transition" not in transition:
+        return rom
+    activation = transition["_activation_transition"]
+    current = {
+        rom_finding_subject(finding).sha256: finding
+        for finding in rom_report.findings
+    }
+    rows = {
+        row.subject.sha256: row
+        for row in assignments.rows
+        if row.subject.kind.value == "ROM_FINDING"
+    }
+    projected = bytearray(rom)
+    guarded_bindings = transition["rom_subject_rebindings"]
+    for guarded_sha, activated_sha in activation[
+        "debug_rom_subject_rebindings"
+    ].items():
+        finding = current.get(activated_sha)
+        if finding is None:
+            raise InventoryReconciliationError(
+                f"activation debug ROM byte source is absent: {activated_sha}"
+            )
+        old_sha = next(
+            old for old, guarded in guarded_bindings.items() if guarded == guarded_sha
+        )
+        metadata = rows[old_sha].subject.metadata
+        expected = bytes.fromhex(metadata["bytes"])
+        actual = rom[finding.rom_offset : finding.rom_offset + len(expected)]
+        if actual != expected:
+            raise InventoryReconciliationError(
+                f"activation debug ROM subject bytes changed: {activated_sha}"
+            )
+        target = metadata["rom_offset"]
+        projected[target : target + len(expected)] = actual
+    return bytes(projected)
 
 
 def _partition_authority(document: Any) -> tuple[Any, tuple[dict[str, Any], ...]]:
@@ -742,12 +1190,15 @@ def build_progress(
         normal_assignments, source_report, repository_path
     )
     reviewed_rom = _reviewed_rom_view(normal_assignments, rom_report, source_transition)
+    reviewed_rom_data = _reviewed_rom_bytes(
+        normal_assignments, rom_report, source_transition, rom
+    )
     _assert_no_unlisted_slice_findings(normal_assignments, reviewed_source, reviewed_rom)
     matcher = normal_assignments.matcher(
         source_sha256=reviewed_source.source_sha256,
-        rom_sha256=rom_report.rom_sha256,
-        sym_sha256=rom_report.sym_sha256,
-        map_sha256=rom_report.map_sha256,
+        rom_sha256=reviewed_rom.rom_sha256,
+        sym_sha256=reviewed_rom.sym_sha256,
+        map_sha256=reviewed_rom.map_sha256,
         product=NORMAL_DEBUG_PRODUCT,
     )
     projected_source, projected_rom, source_rows, rom_rows = _project_assignments(
@@ -776,7 +1227,7 @@ def build_progress(
         mutations,
         source_report=projected_source,
         rom_report=projected_rom,
-        rom=rom,
+        rom=reviewed_rom_data,
         raise_on_error=False,
     )
     rows = tuple(writers.rows) + tuple(scenes.rows) + tuple(mutations.rows)

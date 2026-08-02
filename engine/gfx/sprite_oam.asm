@@ -13,8 +13,8 @@ IF DEF(PHASE2_AUDIT)
 .yellow
 	xor a
 	ldh [hSpritePriority], a
-.build
 ENDC
+.build
 
 	ld a, [wUpdateSpritesEnabled]
 	dec a
@@ -47,11 +47,7 @@ ENDC
 	jr nz, .visible
 
 	call GetSpriteScreenXY
-IF DEF(PHASE2_AUDIT)
 	jp .nextSprite
-ELSE
-	jr .nextSprite
-ENDC
 
 .visible
 	cp $a0 ; is the sprite unchanging like an item ball or boulder?
@@ -151,10 +147,10 @@ ENDC
 	or OAM_HIGH_PALS
 .spriteusesOBP0
 	ld [de], a
-IF DEF(PHASE2_AUDIT)
 	; Identity is retained beside the sprite state by LoadMapSpritesImageBaseOffset.
 	; Map only after the final tile and Pikachu offset have been selected, while
 	; preserving the producer's control bits and every live loop register.
+IF DEF(PHASE2_AUDIT)
 	ldh a, [hSpritePriority]
 	bit 0, a
 	jr z, :+
@@ -171,7 +167,7 @@ IF DEF(PHASE2_AUDIT)
 	pop de
 	pop bc
 :
-ENDC
+	ENDC
 	inc hl
 	inc e
 	dec c

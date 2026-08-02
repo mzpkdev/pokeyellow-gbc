@@ -22,6 +22,14 @@ def numeric_symbols(path: Path) -> dict[str, int]:
     return result
 
 
+def linked_symbol_names(path: Path) -> frozenset[str]:
+    return frozenset(
+        fields[1]
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if len(fields := line.split(maxsplit=1)) == 2 and ":" in fields[0]
+    )
+
+
 @dataclass
 class Phase2Rom:
     emulator: Emulator
@@ -421,6 +429,43 @@ def test_deferred_movement_strip_is_retained_and_retried_without_partial_commit(
     assert phase2_rom.read_wram2("wFullColorProducerPending") == b"\x00"
     for row in range(18):
         assert phase2_rom.emulator.read_vram_bank(0, 0x9840 + row * 32, 2) == second[row * 2:row * 2 + 2]
+
+
+def test_normal_debug_cannot_reach_audit_only_retained_producer() -> None:
+    normal = linked_symbol_names(REPOSITORY_ROOT / "pokeyellow_debug.sym")
+    audit = linked_symbol_names(REPOSITORY_ROOT / "pokeyellow_phase2_audit.sym")
+    audit_only_surface = {
+        "InitFullColorScheduler",
+        "AdmitFullColorRequest",
+        "EnqueueFullColorMovementRowStrip",
+        "EnqueueFullColorMovementColumnStrip",
+        "RetryFullColorProducer",
+        "CancelFullColorSchedulerSelected",
+        "wFullColorRequestDescriptors",
+        "wFullColorProducerSource",
+        "wFullColorProducerFlags",
+        "wFullColorProducerPending",
+        "wFullColorPhase2StateStart",
+        "wFullColorPhase2LifecycleStateStart",
+    }
+    assert audit_only_surface <= audit
+    assert not audit_only_surface & normal
+
+    # Prefix exclusion also catches accidentally exported local descendants,
+    # while the missing WRAM sections prove ResetRendererOwnership has no
+    # retained producer state to revisit in the normal debug product.
+    assert not {
+        symbol
+        for symbol in normal
+        for root in audit_only_surface
+        if symbol.startswith(root + ".")
+    }
+    normal_map = (REPOSITORY_ROOT / "pokeyellow_debug.map").read_text(encoding="utf-8")
+    audit_map = (REPOSITORY_ROOT / "pokeyellow_phase2_audit.map").read_text(encoding="utf-8")
+    assert '"Full Color Phase 2 State"' not in normal_map
+    assert '"Full Color Phase 2 Lifecycle State"' not in normal_map
+    assert '"Full Color Phase 2 State"' in audit_map
+    assert '"Full Color Phase 2 Lifecycle State"' in audit_map
 
 
 def test_reconstruction_commits_complete_palette_and_20_by_18_pair_before_activation(

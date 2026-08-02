@@ -76,7 +76,7 @@ InitRendererOwnership::
 	ld [wRendererGeneration], a
 	ld [wRendererAdmissionOpen], a
 	clear_renderer_job
-IF DEF(PHASE2_AUDIT)
+IF DEF(FULL_COLOR_PHASE2_ACTIVE)
 	call InitFullColorSchedulerSelected
 ENDC
 	restore_renderer_state_e
@@ -114,7 +114,7 @@ ResetRendererOwnership::
 	ld a, RESET
 	ld [wRendererJobCancellationReason], a
 .advance
-IF DEF(PHASE2_AUDIT)
+IF DEF(FULL_COLOR_PHASE2_ACTIVE)
 	call CancelFullColorSchedulerSelected
 ENDC
 	advance_renderer_generation .generation_exhausted
@@ -184,7 +184,7 @@ BeginRendererHandoff::
 	ld a, HANDOFF
 	ld [wRendererJobCancellationReason], a
 .set_phase
-IF DEF(PHASE2_AUDIT)
+IF DEF(FULL_COLOR_PHASE2_ACTIVE)
 	push bc
 	call CancelFullColorSchedulerSelected
 	pop bc
@@ -342,7 +342,7 @@ AdvanceRendererGeneration::
 	ld a, STALE_GENERATION
 	ld [wRendererJobCancellationReason], a
 .advance
-IF DEF(PHASE2_AUDIT)
+IF DEF(FULL_COLOR_PHASE2_ACTIVE)
 	call CancelFullColorSchedulerSelected
 ENDC
 	advance_renderer_generation .generation_exhausted
@@ -527,7 +527,7 @@ GetRendererOwner::
 	ld a, b
 	ret
 
-IF DEF(PHASE2_AUDIT)
+IF DEF(FULL_COLOR_PHASE2_ACTIVE)
 ; The audit implementations live in the measured Phase 2 ROM window so this
 ; Phase 1 section keeps its current measured end at or before $452b.
 ELSE
@@ -535,7 +535,7 @@ RunFullColorOwnershipVBlank::
 	ret
 ENDC
 
-IF DEF(PHASE2_AUDIT)
+IF DEF(FULL_COLOR_PHASE2_ACTIVE)
 ELSE
 RouteRendererOwnershipVBlank::
 IF DEF(_DEBUG)
@@ -544,7 +544,7 @@ ENDC
 	ret
 ENDC
 
-IF !DEF(PHASE2_AUDIT)
+IF !DEF(FULL_COLOR_PHASE2_ACTIVE)
 ClearVramBanked::
 	ld hl, STARTOF(VRAM)
 	ld bc, SIZEOF(VRAM)
