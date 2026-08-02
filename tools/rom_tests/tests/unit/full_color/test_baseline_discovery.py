@@ -1,3 +1,5 @@
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -11,6 +13,7 @@ from tools.rom_tests.full_color.baseline_discovery import (
     SCENE_ROOTS,
     SHADOW_OAM_RANGES,
     SOURCE_ROOTS,
+    _validated_audit_only_added_paths,
     baseline_summary,
     discover_baseline_rom,
     discover_baseline_sources,
@@ -24,6 +27,55 @@ from tools.rom_tests.full_color.source_discovery import (
     SourceDiscoveryReport,
     SourceFinding,
 )
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _write_transition(
+    repository: Path,
+    report: SourceDiscoveryReport,
+    bindings: dict[str, dict[str, str | None]],
+    *,
+    audit_source_sha256: str | None = None,
+) -> None:
+    current = {
+        relative: _sha256((repository / relative).read_bytes())
+        for relative, _ in report.include_graph
+    }
+    baseline = dict(current)
+    for relative, binding in bindings.items():
+        if binding["reviewed_sha256"] is None:
+            baseline.pop(relative, None)
+        else:
+            baseline[relative] = binding["reviewed_sha256"]
+    baseline_sha256 = _sha256(
+        json.dumps(baseline, sort_keys=True, separators=(",", ":")).encode()
+    )
+    path = (
+        repository
+        / "specs/full-colors/definitions/phase1-audit-source-transition.json"
+    )
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema": "full-color-phase1-audit-source-transition-v2",
+                "reviewed_source_sha256": "1" * 64,
+                "audit_source_sha256": (
+                    report.source_sha256
+                    if audit_source_sha256 is None
+                    else audit_source_sha256
+                ),
+                "baseline_manifest_sha256": baseline_sha256,
+                "audit_only_paths": bindings,
+                "subject_rebindings": {},
+                "rom_subject_rebindings": {},
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_reviewed_baseline_configuration_is_stable() -> None:
@@ -69,20 +121,25 @@ def test_baseline_sources_forward_reviewed_control_roots(monkeypatch) -> None:
     ]
 
 
-def test_baseline_rom_includes_and_classifies_bootstrap_roots(
+def test_baseline_rom_partitions_linked_writers_from_explicit_control_roots(
     monkeypatch, tmp_path: Path
 ) -> None:
     (tmp_path / "pokeyellow_debug.gbc").write_bytes(b"rom")
-    symbols = object()
+    (tmp_path / "a.asm").write_bytes(b"audit only\n")
+    symbols = type(
+        "Symbols",
+        (),
+        {"by_name": {"Writer": object()}},
+    )()
     source_report = SourceDiscoveryReport(
         (),
-        (),
+        (("a.asm", ()),),
         (
             SourceFinding(
                 "writer",
                 "a.asm",
                 1,
-                "EnterMap",
+                "Writer",
                 "direct",
                 "ff40",
                 "DISPLAY_REGISTER",
@@ -91,13 +148,24 @@ def test_baseline_rom_includes_and_classifies_bootstrap_roots(
                 "writer",
                 "a.asm",
                 2,
-                "Writer",
+                "AuditOnlyWriter",
                 "direct",
                 "ff41",
                 "DISPLAY_REGISTER",
             ),
         ),
         (),
+        "2" * 64,
+    )
+    _write_transition(
+        tmp_path,
+        source_report,
+        {
+            "a.asm": {
+                "reviewed_sha256": None,
+                "audit_sha256": _sha256(b"audit only\n"),
+            }
+        },
     )
     seen = []
     expected = object()
@@ -135,6 +203,97 @@ def test_baseline_rom_includes_and_classifies_bootstrap_roots(
     assert seen[0][3]["batch_size"] == 7
     assert seen[0][3]["scene_roots"] == ("EnterMap",)
     assert seen[0][3]["mutation_roots"] == ("CopyMapViewToVRAM",)
+
+
+def test_baseline_rom_rejects_arbitrary_absent_production_writer(
+    monkeypatch, tmp_path: Path
+) -> None:
+    (tmp_path / "pokeyellow_debug.gbc").write_bytes(b"rom")
+    (tmp_path / "production.asm").write_bytes(b"production\n")
+    (tmp_path / "audit.asm").write_bytes(b"audit\n")
+    report = SourceDiscoveryReport(
+        (),
+        (("audit.asm", ()), ("production.asm", ())),
+        (
+            SourceFinding(
+                "writer", "production.asm", 1, "MissingWriter", "direct",
+                "ff40", "DISPLAY_REGISTER",
+            ),
+        ),
+        (),
+        "2" * 64,
+    )
+    _write_transition(
+        tmp_path,
+        report,
+        {
+            "audit.asm": {
+                "reviewed_sha256": None,
+                "audit_sha256": _sha256(b"audit\n"),
+            }
+        },
+    )
+    symbols = type("Symbols", (), {"by_name": {}})()
+    monkeypatch.setattr(
+        "tools.rom_tests.full_color.baseline_discovery.load_sym",
+        lambda path: symbols,
+    )
+
+    with pytest.raises(RomDiscoveryError, match="exact hash-bound.*MissingWriter"):
+        discover_baseline_rom(tmp_path, source_report=report)
+
+
+@pytest.mark.parametrize("mismatch", ["source", "path"])
+def test_audit_only_partition_rejects_stale_transition_identity(
+    tmp_path: Path, mismatch: str
+) -> None:
+    (tmp_path / "audit.asm").write_bytes(b"audit\n")
+    report = SourceDiscoveryReport(
+        (), (("audit.asm", ()),), (), (), "2" * 64
+    )
+    _write_transition(
+        tmp_path,
+        report,
+        {
+            "audit.asm": {
+                "reviewed_sha256": None,
+                "audit_sha256": _sha256(b"audit\n"),
+            }
+        },
+        audit_source_sha256="3" * 64 if mismatch == "source" else None,
+    )
+    if mismatch == "path":
+        (tmp_path / "audit.asm").write_bytes(b"mutated\n")
+
+    with pytest.raises(RomDiscoveryError, match="does not bind|path changed"):
+        _validated_audit_only_added_paths(tmp_path, report)
+
+
+def test_configured_control_roots_are_never_partitioned(monkeypatch, tmp_path: Path) -> None:
+    (tmp_path / "pokeyellow_debug.gbc").write_bytes(b"rom")
+    symbols = type("Symbols", (), {"by_name": {}})()
+    report = SourceDiscoveryReport((), (), (), ())
+    seen = []
+    monkeypatch.setattr(
+        "tools.rom_tests.full_color.baseline_discovery.load_sym",
+        lambda path: symbols,
+    )
+    monkeypatch.setattr(
+        "tools.rom_tests.full_color.baseline_discovery.load_map",
+        lambda path: (),
+    )
+    monkeypatch.setattr(
+        "tools.rom_tests.full_color.baseline_discovery.load_predef_targets",
+        lambda repository, table: {},
+    )
+    monkeypatch.setattr(
+        "tools.rom_tests.full_color.baseline_discovery.discover_rom_batched",
+        lambda rom, table, roots, **kwargs: seen.append(roots) or object(),
+    )
+
+    discover_baseline_rom(tmp_path, source_report=report)
+
+    assert seen == [("CopyMapViewToVRAM", "EnterMap")]
 
 
 def test_writer_roots_are_unique_sorted_source_backed_labels() -> None:

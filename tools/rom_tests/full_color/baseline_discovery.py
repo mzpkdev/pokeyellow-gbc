@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
+from pathlib import PurePosixPath
 import re
 from typing import Any, Sequence
 
@@ -52,6 +54,9 @@ DMA_CONTROL_LABELS = ("DMARoutine", "WriteDMACodeToHRAM", "hDMARoutine")
 LIFECYCLE_ROOTS = ("EnterMap",)
 SCENE_ROOTS: tuple[str, ...] = ()
 MUTATION_ROOTS = ("CopyMapViewToVRAM",)
+SOURCE_TRANSITION_PATH = Path(
+    "specs/full-colors/definitions/phase1-audit-source-transition.json"
+)
 
 _PREDEF = re.compile(
     r"^\s*add_predef\s+([A-Za-z_][\w#.]*)(?:\s*,\s*\$([0-9a-f]+))?"
@@ -82,6 +87,114 @@ def writer_roots(report: SourceDiscoveryReport) -> tuple[str, ...]:
             }
         )
     )
+
+
+def _strict_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _sha256_text(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _manifest_sha256(manifest: dict[str, str]) -> str:
+    encoded = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _validated_audit_only_added_paths(
+    repository: Path,
+    report: SourceDiscoveryReport,
+) -> frozenset[str]:
+    """Return hash-bound files that do not exist in the reviewed product."""
+    path = repository / SOURCE_TRANSITION_PATH
+    try:
+        transition = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_strict_json_object,
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise RomDiscoveryError(
+            "unlinked source writer requires a valid audit-only source transition"
+        ) from exc
+    expected_keys = {
+        "schema",
+        "reviewed_source_sha256",
+        "audit_source_sha256",
+        "baseline_manifest_sha256",
+        "audit_only_paths",
+        "subject_rebindings",
+        "rom_subject_rebindings",
+    }
+    if set(transition) != expected_keys or transition["schema"] != (
+        "full-color-phase1-audit-source-transition-v2"
+    ):
+        raise RomDiscoveryError("malformed audit-only source transition")
+    if transition["audit_source_sha256"] != report.source_sha256:
+        raise RomDiscoveryError(
+            "audit-only source transition does not bind current source discovery"
+        )
+    if not _sha256_text(transition["reviewed_source_sha256"]):
+        raise RomDiscoveryError("malformed reviewed source identity")
+    bindings = transition["audit_only_paths"]
+    if not isinstance(bindings, dict):
+        raise RomDiscoveryError("malformed audit-only path manifest")
+
+    current_manifest = {
+        relative: hashlib.sha256((repository / relative).read_bytes()).hexdigest()
+        for relative, _ in report.include_graph
+    }
+    baseline_manifest = dict(current_manifest)
+    added: set[str] = set()
+    for relative, binding in bindings.items():
+        if not isinstance(relative, str) or not relative:
+            raise RomDiscoveryError("malformed audit-only transition path")
+        normalized = PurePosixPath(relative)
+        if (
+            normalized.is_absolute()
+            or relative != str(normalized)
+            or "\\" in relative
+            or ".." in normalized.parts
+        ):
+            raise RomDiscoveryError(
+                f"audit-only transition path is not normalized: {relative!r}"
+            )
+        if not isinstance(binding, dict) or set(binding) != {
+            "reviewed_sha256",
+            "audit_sha256",
+        }:
+            raise RomDiscoveryError(
+                f"malformed audit-only path binding: {relative}"
+            )
+        audit_sha256 = binding["audit_sha256"]
+        if not _sha256_text(audit_sha256):
+            raise RomDiscoveryError(f"malformed audit path identity: {relative}")
+        if current_manifest.get(relative) != audit_sha256:
+            raise RomDiscoveryError(f"audit-only transition path changed: {relative}")
+        reviewed_sha256 = binding["reviewed_sha256"]
+        if reviewed_sha256 is None:
+            baseline_manifest.pop(relative, None)
+            added.add(relative)
+        elif _sha256_text(reviewed_sha256) and reviewed_sha256 != audit_sha256:
+            baseline_manifest[relative] = reviewed_sha256
+        else:
+            raise RomDiscoveryError(
+                f"malformed reviewed path identity: {relative}"
+            )
+    if _manifest_sha256(baseline_manifest) != transition["baseline_manifest_sha256"]:
+        raise RomDiscoveryError(
+            "current source changed outside the hash-bound audit-only partition"
+        )
+    return frozenset(added)
 
 
 def load_predef_targets(
@@ -122,8 +235,28 @@ def discover_baseline_rom(
     report = source_report or discover_baseline_sources(root)
     symbols = load_sym(root / "pokeyellow_debug.sym")
     scene_roots = tuple(sorted(set(LIFECYCLE_ROOTS) | set(SCENE_ROOTS)))
+    source_writers = set(writer_roots(report))
+    missing_writers = source_writers - symbols.by_name.keys()
+    if missing_writers:
+        audit_only_paths = _validated_audit_only_added_paths(root, report)
+        unproven = sorted(
+            {
+                finding.symbol
+                for finding in report.findings
+                if finding.category == "writer"
+                and finding.symbol in missing_writers
+                and finding.path not in audit_only_paths
+            }
+        )
+        if unproven:
+            raise RomDiscoveryError(
+                "source-discovered writer is absent from the baseline ROM and is not "
+                "in the exact hash-bound audit-only partition: "
+                + ", ".join(unproven)
+            )
+    linked_writer_roots = source_writers - missing_writers
     roots = tuple(
-        sorted(set(writer_roots(report)) | set(scene_roots) | set(MUTATION_ROOTS))
+        sorted(linked_writer_roots | set(scene_roots) | set(MUTATION_ROOTS))
     )
     return discover_rom_batched(
         (root / "pokeyellow_debug.gbc").read_bytes(),

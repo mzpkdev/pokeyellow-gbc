@@ -1,16 +1,52 @@
 {
   "schema": "full-color-phase1-audit-source-transition-v2",
   "reviewed_source_sha256": "9b12281f62023dbd80e64ed17d684aaae5754d787166163f213fe21e4ca2ff7f",
-  "audit_source_sha256": "b4e1aa7e02026ab795f62eea35481ee4b24ec4cb403f51b67a95edd1e6181020",
+  "audit_source_sha256": "7aa25c11d6b77a6f3f2724cbf0a2c98b42d5f4c8815e6e5b2f13304b71608703",
   "baseline_manifest_sha256": "75c058f0d0df07a25918c710dc8ddebf43d3e5b809a06faaf7391cf015a9d774",
   "audit_only_paths": {
     "main.asm": {
       "reviewed_sha256": "4097614148ed9256427f73557d5a99948b5af3b069ee4ba4172aed85015b4164",
-      "audit_sha256": "9bf543842926063c7f1496156a21e8ff8d5761e6abe089e6ddae63bdedd9dcf8"
+      "audit_sha256": "7f3bc82457651ecc1f357e5763a9a8262877ef1259af7ac6a585f766cefd00d8"
     },
     "engine/full_color/phase2_audit.asm": {
       "reviewed_sha256": null,
       "audit_sha256": "65b1292487502c41f8914843c5d605e292e4625a4400c2ae841dfeaf84d8f12d"
+    },
+    "constants/full_color_constants.asm": {
+      "reviewed_sha256": "da3032835057223116f29f463feaf21fb2f5b52ddc617a6de1f3a70b02b6ddb8",
+      "audit_sha256": "e78b2f8570a22eba8763774193979df6d03e862ce56616a58c2d5bde7e64687f"
+    },
+    "engine/full_color/ownership.asm": {
+      "reviewed_sha256": "ded865bd6bc643941ebb7657988f9788ca4e286410c7d09c078d46fec74febed",
+      "audit_sha256": "abebf4c2003de838f6d28ba3d083ba9300a1360fc1617ee234715866ad5851ee"
+    },
+    "ram/sram.asm": {
+      "reviewed_sha256": "dcbeca2292520e120f7c516bbbb3daa37507d644a7d60f1d678e3c4fd57dd26e",
+      "audit_sha256": "446a493d4c70507cdef36c60654394a11c4111ece1e4b56fc6b2908488c030f3"
+    },
+    "ram/wram.asm": {
+      "reviewed_sha256": "4d611450cde6c95ea60b9f9290032417d802a89e4b995a5a5dafc48d4f2171bf",
+      "audit_sha256": "62bda5ad562a2bb0c5a8c8954b03b74a04f327a97c28f2415bddb9a95610642b"
+    },
+    "data/tilesets/full_color_canary.asm": {
+      "reviewed_sha256": null,
+      "audit_sha256": "d3c83fb71dbb7a31e57ae69e7905df596db64d2d278b10752ec665361e9580a8"
+    },
+    "engine/full_color/oam.asm": {
+      "reviewed_sha256": null,
+      "audit_sha256": "2403826db8d2016db866008799f42a5752644fba6c2e939023c3a37029c6ebf8"
+    },
+    "engine/full_color/palettes.asm": {
+      "reviewed_sha256": null,
+      "audit_sha256": "7106a1e8c3bd0f30d8ea9975ef223f920b582507fb882746c3f666bed3f03250"
+    },
+    "engine/full_color/scheduler.asm": {
+      "reviewed_sha256": null,
+      "audit_sha256": "1d6fc82ee5e171d5a2c6e861aa0be631743af996f8bb986ac5024b363ea885ef"
+    },
+    "engine/full_color/transfers.asm": {
+      "reviewed_sha256": null,
+      "audit_sha256": "edc5110ce79bcfb073faabc5ca295c93a11b36708dd8758895cbebb0d6be1918"
     }
   },
   "subject_rebindings": {

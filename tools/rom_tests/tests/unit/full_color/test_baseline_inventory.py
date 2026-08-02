@@ -434,10 +434,14 @@ def test_real_rom_byte_mutation_reaches_unlisted_slice_failure(
     writers, scenes, mutations, assignments, source, _, _ = real_bundle
     for name in ("pokeyellow_debug.sym", "pokeyellow_debug.map"):
         shutil.copyfile(ROOT / name, tmp_path / name)
-    (tmp_path / "data").mkdir()
-    shutil.copyfile(
-        ROOT / "data/predef_pointers.asm", tmp_path / "data/predef_pointers.asm"
-    )
+    required_sources = {
+        *(relative for relative, _ in source.include_graph),
+        str(baseline_inventory.SOURCE_TRANSITION_PATH),
+    }
+    for relative in sorted(required_sources):
+        destination = tmp_path / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / relative, destination)
     changed_rom = bytearray((ROOT / "pokeyellow_debug.gbc").read_bytes())
     changed_rom[0x77:0x79] = bytes.fromhex("e040")
     (tmp_path / "pokeyellow_debug.gbc").write_bytes(changed_rom)

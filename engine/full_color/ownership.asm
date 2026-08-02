@@ -76,6 +76,9 @@ InitRendererOwnership::
 	ld [wRendererGeneration], a
 	ld [wRendererAdmissionOpen], a
 	clear_renderer_job
+IF DEF(PHASE2_AUDIT)
+	call InitFullColorSchedulerSelected
+ENDC
 	restore_renderer_state_e
 	and a
 	ret
@@ -111,6 +114,9 @@ ResetRendererOwnership::
 	ld a, RESET
 	ld [wRendererJobCancellationReason], a
 .advance
+IF DEF(PHASE2_AUDIT)
+	call CancelFullColorSchedulerSelected
+ENDC
 	advance_renderer_generation .generation_exhausted
 	ld a, RENDERER_YELLOW
 	ld [wRendererOwner], a
@@ -144,7 +150,7 @@ BeginRendererHandoff::
 	cp HANDOFF_TO_OVERWORLD
 	jr z, .to_overworld
 	cp HANDOFF_TO_YELLOW
-	jr nz, .invalid
+	jp nz, .invalid
 	ld a, [wRendererOwner]
 	cp RENDERER_FULL_COLOR_OVERWORLD
 	jr nz, .invalid
@@ -178,6 +184,11 @@ BeginRendererHandoff::
 	ld a, HANDOFF
 	ld [wRendererJobCancellationReason], a
 .set_phase
+IF DEF(PHASE2_AUDIT)
+	push bc
+	call CancelFullColorSchedulerSelected
+	pop bc
+ENDC
 	ld a, c
 	ld [wRendererPhase], a
 	advance_renderer_generation .generation_exhausted
@@ -331,6 +342,9 @@ AdvanceRendererGeneration::
 	ld a, STALE_GENERATION
 	ld [wRendererJobCancellationReason], a
 .advance
+IF DEF(PHASE2_AUDIT)
+	call CancelFullColorSchedulerSelected
+ENDC
 	advance_renderer_generation .generation_exhausted
 	restore_renderer_state_e
 	and a
@@ -513,23 +527,30 @@ GetRendererOwner::
 	ld a, b
 	ret
 
+IF DEF(PHASE2_AUDIT)
+; The audit implementations live in the measured Phase 2 ROM window so this
+; Phase 1 section keeps its current measured end at or before $452b.
+ELSE
 RunFullColorOwnershipVBlank::
 	ret
+ENDC
 
+IF DEF(PHASE2_AUDIT)
+ELSE
 RouteRendererOwnershipVBlank::
 IF DEF(_DEBUG)
 	call PollFullColorDebugCommand
 ENDC
-	call GetRendererOwner
-	cp RENDERER_FULL_COLOR_OVERWORLD
-	ret nz
-	jp RunFullColorOwnershipVBlank
+	ret
+ENDC
 
+IF !DEF(PHASE2_AUDIT)
 ClearVramBanked::
 	ld hl, STARTOF(VRAM)
 	ld bc, SIZEOF(VRAM)
 	xor a
 	jp FillMemory
+ENDC
 
 IF DEF(_DEBUG)
 ; Caller has selected SRAM bank 3. This uses the same atomic, stackless WRAM2

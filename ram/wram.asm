@@ -154,6 +154,7 @@ FOR n, OAM_COUNT
 wShadowOAMSprite{02d:n}:: sprite_oam_struct wShadowOAMSprite{02d:n}
 ENDR
 wShadowOAMEnd::
+ASSERT wShadowOAM == FULL_COLOR_OAM_DESTINATION
 
 
 SECTION "Tilemap", WRAM0
@@ -2580,3 +2581,42 @@ ASSERT wRendererStateStart == $d000
 ASSERT wRendererStateEnd == $d000 + PHASE1_OWNERSHIP_STATE_BYTES
 ASSERT BANK(wRendererStateStart) == PHASE1_SELECTED_WRAM_BANK
 ASSERT BANK(wRendererStateStart) != BANK(wPartyDataStart)
+
+IF DEF(PHASE2_AUDIT)
+SECTION "Full Color Phase 2 State", WRAMX[FULL_COLOR_PHASE2_WRAM_START], BANK[FULL_COLOR_PHASE2_WRAM_BANK]
+
+wFullColorPhase2StateStart::
+wFullColorRequestDescriptors:: ds FULL_COLOR_REQUEST_CAPACITY * FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+wFullColorRequestDescriptorsEnd::
+
+; The scratch subdivisions and their sizes are measurement authority. Runtime
+; scheduler metadata occupies named bytes inside the reconstruction ledger.
+wFullColorBGPaletteBase:: ds 64
+wFullColorBGPaletteTransformed:: ds 64
+wFullColorOBJPaletteBase:: ds 64
+wFullColorOBJPaletteTransformed:: ds 64
+wFullColorAttributeRectangle:: ds SCREEN_AREA
+wFullColorShadowOAMBatch:: ds 160
+wFullColorReconstructionLedger::
+wFullColorRequestCount:: db
+wFullColorRequestCursor:: db
+wFullColorAvailableResources:: dw
+wFullColorCommitBudget:: dw
+wFullColorRetryCounter:: db
+wFullColorLastAdmissionResult:: db
+wFullColorTransitionCount:: db
+wFullColorTransitionLog:: ds 8
+wFullColorActiveDescriptor:: dw
+wFullColorTimingState:: ds 4
+wFullColorReconstructionItems:: ds 4
+wFullColorRequestStaging:: ds 5
+wFullColorReconstructionLedgerEnd::
+wFullColorPhase2StateEnd::
+
+ASSERT wFullColorRequestDescriptorsEnd - wFullColorRequestDescriptors == 8 * 20
+ASSERT wFullColorReconstructionLedgerEnd - wFullColorReconstructionLedger == 32
+ASSERT wFullColorPhase2StateEnd - wFullColorRequestDescriptorsEnd == FULL_COLOR_REQUEST_SCRATCH_BYTES
+ASSERT wFullColorPhase2StateStart == FULL_COLOR_PHASE2_WRAM_START
+ASSERT wFullColorPhase2StateEnd == FULL_COLOR_PHASE2_WRAM_END
+ASSERT BANK(wFullColorPhase2StateStart) == FULL_COLOR_PHASE2_WRAM_BANK
+ENDC
