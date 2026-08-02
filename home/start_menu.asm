@@ -1,6 +1,15 @@
 DisplayStartMenu::
 	ld a, BANK(StartMenu_Pokedex) ; also bank for other functions
 	call BankswitchCommon
+IF DEF(PHASE2_AUDIT)
+	; Home has no room for the guarded integration. The selected bank is already
+	; bank 4, so keep a constant-size Home trampoline and emit the audit body
+	; beside the start-menu implementation it calls.
+	jp FullColorDisplayStartMenu
+PUSHS
+SECTION "Phase 2 start menu overlay integration", ROMX, BANK[4]
+FullColorDisplayStartMenu:
+ENDC
 	ld a, [wWalkBikeSurfState] ; walking/biking/surfing
 	ld [wWalkBikeSurfStateCopy], a
 	ld a, SFX_START_MENU
@@ -9,10 +18,18 @@ DisplayStartMenu::
 RedisplayStartMenu::
 	farcall DrawStartMenu
 RedisplayStartMenu_DoNotDrawStartMenu::
+	IF DEF(PHASE2_AUDIT)
+	call FullColorStartMenuReveal
+	ELSE
 	farcall PrintSafariZoneSteps ; print Safari Zone info, if in Safari Zone
+	ENDC
 	call UpdateSprites
 .loop
+	IF DEF(PHASE2_AUDIT)
+	call FullColorHandleStartMenuInput
+	ELSE
 	call HandleMenuInput
+	ENDC
 	ld b, a
 ; check if Up pressed
 	bit B_PAD_UP, a
@@ -50,7 +67,11 @@ RedisplayStartMenu_DoNotDrawStartMenu::
 	call EraseMenuCursor
 	jr .loop
 .buttonPressed ; A, B, or Start button pressed
+	IF DEF(PHASE2_AUDIT)
+	call FullColorPlaceUnfilledStartMenuCursor
+	ELSE
 	call PlaceUnfilledArrowMenuCursor
+	ENDC
 	ld a, [wCurrentMenuItem]
 	ld [wBattleAndStartSavedMenuItem], a ; save current menu selection
 	ld a, b
@@ -81,5 +102,56 @@ CloseStartMenu::
 	ldh a, [hJoyPressed]
 	bit B_PAD_A, a
 	jr nz, CloseStartMenu
+	IF DEF(PHASE2_AUDIT)
+	farcall IsFullColorOverworldOwnerFar
+	jp nc, CloseTextDisplay
+	ENDC
 	call LoadTextBoxTilePatterns
 	jp CloseTextDisplay
+
+IF DEF(PHASE2_AUDIT)
+; DisplayStartMenu pins bank 4 before entering this Home loop. Keep its Home
+; call sites constant-sized and put the guarded integration beside the other
+; start-menu implementation instead of consuming the last Home bytes.
+FullColorStartMenuReveal:
+	farcall PrintSafariZoneSteps
+	call EnqueueFullColorStartMenuOverlay
+	ret
+
+; Mirror HandleMenuInput through its first visible cursor placement, enqueue
+; that finished authority, then resume the original wait loop and mechanics.
+FullColorHandleStartMenuInput:
+	xor a
+	ld [wPartyMenuAnimMonEnabled], a
+	ldh a, [hDownArrowBlinkCount1]
+	push af
+	ldh a, [hDownArrowBlinkCount2]
+	push af
+	xor a
+	ldh [hDownArrowBlinkCount1], a
+	ld a, 6
+	ldh [hDownArrowBlinkCount2], a
+	xor a
+	ld [wAnimCounter], a
+	call PlaceMenuCursor
+	call EnqueueFullColorStartMenuOverlay
+	call Delay3
+	jp HandleMenuInput_.loop2
+
+FullColorPlaceUnfilledStartMenuCursor:
+	call PlaceUnfilledArrowMenuCursor
+	push af
+	call EnqueueFullColorStartMenuOverlay
+	pop af
+	ret
+
+EnqueueFullColorStartMenuOverlay:
+	farcall IsFullColorOverworldOwnerFar
+	ret c
+.retry
+	farcall EnqueueFullColorWindowTileMapOverlayFar
+	jr c, .retry
+	ret
+
+POPS
+ENDC

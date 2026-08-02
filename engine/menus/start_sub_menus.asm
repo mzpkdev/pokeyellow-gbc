@@ -6,10 +6,34 @@ StartMenu_Pokedex::
 	call UpdateSprites
 	jp RedisplayStartMenu
 
+IF DEF(PHASE2_AUDIT)
+; Carry clear means this is either outside the bounded slice or Yellow owns the
+; party screen. Only a full-color Pallet/Route 1 caller starts a handoff.
+EnsureFullColorPartyMenuYellow::
+	ld a, [wCurMap]
+	cp PALLET_TOWN
+	jr z, .in_slice
+	cp ROUTE_1
+	jr nz, .yellow_or_outside_slice
+.in_slice
+	; The banked helper makes the owner decision before Bankswitch restores A.
+	farcall EnsureFullColorPartyHandoff
+	ret
+.yellow_or_outside_slice
+	and a
+	ret
+ENDC
+
 StartMenu_Pokemon::
 	ld a, [wPartyCount]
 	and a
 	jp z, RedisplayStartMenu
+IF DEF(PHASE2_AUDIT)
+	; Leave hostile map ownership before DisplayPartyMenu's first whiteout.
+	; Already-Yellow battle and item callers don't cross this boundary.
+	call EnsureFullColorPartyMenuYellow
+	jp c, RedisplayStartMenu
+ENDC
 	xor a
 	ld [wMenuItemToSwap], a
 	ld [wPartyMenuTypeOrMessageID], a
@@ -24,6 +48,24 @@ StartMenu_Pokemon::
 .checkIfPokemonChosen
 	jr nc, .chosePokemon
 .exitMenu
+IF DEF(PHASE2_AUDIT)
+	; Only the successful full-color-to-Yellow party handoff owns this return.
+	; Ordinary Yellow callers retain the byte-for-byte legacy restoration below.
+	farcall IsFullColorPartyReturnPending
+	jr c, .yellowExit
+	call GBPalWhiteOutWithDelay3
+	farcall ReturnFullColorFromParty
+	jr c, .fullColorReturnFailure
+	; The guarded LoadMapData route rebuilds WRAM authority with LCD hidden,
+	; performs the paired reconstruction, and completes ownership before return.
+	call LoadMapData
+	jr c, .fullColorReturnFailure
+	jp RedisplayStartMenu
+.fullColorReturnFailure
+	; Never expose stale party VRAM after a failed hostile-slice reconstruction.
+	jr .fullColorReturnFailure
+.yellowExit
+ENDC
 	call GBPalWhiteOutWithDelay3
 	call RestoreScreenTilesAndReloadTilePatterns
 	call LoadGBPal
@@ -290,6 +332,12 @@ StartMenu_Pokemon::
 	text_far _NotHealthyEnoughText
 	text_end
 .goBackToMap
+IF DEF(PHASE2_AUDIT)
+	; Field-move exits aren't part of the bounded party-return claim. They may
+	; use Yellow restoration only when no hostile-slice party handoff is pending.
+	farcall IsFullColorPartyReturnPending
+	jp nc, .fullColorReturnFailure
+ENDC
 	call RestoreScreenTilesAndReloadTilePatterns
 	jp CloseTextDisplay
 .newBadgeRequired

@@ -167,6 +167,7 @@ AutoBgMapTransfer::
 .doTransfer
 	ldh [hAutoBGTransferPortion], a ; store next portion
 	ld b, SCREEN_HEIGHT / 3
+	; @full-color writer mechanism=stack-pop-row-copy destination=vBGMap0_or_vBGMap1 resource=BG_WINDOW_MAP
 
 TransferBgRows::
 ; unrolled loop and using pop for speed

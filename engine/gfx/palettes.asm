@@ -913,6 +913,7 @@ TransferBGPPals::
 	ld c, 4 * PAL_SIZE
 .loop
 	ld a, [hli]
+	; @full-color writer mechanism=buffered-pointer-copy destination=rBGPD resource=CGB_PALETTE
 	ld [de], a
 	dec c
 	jr nz, .loop

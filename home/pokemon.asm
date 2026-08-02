@@ -185,6 +185,12 @@ GetCryData::
 	ret
 
 DisplayPartyMenu::
+IF DEF(PHASE2_AUDIT)
+	; The banked guard is a no-op outside Pallet/Route 1 and for existing Yellow
+	; battle/item callers. A hostile-slice caller selects Yellow before whiteout.
+	farcall EnsureFullColorPartyMenuYellow
+	ret c
+ENDC
 	ldh a, [hTileAnimations]
 	push af
 	xor a

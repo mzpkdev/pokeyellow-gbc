@@ -30,15 +30,15 @@
     },
     "pokeyellow_phase2_audit.gbc": {
       "path": "pokeyellow_phase2_audit.gbc",
-      "sha256": "d4efc8edd9faabdabebd7ee8faa7dac7fb5bb72e2da45cc7eb01b540a12896fc"
+      "sha256": "536c747d855e6b381850d96d0dc45d3679d6a18034026e0add0ba4bb4eaa26ad"
     },
     "pokeyellow_phase2_audit.map": {
       "path": "pokeyellow_phase2_audit.map",
-      "sha256": "5ccbe128aa407d9f7c8d2c9dd8dafc985565dcb2561a2123f77fb2e0b6c27f52"
+      "sha256": "719de188962c7f543a3eec05f910bba7b98853cbc0277c3f07dcce52739cf150"
     },
     "pokeyellow_phase2_audit.sym": {
       "path": "pokeyellow_phase2_audit.sym",
-      "sha256": "d8f7835990fa121b63f2385ca0c4e25993844878a2801b1be3c1a9329a97a172"
+      "sha256": "ce8111cd4f86fd6185181bdccbd63e515360c47e90f88168951a73417afe8e02"
     },
     "pokeyellow_vc.gbc": {
       "path": "pokeyellow_vc.gbc",
@@ -54,7 +54,7 @@
     },
     "specs/full-colors/definitions/phase1-audit-source-transition.json": {
       "path": "specs/full-colors/definitions/phase1-audit-source-transition.json",
-      "sha256": "e75a0a2b191a7d97b80d6c72d67380144285c8d6e7b6f4a69c0e7daa634b1421"
+      "sha256": "0d388a7e0a7202208f9433b5663325c482b81d8c3564d3d9656ecfedaad70025"
     },
     "specs/full-colors/definitions/phase2-hostile-slice-representation.json": {
       "path": "specs/full-colors/definitions/phase2-hostile-slice-representation.json",
@@ -62,23 +62,23 @@
     },
     "specs/full-colors/definitions/phase2-planned-subjects.json": {
       "path": "specs/full-colors/definitions/phase2-planned-subjects.json",
-      "sha256": "26407cc61eb2c0efb18442fdf9521bd15c0a810338fa00dc3c1902b2201d7dfb"
+      "sha256": "faa3bafcf35d06269fc3dd1072b50110a0a6528c2670d048dd1532b2f7f97e9c"
     },
     "specs/full-colors/inventory/assignments.json": {
       "path": "specs/full-colors/inventory/assignments.json",
-      "sha256": "89725cdf04ada86bf101265315fe6131da68fc3aa5fc3ab502944353f5dbc419"
+      "sha256": "f185e4abfaaf63e0d12d81222d47a452675b2b55d29fe89b37640647201334f6"
     },
     "specs/full-colors/inventory/mutations.json": {
       "path": "specs/full-colors/inventory/mutations.json",
-      "sha256": "a44f18fe08922a2abdb56a223b85bf8199b1a4a14c48a57ea8ec88db16f2a660"
+      "sha256": "8c5a4efce1c0ef46dfea6998570aa59ab3d4819a138a89baa9aacf74e4bda129"
     },
     "specs/full-colors/inventory/scenes.json": {
       "path": "specs/full-colors/inventory/scenes.json",
-      "sha256": "a2c4c56e372f82033c0b3f9b922203237d6060b7e363172fe9669790a2be2581"
+      "sha256": "f9d15fce888ab43652109c44a16b5c84808aa10633bd42be2cbcd5f70ae7ed14"
     },
     "specs/full-colors/inventory/writers.json": {
       "path": "specs/full-colors/inventory/writers.json",
-      "sha256": "739e05c8ec01b418843c77ce043337e828c8c1c9042e9ebdb4f774de7baff488"
+      "sha256": "d0f797b3a1523d1549cba2903928a766b722329fb734346bab8714bebb4e7a7f"
     }
   },
   "inventory_audit": {
@@ -90,15 +90,16 @@
     ],
     "coverage": "SCOPED_DESCENDANT_CLOSURE",
     "guard": "PHASE2_AUDIT",
-    "guarded_root_count": 21,
+    "guarded_root_count": 22,
+    "inventory_state": "audit-closed",
     "normal_rom_reachable": false,
-    "planned_assignment_count": 0,
-    "planned_row_count": 18,
-    "rom_candidate_subject_count": 74,
-    "rom_subject_count": 541,
+    "planned_assignment_count": 919,
+    "planned_row_count": 0,
+    "rom_candidate_subject_count": 79,
+    "rom_subject_count": 666,
     "rom_unlisted_subject_count": 0,
-    "rom_unresolved_disposition_count": 98,
-    "source_subject_count": 140,
+    "rom_unresolved_disposition_count": 87,
+    "source_subject_count": 174,
     "source_unlisted_subject_count": 0
   },
   "ownership_abi": {

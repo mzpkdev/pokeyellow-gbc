@@ -13,6 +13,7 @@ Phase2AuditRoots::
 	dw DisplayStartMenu
 	dw DisplayTextID
 	dw EnterMap
+	dw LoadGBPal
 	dw LoadMapData
 	dw LoadNorthSouthConnectionsTileMap
 	dw PalletTown_h
@@ -21,14 +22,14 @@ Phase2AuditRoots::
 	dw RedrawRowOrColumn
 	dw RestoreScreenTilesAndReloadTilePatterns
 	dw Route1_h
-	dw RunPaletteCommand
 	dw ScheduleEastColumnRedraw
 	dw ScheduleNorthRowRedraw
 	dw ScheduleSouthRowRedraw
 	dw ScheduleWestColumnRedraw
 	dw StartMenu_Pokemon.exitMenu
+	dw TransferBGPPals
 	dw UpdateMovingBgTiles
 Phase2AuditRootsEnd::
 
-ASSERT Phase2AuditRootsEnd - Phase2AuditRoots == 21 * 2
+ASSERT Phase2AuditRootsEnd - Phase2AuditRoots == 22 * 2
 ENDC

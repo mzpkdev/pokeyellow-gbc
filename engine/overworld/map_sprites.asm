@@ -252,6 +252,12 @@ LoadMapSpritesImageBaseOffset:
 	ld [wSpritePlayerStateData2ImageBaseOffset], a ; vram slot for player
 	ld a, $2
 	ld [wSpritePikachuStateData2ImageBaseOffset], a ; vram slot for Pikachu
+IF DEF(PHASE2_AUDIT)
+	ld a, SPRITE_RED
+	ld [wSpritePlayerStateData2PictureID], a
+	ld a, SPRITE_PIKACHU
+	ld [wSpritePikachuStateData2PictureID], a
+ENDC
 	ld a, $e
 	ld hl, wSprite01StateData1
 .loop
@@ -259,6 +265,13 @@ LoadMapSpritesImageBaseOffset:
 	ld a, [hl] ; [x#SPRITESTATEDATA1_PICTUREID]
 	and a ; is the sprite unused?
 	jr z, .spriteUnused
+IF DEF(PHASE2_AUDIT)
+	push hl
+	ld de, wSprite01StateData2PictureID - wSprite01StateData1
+	add hl, de
+	ld [hl], a
+	pop hl
+ENDC
 	call GetSpriteImageBaseOffset
 	push hl
 	ld de, wSpritePlayerStateData2ImageBaseOffset - wSpriteStateData1

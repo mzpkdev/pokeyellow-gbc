@@ -1,5 +1,6 @@
-; Final-picture OAM palette mapping. A request source contains a complete
-; 160-byte shadow batch followed by forty final-picture identity bytes.
+; Snapshot a producer-finished full-color OAM batch. Identity lookup and
+; fallback happen while the producer constructs the final batch; deferred
+; scheduler preparation never rereads mutable sprite authority.
 
 PrepareFullColorOAMBatchSelected::
 	push hl
@@ -16,16 +17,78 @@ PrepareFullColorOAMBatchSelected::
 	inc de
 	dec b
 	jr nz, .copy
-	; DE now addresses request-owned final picture identities.
+	pop hl
+	push hl
+	ld bc, FULL_COLOR_DESCRIPTOR_FLAGS
+	add hl, bc
+	ld a, [hl]
+	pop hl
+	and FULL_COLOR_FLAG_OAM_FINISHED
+	jr nz, .finished
+	; Legacy audit probes may still supply forty identities after the batch.
+	; Map them through the same authored-identity contract as the real producer;
+	; the exact producer helper above marks its batch finished and never enters
+	; this compatibility path.
+	push hl
 	ld hl, wFullColorShadowOAMBatch + 3
 	ld b, 40
 .map
 	ld a, [de]
 	inc de
+	push de
+	call MapFullColorOAMAttributeSelected
+	pop de
+	inc hl
+	inc hl
+	inc hl
+	inc hl
+	dec b
+	jr nz, .map
+	pop hl
+.finished
+	and a
+	ret
+
+; Map one final-picture identity into a finished fixed-WRAM batch before it is
+; enqueued. Input A=identity, B=reverse object cursor (40..1), HL=attribute
+; byte. Output A=palette (0..7), carry set only when palette-0 fallback was
+; used. Bits 3-7 at [HL] are always preserved. Clobbers CDE.
+MapFullColorOAMAttribute::
+	ld c, a
+	select_renderer_state_e
+	ld a, c
+	call MapFullColorOAMAttributeSelected
+	ld d, a
+	ld e, 0
+	jr nc, .mapped
+	inc e
+.mapped
+	restore_renderer_state_e
+	ld a, d
+	ld d, a
+	ld a, e
+	and a
+	ld a, d
+	ret z
+	scf
+	ret
+
+MapFullColorOAMAttributeSelected:
+	ld d, a
+	cp SPRITE_RED
+	jr z, .red
+	cp SPRITE_PIKACHU
+	jr z, .pikachu
+	cp SPRITE_OAK
+	jr z, .oak
+	cp SPRITE_GIRL
+	jr z, .girl
+	cp SPRITE_FISHER
+	jr z, .fisher
 	cp $ff
 	jr z, .missing
 	cp 8
-	jr c, .mapped
+	jr c, .unmapped
 	bit 7, a
 	jr nz, .unmapped
 	ld c, FULL_COLOR_FALLBACK_OUT_OF_RANGE
@@ -36,25 +99,37 @@ PrepareFullColorOAMBatchSelected::
 .unmapped
 	ld c, FULL_COLOR_FALLBACK_UNMAPPED
 .fallback
-	push de
-	ld d, a
 	xor a
 	call RecordFullColorOAMFallbackSelected
-	pop de
-.mapped
-	ld c, a
+	ld c, 1
+	jr .write
+.red
+	ld a, 1
+	jr .apply
+.pikachu
+	ld a, 2
+	jr .apply
+.oak
+	ld a, 3
+	jr .apply
+.girl
+	ld a, 4
+	jr .apply
+.fisher
+	ld a, 5
+.apply
+	ld c, 0
+.write
+	ld e, a
 	ld a, [hl]
 	and $f8
-	or c
+	or e
 	ld [hl], a
-	inc hl
-	inc hl
-	inc hl
-	inc hl
-	dec b
-	jr nz, .map
-	pop hl
+	ld a, c
 	and a
+	ld a, e
+	ret z
+	scf
 	ret
 
 ; A palette (zero for fallback), B reverse object cursor, C fallback kind,
@@ -102,3 +177,5 @@ CommitFullColorOAMBatchSelected:
 	call hDMARoutine
 	pop hl
 	ret
+
+EXPORT MapFullColorOAMAttribute

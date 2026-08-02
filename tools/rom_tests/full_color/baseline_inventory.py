@@ -13,6 +13,8 @@ from typing import Any, Sequence
 from .baseline_discovery import discover_baseline_rom, discover_baseline_sources
 from .discovery_assignment import (
     DiscoveryAssignmentAuthority,
+    NORMAL_DEBUG_PRODUCT,
+    PHASE2_AUDIT_PRODUCT,
     StaleDiscoveryAssignmentError,
 )
 from .discovery_review import rom_finding_subject, source_finding_subject
@@ -149,6 +151,7 @@ def _reviewed_source_view(
     repository: Path,
 ) -> tuple[Any, dict[str, Any] | None]:
     """Verify and apply the explicit audit-only source-hash transition."""
+    assignments = assignments.for_product(NORMAL_DEBUG_PRODUCT)
     reviewed_hashes = {row.evidence.source_sha256 for row in assignments.rows}
     if len(reviewed_hashes) != 1:
         raise StaleDiscoveryAssignmentError(
@@ -259,6 +262,7 @@ def _reviewed_rom_view(
     rom_report: Any,
     transition: dict[str, Any] | None,
 ) -> Any:
+    assignments = assignments.for_product(NORMAL_DEBUG_PRODUCT)
     if transition is None:
         return rom_report
     rows = {
@@ -307,6 +311,63 @@ def _partition_authority(document: Any) -> tuple[Any, tuple[dict[str, Any], ...]
         {"schema": document.schema, "rows": list(reviewed)}
     )
     return reviewed_document, planned
+
+
+def _select_inventory_rows(document: Any, row_ids: set[str]) -> Any:
+    """Select only rows owned by one link-product assignment partition."""
+    return type(document).from_dict(
+        {
+            "schema": document.schema,
+            "rows": [row for row in document.rows if row["id"] in row_ids],
+        }
+    )
+
+
+def _phase2_transition_state(
+    *,
+    writers: WriterInventory,
+    scenes: SceneInventory,
+    mutations: MutationInventory,
+    assignments: DiscoveryAssignmentAuthority,
+) -> str:
+    """Require the hostile tranche to be wholly planned or wholly audit-closed."""
+    rows = {
+        row["id"]: row
+        for document in (writers, scenes, mutations)
+        for row in document.rows
+        if row["id"] in PHASE2_PLANNED_ROW_IDS
+    }
+    if set(rows) != PHASE2_PLANNED_ROW_IDS:
+        raise InventoryReconciliationError(
+            "planned Phase 2 row IDs must be the exact closed set; "
+            f"missing={sorted(PHASE2_PLANNED_ROW_IDS - set(rows))}"
+        )
+    audit = assignments.for_product(PHASE2_AUDIT_PRODUCT)
+    audit_targets = {row.row_id for row in audit.rows}
+    planned = {row_id for row_id, row in rows.items() if row["planned"]}
+    reviewed = {
+        row_id for row_id, row in rows.items() if row["evidence"]["reviewed"]
+    }
+    if planned == PHASE2_PLANNED_ROW_IDS and not reviewed and not audit.rows:
+        return "planned"
+    if planned == PHASE2_PLANNED_ROW_IDS and reviewed:
+        raise InventoryReconciliationError(
+            "planned row cannot claim reviewed evidence"
+        )
+    if planned == PHASE2_PLANNED_ROW_IDS and audit.rows:
+        raise InventoryReconciliationError(
+            "planned hostile rows consume closure assignments"
+        )
+    if (
+        not planned
+        and reviewed == PHASE2_PLANNED_ROW_IDS
+        and audit_targets == PHASE2_PLANNED_ROW_IDS
+    ):
+        return "audit-closed"
+    raise InventoryReconciliationError(
+        "Phase 2 closure must transition all 18 rows atomically from "
+        "planned/unreviewed/unassigned to reviewed audit assignments"
+    )
 
 
 def _validate_planned_rows(
@@ -672,34 +733,43 @@ def build_progress(
     """Project reviewed assignments once and report honest remaining work."""
     all_writers, all_scenes, all_mutations = writers, scenes, mutations
     repository_path = Path(repository).resolve()
-    _validate_assignment_targets(assignments, writers, scenes, mutations)
-    reviewed_source, source_transition = _reviewed_source_view(
-        assignments, source_report, repository_path
+    phase2_state = _phase2_transition_state(
+        writers=writers, scenes=scenes, mutations=mutations, assignments=assignments
     )
-    reviewed_rom = _reviewed_rom_view(assignments, rom_report, source_transition)
-    _assert_no_unlisted_slice_findings(assignments, reviewed_source, reviewed_rom)
-    matcher = assignments.matcher(
+    normal_assignments = assignments.for_product(NORMAL_DEBUG_PRODUCT)
+    _validate_assignment_targets(normal_assignments, writers, scenes, mutations)
+    reviewed_source, source_transition = _reviewed_source_view(
+        normal_assignments, source_report, repository_path
+    )
+    reviewed_rom = _reviewed_rom_view(normal_assignments, rom_report, source_transition)
+    _assert_no_unlisted_slice_findings(normal_assignments, reviewed_source, reviewed_rom)
+    matcher = normal_assignments.matcher(
         source_sha256=reviewed_source.source_sha256,
         rom_sha256=rom_report.rom_sha256,
         sym_sha256=rom_report.sym_sha256,
         map_sha256=rom_report.map_sha256,
+        product=NORMAL_DEBUG_PRODUCT,
     )
     projected_source, projected_rom, source_rows, rom_rows = _project_assignments(
-        assignments, reviewed_source, reviewed_rom, matcher=matcher
+        normal_assignments, reviewed_source, reviewed_rom, matcher=matcher
     )
-    planned = _validate_planned_rows(
-        writers=writers,
-        scenes=scenes,
-        mutations=mutations,
-        assignments=assignments,
-        source_report=source_report,
-        rom_report=rom_report,
-        rom=rom,
-        repository=repository_path,
-    )
-    writers, _ = _partition_authority(writers)
-    scenes, _ = _partition_authority(scenes)
-    mutations, _ = _partition_authority(mutations)
+    if phase2_state == "planned":
+        planned = _validate_planned_rows(
+            writers=writers,
+            scenes=scenes,
+            mutations=mutations,
+            assignments=normal_assignments,
+            source_report=source_report,
+            rom_report=rom_report,
+            rom=rom,
+            repository=repository_path,
+        )
+    else:
+        planned = ()
+    normal_row_ids = {row.row_id for row in normal_assignments.rows}
+    writers = _select_inventory_rows(writers, normal_row_ids)
+    scenes = _select_inventory_rows(scenes, normal_row_ids)
+    mutations = _select_inventory_rows(mutations, normal_row_ids)
     report = reconcile(
         writers,
         scenes,

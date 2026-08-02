@@ -32,6 +32,7 @@ from .baseline_discovery import (
 )
 from .baseline_inventory import (
     _PLANNED_ONLY_ROW_CONTRACTS,
+    _phase2_transition_state,
     _reviewed_rom_view,
     _reviewed_source_view,
     _validate_planned_rows,
@@ -41,7 +42,12 @@ from .discovery_review import (
     source_error_subject,
     source_finding_subject,
 )
-from .discovery_assignment import DiscoveryAssignmentAuthority
+from .discovery_assignment import (
+    DiscoveryAssignmentAuthority,
+    NORMAL_DEBUG_PRODUCT,
+    PHASE2_AUDIT_PRODUCT,
+    StaleDiscoveryAssignmentError,
+)
 from .inventory import MutationInventory, SceneInventory, WriterInventory
 from .phase1_measurements import (
     FORBIDDEN_ROM_BANKS,
@@ -67,11 +73,52 @@ PLANNED_SUBJECTS_PATH = "specs/full-colors/definitions/phase2-planned-subjects.j
 PLANNED_ONLY_DISPOSITION_ROWS = frozenset({"WR-P2-YELLOW-BG-PALETTE"})
 
 PHASE2_SCENE_EDGE_CLASSIFICATIONS = {
-    ("DisplayPartyMenu", "PartyMenuInit"): ("DIRECTED_EDGE", "YELLOW_TO_PARTY"),
+    ("DisplayPartyMenu", "PartyMenuInit"): ("DIRECTED_EDGE", "MAP_TO_YELLOW"),
     (
         "StartMenu_Pokemon.exitMenu",
-        "RestoreScreenTilesAndReloadTilePatterns",
-    ): ("DIRECTED_EDGE", "PARTY_TO_OVERWORLD"),
+        "ReturnFullColorFromParty",
+    ): ("DIRECTED_EDGE", "YELLOW_TO_MAP"),
+}
+
+_CLOSED_SCENE_DIRECTIONS = {
+    ("DisplayPartyMenu", "PartyMenuInit"): "MAP_TO_YELLOW",
+    (
+        "StartMenu_Pokemon.exitMenu",
+        "ReturnFullColorFromParty",
+    ): "YELLOW_TO_MAP",
+}
+
+_CLOSED_PALETTE_ROW_CONTRACT = {
+    "commit_unit": "PALETTE",
+    "machine_sites": (
+        {
+            "bank": 0x1C,
+            "address": 0x64BA,
+            "rom_offset": 0x724BA,
+            "bytes": "f040",
+            "runtime_copy": None,
+        },
+    ),
+    "resources": (
+        {
+            "aliases": [],
+            "end": 0xFF69,
+            "resource": "CGB_PALETTE",
+            "start": 0xFF68,
+            "vram_bank": None,
+        },
+    ),
+    "source_sites": (
+        {
+            "aliases": [],
+            "line": 916,
+            "object": None,
+            "path": "engine/gfx/palettes.asm",
+            "symbol": "TransferBGPPals.loop",
+        },
+    ),
+    "roots": ("LoadGBPal", "TransferBGPPals"),
+    "call_paths": (("LoadGBPal", "TransferBGPPals"),),
 }
 
 # Each root maps its control/entry evidence first and its concrete writer
@@ -84,6 +131,7 @@ PHASE2_ROOT_ROWS = {
     "DisplayStartMenu": ("MU-P2-START-MENU-OVERLAY", "MU-P2-START-MENU-OVERLAY"),
     "DisplayTextID": ("MU-P2-DIALOGUE-OVERLAY", "MU-P2-DIALOGUE-OVERLAY"),
     "EnterMap": ("MU-P2-MAP-RECONSTRUCTION", "MU-P2-MAP-RECONSTRUCTION"),
+    "LoadGBPal": ("MU-P2-PALETTE-PAYLOADS", "MU-P2-PALETTE-PAYLOADS"),
     "LoadMapData": ("MU-P2-MAP-RECONSTRUCTION", "MU-P2-MAP-RECONSTRUCTION"),
     "LoadNorthSouthConnectionsTileMap": ("MU-P2-MAP-CONNECTION-NORTH", "MU-P2-MAP-CONNECTION-NORTH"),
     "PalletTown_h": ("SC-P2-PALLET-ROUTE1-NORTH", "SC-P2-PALLET-ROUTE1-NORTH"),
@@ -92,14 +140,15 @@ PHASE2_ROOT_ROWS = {
     "RedrawRowOrColumn": ("WR-P2-YELLOW-MAP-STREAM", "WR-P2-YELLOW-MAP-STREAM"),
     "RestoreScreenTilesAndReloadTilePatterns": ("SC-P2-PARTY-RETURN", "SC-P2-PARTY-RETURN"),
     "Route1_h": ("SC-P2-PALLET-ROUTE1-NORTH", "SC-P2-PALLET-ROUTE1-NORTH"),
-    "RunPaletteCommand": ("MU-P2-PALETTE-PAYLOADS", "WR-P2-YELLOW-BG-PALETTE"),
     "ScheduleEastColumnRedraw": ("MU-P2-MOVEMENT-HORIZONTAL", "MU-P2-MOVEMENT-HORIZONTAL"),
     "ScheduleNorthRowRedraw": ("MU-P2-MOVEMENT-VERTICAL", "MU-P2-MOVEMENT-VERTICAL"),
     "ScheduleSouthRowRedraw": ("MU-P2-MOVEMENT-VERTICAL", "MU-P2-MOVEMENT-VERTICAL"),
     "ScheduleWestColumnRedraw": ("MU-P2-MOVEMENT-HORIZONTAL", "MU-P2-MOVEMENT-HORIZONTAL"),
     "StartMenu_Pokemon.exitMenu": ("SC-P2-PARTY-RETURN", "SC-P2-PARTY-RETURN"),
+    "TransferBGPPals": ("MU-P2-PALETTE-PAYLOADS", "WR-P2-YELLOW-BG-PALETTE"),
     "UpdateMovingBgTiles": ("MU-P2-ANIMATED-TERRAIN", "WR-P2-YELLOW-ANIMATION-TILES"),
 }
+
 MINIMUM_ROM_BYTES = 0x1000
 WRAMX_START, WRAMX_END = 0xD000, 0xDFFF
 SRAM_START, SRAM_END = 0xA000, 0xBFFF
@@ -866,6 +915,8 @@ def discover_phase2_rom(root: Path, *, guarded: bool = True):
 
 def _load_planned_subjects(
     root: Path,
+    *,
+    closed: bool = False,
 ) -> tuple[
     dict[str, tuple[str, ...]],
     dict[str, tuple[str, ...]],
@@ -943,9 +994,12 @@ def _load_planned_subjects(
         )
 
     planned_only = raw["planned_only_dispositions"]
-    if not isinstance(planned_only, dict) or set(planned_only) != PLANNED_ONLY_DISPOSITION_ROWS:
+    expected_planned_only = frozenset() if closed else PLANNED_ONLY_DISPOSITION_ROWS
+    if not isinstance(planned_only, dict) or set(planned_only) != expected_planned_only:
         raise Phase2MeasurementError(
-            "planned_only_dispositions: must be the exact narrow planned-only row set"
+            "planned_only_dispositions: must be empty after audit closure"
+            if closed
+            else "planned_only_dispositions: must be the exact narrow planned-only row set"
         )
     checked_planned_only: dict[str, dict[str, object]] = {}
     for row_id, disposition in planned_only.items():
@@ -1028,6 +1082,191 @@ def _planned_row_for(root: str, category: str) -> str:
     return writer_row if category == "writer" else control_row
 
 
+def _normalize_closed_scene_directions(report: SourceDiscoveryReport) -> SourceDiscoveryReport:
+    """Translate hostile party edges into the inventory's stable vocabulary."""
+    return replace(
+        report,
+        findings=tuple(
+            replace(
+                finding,
+                direction=_CLOSED_SCENE_DIRECTIONS.get(
+                    (finding.symbol, finding.destination), finding.direction
+                ),
+            )
+            for finding in report.findings
+        ),
+    )
+
+
+def _closed_concrete_subject_errors(
+    source_subjects: Mapping[str, set[str]],
+) -> tuple[str, ...]:
+    required = (
+        "WR-P2-YELLOW-BG-PALETTE",
+        "WR-P2-YELLOW-OVERLAY-TRANSFER",
+    )
+    return tuple(
+        f"{row_id}: closed audit requires a discoverable concrete source subject"
+        for row_id in required
+        if not source_subjects.get(row_id)
+    )
+
+
+def _closed_inventory_row_errors(
+    rows: Sequence[Mapping[str, object]],
+    hashes: Mapping[str, str],
+    rom: bytes,
+) -> tuple[str, ...]:
+    """Keep reviewed hostile rows bound to their audit product and ROM."""
+    errors: list[str] = []
+    for row in rows:
+        row_id = str(row["id"])
+        if row_id not in PHASE2_PLANNED_ROW_IDS:
+            continue
+        evidence = row["evidence"]
+        assert isinstance(evidence, Mapping)
+        if evidence["reviewed"] is not True:
+            errors.append(f"{row_id}: closed audit row became unreviewed")
+        for name, expected in hashes.items():
+            if evidence[name] != expected:
+                errors.append(f"{row_id}: stale audit {name.removesuffix('_sha256')} hash")
+        source_sites = (row["source"],) if "source" in row else row.get("source_sites", ())
+        if not source_sites:
+            errors.append(f"{row_id}: closed audit row lacks source evidence")
+        machine_sites = row.get("machine_sites", ())
+        if not machine_sites:
+            errors.append(f"{row_id}: closed audit row lacks machine evidence")
+        for site in machine_sites:
+            expected_bytes = bytes.fromhex(site["bytes"])
+            start = site["rom_offset"]
+            if rom[start : start + len(expected_bytes)] != expected_bytes:
+                errors.append(
+                    f"{row_id}: audit machine bytes do not match "
+                    f"{site['bank']:02x}:{site['address']:04x}"
+                )
+
+    palette = next(
+        row for row in rows if row["id"] == "WR-P2-YELLOW-BG-PALETTE"
+    )
+    contract = _CLOSED_PALETTE_ROW_CONTRACT
+    reachability = palette["reachability"]
+    assert isinstance(reachability, Mapping)
+    comparisons = {
+        "machine-site": tuple(palette["machine_sites"]) == contract["machine_sites"],
+        "source-site": tuple(palette["source_sites"]) == contract["source_sites"],
+        "resource": tuple(palette["resources"]) == contract["resources"],
+        "commit": palette["commit_unit"] == contract["commit_unit"],
+        "root": (
+            tuple(reachability["roots"]) == contract["roots"]
+            and tuple(tuple(path) for path in reachability["call_paths"])
+            == contract["call_paths"]
+        ),
+    }
+    errors.extend(
+        f"WR-P2-YELLOW-BG-PALETTE: closed audit {name} contract changed"
+        for name, matches in comparisons.items()
+        if not matches
+    )
+    return tuple(errors)
+
+
+def _validate_audit_assignment_enrichments(
+    assignments: DiscoveryAssignmentAuthority,
+    writers: WriterInventory,
+    scenes: SceneInventory,
+    mutations: MutationInventory,
+) -> None:
+    """Validate row semantics without duplicating every descendant site.
+
+    Exact subject ownership is checked separately against the discovered
+    subject-to-row projection.  Inventory source and machine sites remain the
+    semantic roots of each row instead of becoming an instruction manifest.
+    """
+    targets = {
+        row["id"]: row
+        for document in (writers, scenes, mutations)
+        for row in document.rows
+    }
+    errors: list[str] = []
+    for assignment in assignments.rows:
+        target = targets.get(assignment.row_id)
+        if target is None:
+            errors.append(f"{assignment.id}: target row does not exist")
+            continue
+        if assignment.subject.kind.value != "SOURCE_FINDING":
+            continue
+        if assignment.category.value == "mutation":
+            destination = (
+                assignment.subject.metadata["destination"]
+                if assignment.mutation is None
+                else assignment.mutation.destination
+            )
+            if destination != target["destination"]:
+                errors.append(
+                    f"{assignment.id}: mutation destination does not match "
+                    f"{assignment.row_id}"
+                )
+        elif assignment.category.value == "scene":
+            enrichment = assignment.scene
+            destination = target["destination"]
+            expected_shape = (
+                target["row_kind"],
+                target["direction"],
+                None if destination is None else destination["path"],
+                None if destination is None else destination["line"],
+                None if destination is None else destination["symbol"],
+            )
+            actual_shape = (
+                enrichment.row_kind.value,
+                enrichment.direction,
+                enrichment.destination_path,
+                enrichment.destination_line,
+                enrichment.destination_symbol,
+            )
+            if actual_shape != expected_shape:
+                errors.append(
+                    f"{assignment.id}: scene shape does not match "
+                    f"{assignment.row_id}"
+                )
+    if errors:
+        raise ValueError("\n".join(errors))
+
+
+def _validate_audit_assignment_coverage(
+    assignments: DiscoveryAssignmentAuthority,
+    expected_subject_rows: Mapping[str, str],
+    hashes: Mapping[str, str],
+) -> DiscoveryAssignmentAuthority:
+    """Require one current audit assignment for every exact scoped subject."""
+    audit = assignments.for_product(PHASE2_AUDIT_PRODUCT)
+    assigned: dict[str, str] = {}
+    errors: list[str] = []
+    for row in audit.rows:
+        digest = row.subject.sha256
+        if digest in assigned:
+            errors.append(f"duplicate audit subject assignment: {digest}")
+        assigned[digest] = row.row_id
+        for name, expected in hashes.items():
+            if getattr(row.evidence, name) != expected:
+                errors.append(f"{row.id}: stale audit {name.removesuffix('_sha256')} identity")
+    missing = sorted(set(expected_subject_rows) - set(assigned))
+    extra = sorted(set(assigned) - set(expected_subject_rows))
+    wrong = sorted(
+        digest
+        for digest in set(assigned) & set(expected_subject_rows)
+        if assigned[digest] != expected_subject_rows[digest]
+    )
+    if missing:
+        errors.append(f"missing audit subject assignment(s): {missing}")
+    if extra:
+        errors.append(f"extra audit subject assignment(s): {extra}")
+    if wrong:
+        errors.append(f"audit subject assigned to wrong row: {wrong}")
+    if errors:
+        raise ValueError("\n".join(errors))
+    return audit
+
+
 def audit_phase2_inventory(root: Path) -> dict[str, object]:
     """Reconcile real guarded source/ROM subjects to declared inventory rows."""
     inventory_root = root / "specs/full-colors/inventory"
@@ -1035,27 +1274,30 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
     scenes = SceneInventory.load(inventory_root / "scenes.json")
     mutations = MutationInventory.load(inventory_root / "mutations.json")
     assignments = DiscoveryAssignmentAuthority.load(inventory_root / "assignments.json")
-    rows = [
+    authority_rows = [
         row
         for document in (writers, scenes, mutations)
         for row in document.rows
     ]
-    planned = [row for row in rows if row["planned"]]
-    planned_ids = {row["id"] for row in planned}
-    if planned_ids != PHASE2_PLANNED_ROW_IDS:
-        raise Phase2MeasurementError(
-            "planned Phase 2 row IDs must be the exact closed set; "
-            f"missing={sorted(PHASE2_PLANNED_ROW_IDS - planned_ids)}, "
-            f"unexpected={sorted(planned_ids - PHASE2_PLANNED_ROW_IDS)}"
+    try:
+        closure_state = _phase2_transition_state(
+            writers=writers,
+            scenes=scenes,
+            mutations=mutations,
+            assignments=assignments,
         )
-    assigned_ids = {row.row_id for row in assignments.rows}
-    if planned_ids & assigned_ids:
-        raise Phase2MeasurementError("planned hostile rows consume closure assignments")
+    except ValueError as exc:
+        raise Phase2MeasurementError(
+            f"standalone hostile authority validation failed: {exc}"
+        ) from exc
+    planned = [row for row in authority_rows if row["planned"]]
+    normal_assignments = assignments.for_product(NORMAL_DEBUG_PRODUCT)
+    audit_assignments = assignments.for_product(PHASE2_AUDIT_PRODUCT)
 
     configured_roots = set(_phase2_roots())
     rows = [
         row
-        for row in rows
+        for row in authority_rows
         if configured_roots
         & {
             site["symbol"]
@@ -1076,7 +1318,10 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
             site = row["source"]
             allowed.add(site["symbol"])
             source_sites.setdefault((site["path"], site["line"], site["symbol"]), set()).add(row["id"])
-            if row["destination"] is not None:
+            if (
+                row["destination"] is not None
+                and row["destination"]["symbol"] in configured_roots
+            ):
                 site = row["destination"]
                 allowed.add(site["symbol"])
                 source_sites.setdefault((site["path"], site["line"], site["symbol"]), set()).add(row["id"])
@@ -1093,19 +1338,20 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
     # scoped projection and must not weaken that contract.
     try:
         baseline_source = discover_baseline_sources(root)
-        _, transition = _reviewed_source_view(assignments, baseline_source, root)
+        _, transition = _reviewed_source_view(normal_assignments, baseline_source, root)
         baseline_rom = discover_baseline_rom(root, source_report=baseline_source)
-        _reviewed_rom_view(assignments, baseline_rom, transition)
-        _validate_planned_rows(
-            writers=writers,
-            scenes=scenes,
-            mutations=mutations,
-            assignments=assignments,
-            source_report=baseline_source,
-            rom_report=baseline_rom,
-            rom=(root / "pokeyellow_debug.gbc").read_bytes(),
-            repository=root,
-        )
+        _reviewed_rom_view(normal_assignments, baseline_rom, transition)
+        if closure_state == "planned":
+            _validate_planned_rows(
+                writers=writers,
+                scenes=scenes,
+                mutations=mutations,
+                assignments=normal_assignments,
+                source_report=baseline_source,
+                rom_report=baseline_rom,
+                rom=(root / "pokeyellow_debug.gbc").read_bytes(),
+                repository=root,
+            )
         del baseline_source, baseline_rom
         gc.collect()
         source_report = discover_phase2_sources(root)
@@ -1114,6 +1360,9 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
         raise Phase2MeasurementError(
             f"standalone hostile authority validation failed: {exc}"
         ) from exc
+
+    if closure_state == "audit-closed":
+        source_report = _normalize_closed_scene_directions(source_report)
 
     _reject_duplicate_projection(
         tuple(source_finding_subject(finding).sha256 for finding in source_report.findings),
@@ -1140,7 +1389,7 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
         planned_unresolved_authority,
         planned_source_error_authority,
         planned_only_authority,
-    ) = _load_planned_subjects(root)
+    ) = _load_planned_subjects(root, closed=closure_state == "audit-closed")
 
     actual_source_errors = tuple(
         sorted(source_error_subject(message).sha256 for message in source_report.errors)
@@ -1229,6 +1478,72 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
             )
     if dict(sorted((item, _planned_row_for(item.split(":", 1)[0], "control_flow")) for item in scoped_unresolved)) != planned_unresolved_authority:
         semantic_subject_errors.append("scoped ROM unresolved dispositions changed")
+
+    if closure_state == "audit-closed":
+        expected_subject_rows: dict[str, str] = {}
+        for row_id in PHASE2_PLANNED_ROW_IDS:
+            for digest in (
+                *actual_source_subjects[row_id],
+                *actual_rom_subjects[row_id],
+                *actual_candidate_subjects[row_id],
+            ):
+                previous = expected_subject_rows.setdefault(digest, row_id)
+                if previous != row_id:
+                    semantic_subject_errors.append(
+                        f"subject {digest} is ambiguously owned by {previous} and {row_id}"
+                    )
+        audit_hashes = {
+            "source_sha256": source_report.source_sha256,
+            "rom_sha256": rom_report.rom_sha256,
+            "sym_sha256": rom_report.sym_sha256,
+            "map_sha256": rom_report.map_sha256,
+        }
+        try:
+            audit_assignments = _validate_audit_assignment_coverage(
+                assignments, expected_subject_rows, audit_hashes
+            )
+            _validate_audit_assignment_enrichments(
+                audit_assignments, writers, scenes, mutations
+            )
+            matcher = audit_assignments.matcher(
+                source_sha256=source_report.source_sha256,
+                rom_sha256=rom_report.rom_sha256,
+                sym_sha256=rom_report.sym_sha256,
+                map_sha256=rom_report.map_sha256,
+                product=PHASE2_AUDIT_PRODUCT,
+            )
+            for finding in scoped_source:
+                matcher.project_source_finding(finding)
+            for finding in (*scoped_rom, *scoped_candidates):
+                matcher.project_rom_finding(finding)
+            matcher.assert_all_consumed()
+        except (ValueError, StaleDiscoveryAssignmentError) as exc:
+            semantic_subject_errors.append(f"audit assignment closure failed: {exc}")
+
+        phase2_rows = {
+            row["id"]: row
+            for row in authority_rows
+            if row["id"] in PHASE2_PLANNED_ROW_IDS
+        }
+        stale_rows = sorted(
+            row_id
+            for row_id, row in phase2_rows.items()
+            if any(row["evidence"][name] != digest for name, digest in audit_hashes.items())
+        )
+        if stale_rows:
+            semantic_subject_errors.append(
+                f"audit inventory rows have stale product identities: {stale_rows}"
+            )
+        semantic_subject_errors.extend(
+            _closed_inventory_row_errors(
+                authority_rows,
+                audit_hashes,
+                (root / "pokeyellow_phase2_audit.gbc").read_bytes(),
+            )
+        )
+        semantic_subject_errors.extend(
+            _closed_concrete_subject_errors(actual_source_subjects)
+        )
     discovered_source_sites = {finding.site_key for finding in scoped_source}
     discovered_rom_sites = {finding.site_key for finding in scoped_rom}
     missing_source = sorted(set(source_sites) - discovered_source_sites)
@@ -1257,24 +1572,26 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
             item.symbol == "DisplayPartyMenu"
             and item.destination == "PartyMenuInit"
             and item.row_kind == "DIRECTED_EDGE"
-            and item.direction == "YELLOW_TO_PARTY"
+            and item.direction
+            == ("MAP_TO_YELLOW" if closure_state == "audit-closed" else "YELLOW_TO_PARTY")
             for item in scoped_source
         )
         and any(
             item.symbol == "StartMenu_Pokemon.exitMenu"
-            and item.destination == "RestoreScreenTilesAndReloadTilePatterns"
+            and item.destination == "ReturnFullColorFromParty"
             and item.row_kind == "DIRECTED_EDGE"
-            and item.direction == "PARTY_TO_OVERWORLD"
+            and item.direction
+            == "YELLOW_TO_MAP"
             for item in scoped_source
         )
         and any(
-            item.root == "DisplayPartyMenu" and item.address == 0x11CE
-            and item.bytes == "cde611" and item.control_flow_kind == "call"
+            item.root == "DisplayPartyMenu" and item.address == 0x11CC
+            and item.bytes == "cde411" and item.control_flow_kind == "call"
             for item in scoped_rom
         )
         and any(
-            item.root == "StartMenu_Pokemon.exitMenu" and item.address == 0x5C5B
-            and item.bytes == "cdd13d" and item.control_flow_kind == "call"
+            item.root == "StartMenu_Pokemon.exitMenu" and item.address == 0x5C86
+            and item.bytes == "cd1e3e" and item.control_flow_kind == "call"
             for item in scoped_rom
         )
     )
@@ -1293,8 +1610,9 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
         "guard": AUDIT_GUARD,
         "guarded_root_count": len(roots),
         "normal_rom_reachable": False,
-        "planned_assignment_count": 0,
+        "planned_assignment_count": len(audit_assignments.rows),
         "planned_row_count": len(planned),
+        "inventory_state": closure_state,
         "coverage": "SCOPED_DESCENDANT_CLOSURE",
         "rom_candidate_subject_count": len(scoped_candidates),
         "rom_subject_count": len(scoped_rom),

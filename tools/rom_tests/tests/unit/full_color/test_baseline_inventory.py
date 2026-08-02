@@ -4,6 +4,7 @@ from dataclasses import replace
 import json
 from pathlib import Path
 import shutil
+from types import SimpleNamespace
 
 import pytest
 
@@ -19,6 +20,9 @@ from tools.rom_tests.full_color.baseline_inventory import (
     build_progress,
     PHASE2_PLANNED_ROW_IDS,
     progress_json,
+    _phase2_transition_state,
+    _select_inventory_rows,
+    _validate_assignment_targets,
 )
 from tools.rom_tests.full_color.discovery_assignment import (
     DiscoveryAssignmentAuthority,
@@ -55,11 +59,13 @@ def authorities():
 
 def reviewed_authorities():
     writers, scenes, mutations, assignments = authorities()
+    normal = assignments.for_product()
+    normal_ids = {row.row_id for row in normal.rows}
     return (
-        WriterInventory(tuple(row for row in writers.rows if not row["planned"])),
-        SceneInventory(tuple(row for row in scenes.rows if not row["planned"])),
-        MutationInventory(tuple(row for row in mutations.rows if not row["planned"])),
-        assignments,
+        _select_inventory_rows(writers, normal_ids),
+        _select_inventory_rows(scenes, normal_ids),
+        _select_inventory_rows(mutations, normal_ids),
+        normal,
     )
 
 
@@ -67,6 +73,8 @@ def assignments_for_reports(assignments, source, rom_report):
     """Keep assignment evidence current while retaining reviewed subjects."""
     raw = assignments.to_dict()
     for row in raw["rows"]:
+        if row.get("product", "pokeyellow_debug") != "pokeyellow_debug":
+            continue
         row["evidence"].update(
             source_sha256=source.source_sha256,
             rom_sha256=rom_report.rom_sha256,
@@ -94,14 +102,16 @@ def test_canonical_authorities_load_and_round_trip() -> None:
     assert SceneInventory.from_json(scenes.to_json()) == scenes
     assert MutationInventory.from_json(mutations.to_json()) == mutations
     assert DiscoveryAssignmentAuthority.from_json(assignments.to_json()) == assignments
-    assert len(assignments.rows) == 8
+    assert len(assignments.for_product().rows) == 8
+    assert len(assignments.for_product("pokeyellow_phase2_audit").rows) == 919
 
 
 def test_exact_reviewed_map_entry_tranche() -> None:
     writers, scenes, mutations, _ = authorities()
-    reviewed_writers = tuple(row for row in writers.rows if not row["planned"])
-    reviewed_scenes = tuple(row for row in scenes.rows if not row["planned"])
-    reviewed_mutations = tuple(row for row in mutations.rows if not row["planned"])
+    normal_ids = {row.row_id for row in authorities()[3].for_product().rows}
+    reviewed_writers = tuple(row for row in writers.rows if row["id"] in normal_ids)
+    reviewed_scenes = tuple(row for row in scenes.rows if row["id"] in normal_ids)
+    reviewed_mutations = tuple(row for row in mutations.rows if row["id"] in normal_ids)
     planned = tuple(
         row
         for row in (*writers.rows, *scenes.rows, *mutations.rows)
@@ -128,8 +138,91 @@ def test_exact_reviewed_map_entry_tranche() -> None:
         not row["planned"]
         for row in (*reviewed_writers, *reviewed_scenes, *reviewed_mutations)
     )
-    assert planned
-    assert all(not row["evidence"]["reviewed"] for row in planned)
+    assert not planned
+    phase2 = tuple(
+        row for row in (*writers.rows, *scenes.rows, *mutations.rows)
+        if row["id"] in PHASE2_PLANNED_ROW_IDS
+    )
+    assert len(phase2) == 18
+    assert all(row["evidence"]["reviewed"] for row in phase2)
+
+
+def test_normal_product_partition_never_selects_audit_inventory_rows() -> None:
+    writers, scenes, mutations, assignments = authorities()
+    normal_ids = {
+        row.row_id for row in assignments.for_product().rows
+    }
+    for document in (writers, scenes, mutations):
+        selected = _select_inventory_rows(document, normal_ids)
+        assert all(row["id"] in normal_ids for row in selected.rows)
+        assert not ({row["id"] for row in selected.rows} & PHASE2_PLANNED_ROW_IDS)
+
+
+def test_partial_phase2_closure_fails_atomically() -> None:
+    writers, scenes, mutations, assignments = authorities()
+    raw = writers.to_dict()
+    row = next(item for item in raw["rows"] if item["id"] in PHASE2_PLANNED_ROW_IDS)
+    row["planned"] = True
+    row["evidence"]["reviewed"] = False
+    with pytest.raises(InventoryReconciliationError, match="transition all 18 rows"):
+        _phase2_transition_state(
+            writers=WriterInventory.from_dict(raw), scenes=scenes,
+            mutations=mutations, assignments=assignments,
+        )
+
+
+def test_planned_phase2_rows_reject_audit_assignments() -> None:
+    writers, scenes, mutations, _ = authorities()
+
+    def reopen(document):
+        raw = document.to_dict()
+        for row in raw["rows"]:
+            if row["id"] in PHASE2_PLANNED_ROW_IDS:
+                row["planned"] = True
+                row["evidence"]["reviewed"] = False
+        return type(document).from_dict(raw)
+
+    class MixedAuthority:
+        def for_product(self, product):
+            return SimpleNamespace(
+                rows=(SimpleNamespace(row_id=next(iter(PHASE2_PLANNED_ROW_IDS))),)
+            )
+
+    with pytest.raises(InventoryReconciliationError, match="consume closure assignments"):
+        _phase2_transition_state(
+            writers=reopen(writers), scenes=reopen(scenes), mutations=reopen(mutations),
+            assignments=MixedAuthority(),
+        )
+
+
+def test_audit_scene_direction_must_match_inventory_vocabulary() -> None:
+    writers, scenes, mutations, _ = authorities()
+    target = next(row for row in scenes.rows if row["id"] == "SC-P2-PARTY-ENTRY")
+    assignment = SimpleNamespace(
+        id="AS-P2-PARTY-WRONG-DIRECTION",
+        row_id=target["id"],
+        category=SimpleNamespace(value="scene"),
+        subject=SimpleNamespace(
+            kind=SimpleNamespace(value="SOURCE_FINDING"),
+            metadata={
+                "path": target["source"]["path"],
+                "line": target["source"]["line"],
+                "symbol": target["source"]["symbol"],
+            },
+        ),
+        mutation=None,
+        scene=SimpleNamespace(
+            row_kind=target["row_kind"],
+            direction="YELLOW_TO_MAP",
+            destination_path=target["destination"]["path"],
+            destination_line=target["destination"]["line"],
+            destination_symbol=target["destination"]["symbol"],
+        ),
+    )
+    with pytest.raises(InventoryReconciliationError, match="scene shape does not match"):
+        _validate_assignment_targets(
+            SimpleNamespace(rows=(assignment,)), writers, scenes, mutations
+        )
 
 
 def test_progress_json_is_canonical_for_fake_progress(monkeypatch) -> None:
@@ -162,8 +255,7 @@ def test_real_progress_closes_slice_and_keeps_global_backlog(real_bundle) -> Non
         "source_unlisted_count": 0,
     }
     assert tuple(progress["reviewed_rows"]["row_ids"]) == ROW_IDS
-    assert progress["planned_rows"]["total_count"] == 18
-    assert set(progress["planned_rows"]["row_ids"]) == PHASE2_PLANNED_ROW_IDS
+    assert progress["planned_rows"] == {"row_ids": [], "total_count": 0}
     assert progress["assigned"]["source_count"] == 4
     assert progress["assigned"]["rom_count"] == 4
     assert progress["matched"]["source_count"] == 4
@@ -205,6 +297,7 @@ def test_audit_transition_manifest_has_exact_safe_delta_paths(
     real_bundle, tmp_path, monkeypatch, mode
 ) -> None:
     _, _, _, assignments, source, _, _ = real_bundle
+    assignments = assignments.for_product()
     transition_path = ROOT / baseline_inventory.SOURCE_TRANSITION_PATH
     text = transition_path.read_text(encoding="utf-8")
     if mode == "duplicate":
@@ -235,14 +328,14 @@ def test_audit_transition_manifest_has_exact_safe_delta_paths(
         baseline_inventory._reviewed_source_view(assignments, source, ROOT)
 
 
-def test_planned_row_cannot_claim_reviewed_evidence(real_bundle) -> None:
+def test_closed_row_cannot_become_unreviewed(real_bundle) -> None:
     writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
     raw = json.loads(writers.to_json())
-    planned = next(row for row in raw["rows"] if row["planned"])
-    planned["evidence"]["reviewed"] = True
+    planned = next(row for row in raw["rows"] if row["id"] in PHASE2_PLANNED_ROW_IDS)
+    planned["evidence"]["reviewed"] = False
     changed = WriterInventory.from_dict(raw)
     with pytest.raises(
-        InventoryReconciliationError, match="planned row cannot claim reviewed evidence"
+        InventoryReconciliationError, match="transition all 18 rows"
     ):
         build_progress(
             writers=changed,
@@ -255,14 +348,15 @@ def test_planned_row_cannot_claim_reviewed_evidence(real_bundle) -> None:
         )
 
 
-def test_planned_row_machine_bytes_remain_bound_to_debug_rom(real_bundle) -> None:
+def test_closed_row_cannot_return_to_planned_state(real_bundle) -> None:
     writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
     raw = json.loads(writers.to_json())
-    planned = next(row for row in raw["rows"] if row["planned"])
-    planned["machine_sites"][0]["bytes"] = "00"
+    planned = next(row for row in raw["rows"] if row["id"] in PHASE2_PLANNED_ROW_IDS)
+    planned["planned"] = True
+    planned["evidence"]["reviewed"] = False
     changed = WriterInventory.from_dict(raw)
     with pytest.raises(
-        InventoryReconciliationError, match="planned machine bytes do not match"
+        InventoryReconciliationError, match="transition all 18 rows"
     ):
         build_progress(
             writers=changed,
@@ -278,7 +372,7 @@ def test_planned_row_machine_bytes_remain_bound_to_debug_rom(real_bundle) -> Non
 @pytest.mark.parametrize(
     "mutation", ["machine-site", "bytes", "root", "resources", "commit"]
 )
-def test_planned_only_palette_exception_is_exactly_row_bound(
+def test_closed_palette_inventory_mutation_does_not_affect_gate0_partition(
     real_bundle, mutation
 ) -> None:
     writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
@@ -297,18 +391,18 @@ def test_planned_only_palette_exception_is_exactly_row_bound(
         row["resources"][0]["end"] = 0xFF6A
     else:
         row["commit_unit"] = "BYTE"
-    with pytest.raises(InventoryReconciliationError, match="planned"):
-        build_progress(
-            writers=WriterInventory.from_dict(raw), scenes=scenes,
-            mutations=mutations, assignments=assignments, source_report=source,
-            rom_report=rom_report, rom=rom,
-        )
+    progress = build_progress(
+        writers=WriterInventory.from_dict(raw), scenes=scenes,
+        mutations=mutations, assignments=assignments, source_report=source,
+        rom_report=rom_report, rom=rom,
+    )
+    assert progress["reviewed_rows"]["row_ids"] == list(ROW_IDS)
 
 
-def test_planned_writer_schema_requires_declared_source_evidence() -> None:
+def test_closed_writer_schema_requires_declared_source_evidence() -> None:
     writers = WriterInventory.load(AUTHORITY / "writers.json")
     raw = json.loads(writers.to_json())
-    row = next(item for item in raw["rows"] if item["planned"])
+    row = next(item for item in raw["rows"] if item["id"] in PHASE2_PLANNED_ROW_IDS)
     row["source_sites"] = []
     with pytest.raises(
         InventoryValidationError,
@@ -317,7 +411,7 @@ def test_planned_writer_schema_requires_declared_source_evidence() -> None:
         WriterInventory.from_dict(raw)
 
 
-def test_general_planned_row_requires_declared_machine_evidence(real_bundle) -> None:
+def test_closed_row_without_machine_evidence_is_not_a_gate0_subject(real_bundle) -> None:
     writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
     raw = json.loads(writers.to_json())
     row = next(
@@ -325,31 +419,33 @@ def test_general_planned_row_requires_declared_machine_evidence(real_bundle) -> 
         if item["id"] == "WR-P2-YELLOW-ANIMATION-TILES"
     )
     row["machine_sites"] = []
-    with pytest.raises(
-        InventoryReconciliationError, match="lacks required machine evidence"
-    ):
-        build_progress(
-            writers=WriterInventory.from_dict(raw), scenes=scenes,
-            mutations=mutations, assignments=assignments, source_report=source,
-            rom_report=rom_report, rom=rom,
-        )
+    progress = build_progress(
+        writers=WriterInventory.from_dict(raw), scenes=scenes,
+        mutations=mutations, assignments=assignments, source_report=source,
+        rom_report=rom_report, rom=rom,
+    )
+    assert progress["matched"]["machine_count"] == 4
 
 
-@pytest.mark.parametrize("mode", ["delete", "add", "substitute"])
-def test_planned_row_ids_are_an_exact_closed_set(real_bundle, mode) -> None:
+@pytest.mark.parametrize("mode", ["delete", "unreview", "substitute"])
+def test_phase2_row_ids_are_an_exact_closed_set(real_bundle, mode) -> None:
     writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
     raw = json.loads(writers.to_json())
-    planned_index = next(i for i, row in enumerate(raw["rows"]) if row["planned"])
+    planned_index = next(
+        i for i, row in enumerate(raw["rows"])
+        if row["id"] in PHASE2_PLANNED_ROW_IDS
+    )
     if mode == "delete":
         raw["rows"].pop(planned_index)
-    elif mode == "add":
-        reviewed = next(row for row in raw["rows"] if not row["planned"])
-        reviewed["planned"] = True
-        reviewed["evidence"]["reviewed"] = False
+    elif mode == "unreview":
+        raw["rows"][planned_index]["evidence"]["reviewed"] = False
     else:
         raw["rows"][planned_index]["id"] = "WR-P2-SUBSTITUTED"
         raw["rows"].sort(key=lambda row: row["id"])
-    with pytest.raises(InventoryReconciliationError, match="exact closed set"):
+    with pytest.raises(
+        InventoryReconciliationError,
+        match="exact closed set|transition all 18 rows",
+    ):
         build_progress(
             writers=WriterInventory.from_dict(raw), scenes=scenes, mutations=mutations,
             assignments=assignments, source_report=source, rom_report=rom_report, rom=rom,
@@ -470,9 +566,14 @@ def test_real_rom_byte_mutation_reaches_unlisted_slice_failure(
 def test_stale_assignment_source_and_rom_bytes_fail_closed(real_bundle) -> None:
     writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
     stale_raw = assignments.to_dict()
-    stale_raw["rows"][0]["evidence"]["source_sha256"] = "0" * 64
+    for row in stale_raw["rows"]:
+        if row.get("product", "pokeyellow_debug") == "pokeyellow_debug":
+            row["evidence"]["source_sha256"] = "0" * 64
     stale_assignments = DiscoveryAssignmentAuthority.from_dict(stale_raw)
-    with pytest.raises(StaleDiscoveryAssignmentError, match="stale baseline evidence"):
+    with pytest.raises(
+        (StaleDiscoveryAssignmentError, InventoryReconciliationError),
+        match="stale baseline evidence|does not bind reviewed source hash",
+    ):
         build_progress(
             writers=writers,
             scenes=scenes,

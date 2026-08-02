@@ -21,9 +21,16 @@ VBlank::
 	ldh a, [hLoadedROMBank]
 	ld [wVBlankSavedROMBank], a
 
+IF DEF(PHASE2_AUDIT)
+	; Decide visible ownership once. Carry clear means the full-color owner has
+	; consumed this VBlank, so no Yellow-visible writer may run afterward.
+	farcall FullColorVBlankOwnerConsumed
+	jr nc, :+
+ELSE
 	; Phase 1 dispatch is banked to keep the already-full Home section bounded.
 	; Its full-color route is a no-op; Yellow's mechanics continue unchanged.
 	farcall RouteRendererOwnershipVBlank
+ENDC
 
 	ldh a, [hSCX]
 	ldh [rSCX], a
@@ -48,6 +55,7 @@ VBlank::
 	call BankswitchCommon
 	call PrepareOAMData
 
+:
 	; VBlank-sensitive operations end.
 	call TrackPlayTime ; keep track of time played
 

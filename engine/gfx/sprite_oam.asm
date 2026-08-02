@@ -4,6 +4,18 @@ PrepareOAMData::
 ; Yellow code has been changed to use registers more efficiently
 ; as well as tweaking the code to show cgb palettes
 
+IF DEF(PHASE2_AUDIT)
+	; The full-color producer finishes one complete fixed-WRAM batch here. The
+	; scheduler owns the later shadow-OAM commit and hardware DMA.
+	farcall IsFullColorOverworldOwnerFar
+	jr c, .yellow
+	jp PrepareFullColorOAMDataForOwnedVBlank
+.yellow
+	xor a
+	ldh [hSpritePriority], a
+.build
+ENDC
+
 	ld a, [wUpdateSpritesEnabled]
 	dec a
 	jr z, .updateEnabled
@@ -35,7 +47,11 @@ PrepareOAMData::
 	jr nz, .visible
 
 	call GetSpriteScreenXY
+IF DEF(PHASE2_AUDIT)
+	jp .nextSprite
+ELSE
 	jr .nextSprite
+ENDC
 
 .visible
 	cp $a0 ; is the sprite unchanging like an item ball or boulder?
@@ -66,6 +82,14 @@ PrepareOAMData::
 	ld e, a
 	ld a, [de] ; [x#SPRITESTATEDATA2_GRASSPRIORITY]
 	and $80
+IF DEF(PHASE2_AUDIT)
+	push af
+	ldh a, [hSpritePriority]
+	and 1
+	ld b, a
+	pop af
+	or b
+ENDC
 	ldh [hSpritePriority], a ; temp store sprite priority
 	pop de
 
@@ -116,6 +140,9 @@ PrepareOAMData::
 	bit BIT_SPRITE_UNDER_GRASS, a
 	jr z, .skipPriority
 	ldh a, [hSpritePriority]
+IF DEF(PHASE2_AUDIT)
+	and $80
+ENDC
 	or [hl]
 .skipPriority
 	and $f0
@@ -124,6 +151,27 @@ PrepareOAMData::
 	or OAM_HIGH_PALS
 .spriteusesOBP0
 	ld [de], a
+IF DEF(PHASE2_AUDIT)
+	; Identity is retained beside the sprite state by LoadMapSpritesImageBaseOffset.
+	; Map only after the final tile and Pikachu offset have been selected, while
+	; preserving the producer's control bits and every live loop register.
+	ldh a, [hSpritePriority]
+	bit 0, a
+	jr z, :+
+	push bc
+	push de
+	push hl
+	ldh a, [hSpriteOffset2]
+	add LOW(wSpritePlayerStateData2PictureID)
+	ld l, a
+	ld h, HIGH(wSpritePlayerStateData2PictureID)
+	ld c, [hl]
+	farcall MapFullColorOAMAttributeFar
+	pop hl
+	pop de
+	pop bc
+:
+ENDC
 	inc hl
 	inc e
 	dec c
@@ -163,6 +211,19 @@ PrepareOAMData::
 	cp l
 	jr nz, .clearLoop
 	ret
+
+IF DEF(PHASE2_AUDIT)
+; Called after lifecycle has made the single full-color ownership decision for
+; this VBlank. Build and enqueue once; the scheduler remains the sole DMA owner.
+PrepareFullColorOAMDataForOwnedVBlank::
+	ld a, 1
+	ldh [hSpritePriority], a
+	call PrepareOAMData.build
+	ld de, wShadowOAM
+	farcall EnqueueFullColorOAMBatchFar
+	ret
+
+ENDC
 
 GetSpriteScreenXY:
 	inc e

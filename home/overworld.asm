@@ -2,6 +2,9 @@ EnterMap::
 ; Load a new map.
 	ld a, PAD_BUTTONS | PAD_CTRL_PAD
 	ld [wJoyIgnore], a
+IF DEF(PHASE2_AUDIT)
+	farcall FullColorAuditBeginBoundedMapEntry
+ENDC
 	call LoadMapData
 	farcall ClearVariablesOnEnterMap
 	ld hl, wStatusFlags2
@@ -45,7 +48,11 @@ OverworldLoop::
 OverworldLoopLessDelay::
 	call DelayFrame
 	call IsSurfingPikachuInParty
+IF DEF(PHASE2_AUDIT)
+	farcall FullColorAuditLoadGBPal
+ELSE
 	call LoadGBPal
+ENDC
 	call HandleMidJump
 	ld a, [wWalkCounter]
 	and a
@@ -617,7 +624,6 @@ CheckMapConnections::
 	ld a, h
 	ld [wCurrentTileBlockMapViewPointer + 1], a
 	jp .loadNewMap
-
 .checkSouthMap
 	ld b, a
 	ld a, [wCurrentMapHeight2]
@@ -651,17 +657,25 @@ CheckMapConnections::
 	ld [wPikachuSpawnState], a
 	call LoadMapHeader
 	call PlayDefaultMusicFadeOutCurrent
+IF DEF(PHASE2_AUDIT)
+	farcall FullColorAuditHandleConnectedMap
+ENDC
 	ld b, SET_PAL_OVERWORLD
+IF DEF(PHASE2_AUDIT)
+	farcall FullColorAuditRunOverworldPalette
+ELSE
 	call RunPaletteCommand
+ENDC
 ; Since the sprite set shouldn't change, this will just update VRAM slots at
 ; x#SPRITESTATEDATA2_IMAGEBASEOFFSET without loading any tile patterns.
 	call InitMapSprites
 	call LoadTileBlockMap
+IF DEF(PHASE2_AUDIT)
+	farcall FullColorAuditSnapshotConnectedMap
+ENDC
 	jp OverworldLoopLessDelay
-
 .didNotEnterConnectedMap
 	jp OverworldLoop
-
 ; function to play a sound when changing maps
 PlayMapChangeSound::
 	ld a, [wCurMapTileset]
@@ -682,7 +696,6 @@ PlayMapChangeSound::
 	and a
 	ret nz
 	jp GBFadeOutToBlack
-
 CheckIfInOutsideMap::
 ; If the player is in an outside map (a town or route), set the z flag
 	ld a, [wCurMapTileset]
@@ -1342,9 +1355,7 @@ CheckForTilePairCollisions::
 .noMatch
 	and a
 	ret
-
 INCLUDE "data/tilesets/pair_collision_tile_ids.asm"
-
 ; this builds a tile map from the tile block map based on the current X/Y coordinates of the player's character
 LoadCurrentMapView::
 	ldh a, [hLoadedROMBank]
@@ -1433,7 +1444,6 @@ LoadCurrentMapView::
 	pop af
 	call BankswitchCommon
 	ret
-
 AdvancePlayerSprite::
 	ld a, [wUpdateSpritesEnabled]
 	push af
@@ -1443,7 +1453,6 @@ AdvancePlayerSprite::
 	pop af
 	ld [wUpdateSpritesEnabled], a
 	ret
-
 ; the following 6 functions are used to tell the V-blank handler to redraw
 ; the portion of the map that was newly exposed due to the player's movement
 
@@ -1454,10 +1463,13 @@ ScheduleNorthRowRedraw::
 	ldh [hRedrawRowOrColumnDest], a
 	ld a, [wMapViewVRAMPointer + 1]
 	ldh [hRedrawRowOrColumnDest + 1], a
+IF DEF(PHASE2_AUDIT)
+	farjp FullColorAuditScheduleNorthRow
+ELSE
 	ld a, REDRAW_ROW
 	ldh [hRedrawRowOrColumnMode], a
 	ret
-
+ENDC
 CopyToRedrawRowOrColumnSrcTiles::
 	ld de, wRedrawRowOrColumnSrcTiles
 	ld c, 2 * SCREEN_WIDTH
@@ -1468,7 +1480,6 @@ CopyToRedrawRowOrColumnSrcTiles::
 	dec c
 	jr nz, .loop
 	ret
-
 ScheduleSouthRowRedraw::
 	hlcoord 0, 16
 	call CopyToRedrawRowOrColumnSrcTiles
@@ -1484,10 +1495,13 @@ ScheduleSouthRowRedraw::
 	ldh [hRedrawRowOrColumnDest + 1], a
 	ld a, l
 	ldh [hRedrawRowOrColumnDest], a
+IF DEF(PHASE2_AUDIT)
+	farjp FullColorAuditScheduleMovementRow
+ELSE
 	ld a, REDRAW_ROW
 	ldh [hRedrawRowOrColumnMode], a
 	ret
-
+ENDC
 ScheduleEastColumnRedraw::
 	hlcoord 18, 0
 	call ScheduleColumnRedrawHelper
@@ -1502,10 +1516,13 @@ ScheduleEastColumnRedraw::
 	ldh [hRedrawRowOrColumnDest], a
 	ld a, [wMapViewVRAMPointer + 1]
 	ldh [hRedrawRowOrColumnDest + 1], a
+IF DEF(PHASE2_AUDIT)
+	farjp FullColorAuditScheduleMovementColumn
+ELSE
 	ld a, REDRAW_COL
 	ldh [hRedrawRowOrColumnMode], a
 	ret
-
+ENDC
 ScheduleColumnRedrawHelper::
 	ld de, wRedrawRowOrColumnSrcTiles
 	ld c, SCREEN_HEIGHT
@@ -1525,7 +1542,6 @@ ScheduleColumnRedrawHelper::
 	dec c
 	jr nz, .loop
 	ret
-
 ScheduleWestColumnRedraw::
 	hlcoord 0, 0
 	call ScheduleColumnRedrawHelper
@@ -1533,10 +1549,13 @@ ScheduleWestColumnRedraw::
 	ldh [hRedrawRowOrColumnDest], a
 	ld a, [wMapViewVRAMPointer + 1]
 	ldh [hRedrawRowOrColumnDest + 1], a
+IF DEF(PHASE2_AUDIT)
+	farjp FullColorAuditScheduleMovementColumn
+ELSE
 	ld a, REDRAW_COL
 	ldh [hRedrawRowOrColumnMode], a
 	ret
-
+ENDC
 ; function to write the tiles that make up a tile block to memory
 ; Input: c = tile block ID, hl = destination address
 DrawTileBlock::
@@ -1574,7 +1593,6 @@ ENDR
 	dec c
 	jr nz, .loop
 	ret
-
 ; function to update joypad state and simulate button presses
 JoypadOverworld::
 	xor a
@@ -1585,7 +1603,6 @@ JoypadOverworld::
 	call ForceBikeDown
 	call AreInputsSimulated
 	ret
-
 ForceBikeDown::
 	ld a, [wStatusFlags7]
 	bit BIT_TRAINER_BATTLE, a
@@ -1599,7 +1616,6 @@ ForceBikeDown::
 	ld a, PAD_DOWN
 	ldh [hJoyHeld], a ; on the cycling road, if there isn't a trainer and the player isn't pressing buttons, simulate a down press
 	ret
-
 AreInputsSimulated::
 	ld a, [wStatusFlags5]
 	bit BIT_SCRIPTED_MOVEMENT_STATE, a
@@ -1618,7 +1634,6 @@ AreInputsSimulated::
 	ldh [hJoyPressed], a
 	ldh [hJoyReleased], a
 	ret
-
 ; if done simulating button presses
 .doneSimulating
 	xor a
@@ -1634,7 +1649,6 @@ AreInputsSimulated::
 	ld hl, wStatusFlags5
 	res BIT_SCRIPTED_MOVEMENT_STATE, [hl]
 	ret
-
 GetSimulatedInput::
 	ld hl, wSimulatedJoypadStatesIndex
 	dec [hl]
@@ -1650,11 +1664,9 @@ GetSimulatedInput::
 	pop de
 	scf
 	ret
-
 .endofsimulatedinputs
 	and a
 	ret
-
 
 ; function to check the tile ahead to determine if the character should get on land or keep surfing
 ; sets carry if there is a collision and clears carry otherwise
@@ -1702,12 +1714,10 @@ CollisionCheckOnWater::
 	call LoadPlayerSpriteGraphics
 	call PlayDefaultMusic
 	jr .noCollision
-
 .noCollision ; ...and they do the same mistake twice
 	and a
 .done
 	ret
-
 ; function to run the current map's script
 RunMapScript::
 	push hl
@@ -1734,7 +1744,6 @@ RunMapScript::
 	jp hl ; jump to script
 .return
 	ret
-
 LoadWalkingPlayerSpriteGraphics::
 ; new sprite copy stuff
 	xor a
@@ -1742,7 +1751,6 @@ LoadWalkingPlayerSpriteGraphics::
 	ld b, BANK(RedSprite)
 	ld de, RedSprite
 	jr LoadPlayerSpriteGraphicsCommon
-
 LoadSurfingPlayerSpriteGraphics2::
 	ld a, [wd472]
 	and a
@@ -1759,16 +1767,13 @@ LoadSurfingPlayerSpriteGraphics2::
 	ld b, BANK(SurfingPikachuSprite)
 	ld de, SurfingPikachuSprite
 	jr LoadPlayerSpriteGraphicsCommon
-
 LoadSurfingPlayerSpriteGraphics::
 	ld b, BANK(SeelSprite)
 	ld de, SeelSprite
 	jr LoadPlayerSpriteGraphicsCommon
-
 LoadBikePlayerSpriteGraphics::
 	ld b, BANK(RedBikeSprite)
 	ld de, RedBikeSprite
-
 LoadPlayerSpriteGraphicsCommon::
 	ld hl, vNPCSprites
 	push de
@@ -1788,12 +1793,10 @@ LoadPlayerSpriteGraphicsCommon::
 	set 3, h ; add $800 ($80 tiles) to hl (1 << 3 == $8)
 	ld c, $c
 	jp CopyVideoData
-
 ; function to load data from the map header
 LoadMapHeader::
 	farcall MarkTownVisitedAndLoadToggleableObjects
 	jr asm_0dbd
-
 Func_0db5:: ; unreferenced
 	farcall LoadToggleableObjectData
 asm_0dbd:
@@ -1919,7 +1922,6 @@ asm_0dbd:
 	pop af
 	call BankswitchCommon
 	ret
-
 ; function to copy map connection data from ROM to WRAM
 ; Input: hl = source, de = destination
 CopyMapConnectionHeader::
@@ -1931,7 +1933,6 @@ CopyMapConnectionHeader::
 	dec c
 	jr nz, .loop
 	ret
-
 CopySignData::
 	ld de, wSignCoords ; start of sign coords
 	ld bc, wSignTextIDs ; start of sign text ids
@@ -1951,9 +1952,11 @@ CopySignData::
 	dec a
 	jr nz, .signcopyloop
 	ret
-
 ; function to load map data
 LoadMapData::
+IF DEF(PHASE2_AUDIT)
+	farjp FullColorAuditLoadMapData
+ELSE
 	ldh a, [hLoadedROMBank]
 	push af
 	call DisableLCD
@@ -1981,13 +1984,12 @@ LoadMapData::
 	pop af
 	call BankswitchCommon
 	ret
-
+ENDC
 LoadScreenRelatedData::
 	call LoadTileBlockMap
 	call LoadTilesetTilePatternData
 	call LoadCurrentMapView
 	ret
-
 ReloadMapAfterSurfingMinigame::
 	ldh a, [hLoadedROMBank]
 	push af
@@ -2004,7 +2006,6 @@ ReloadMapAfterSurfingMinigame::
 	pop af
 	call BankswitchCommon
 	jr FinishReloadingMap
-
 ReloadMapAfterPrinter::
 	ldh a, [hLoadedROMBank]
 	push af
@@ -2016,7 +2017,6 @@ ReloadMapAfterPrinter::
 FinishReloadingMap:
 	jpfar SetMapSpecificScriptFlagsOnMapReload
 	ret ; useless
-
 ResetMapVariables::
 	ld a, HIGH(vBGMap0)
 	ld [wMapViewVRAMPointer + 1], a
@@ -2324,3 +2324,173 @@ LoadDestinationWarpPosition::
 	ldh [hLoadedROMBank], a
 	ld [rROMB], a
 	ret
+
+IF DEF(PHASE2_AUDIT)
+PUSHS
+SECTION "Full Color Overworld Audit Integration", ROMX, BANK[FULL_COLOR_PHASE2_ROM_BANK]
+
+; Map entry is deliberately bounded to the two-map hostile slice. The map ID
+; is authoritative before LoadMapData starts, while every visible destination
+; writer is still downstream of the ownership handoff.
+FullColorAuditBeginBoundedMapEntry:
+	ld a, [wCurMap]
+	cp PALLET_TOWN
+	jr z, .begin
+	cp ROUTE_1
+	jr z, .begin
+	jp LeaveFullColorOverworldSlice
+.begin
+	call GetRendererOwner
+	cp RENDERER_YELLOW
+	jr z, .start
+	call LeaveFullColorOverworldSlice
+	ret c
+.start
+	jp BeginFullColorMapEntry
+
+; Yellow's per-frame palette writer must not race the full-color owner.
+FullColorAuditLoadGBPal:
+	call GetRendererOwner
+	cp RENDERER_FULL_COLOR_OVERWORLD
+	ret z
+	jp LoadGBPal
+
+FullColorAuditRunOverworldPalette:
+	call GetRendererOwner
+	cp RENDERER_FULL_COLOR_OVERWORLD
+	ret z
+	jp RunPaletteCommand
+
+; Seamless connections never pass through EnterMap. Preserve ownership only
+; inside the exact two-map slice and hand every other destination to Yellow
+; before its palette writer runs.
+FullColorAuditHandleConnectedMap:
+	call GetRendererOwner
+	cp RENDERER_FULL_COLOR_OVERWORLD
+	ret nz
+	ld a, [wCurMap]
+	cp PALLET_TOWN
+	ret z
+	cp ROUTE_1
+	ret z
+	jp LeaveFullColorOverworldSlice
+
+FullColorAuditSnapshotConnectedMap:
+	call GetRendererOwner
+	cp RENDERER_FULL_COLOR_OVERWORLD
+	ret nz
+	jp SnapshotFullColorMapAuthority
+
+FullColorAuditLoadRedrawDestination:
+	ldh a, [hRedrawRowOrColumnDest]
+	ld e, a
+	ldh a, [hRedrawRowOrColumnDest + 1]
+	ld d, a
+	ld hl, wRedrawRowOrColumnSrcTiles
+	ret
+
+FullColorAuditScheduleNorthRow:
+	call GetRendererOwner
+	cp RENDERER_FULL_COLOR_OVERWORLD
+	jr nz, .yellow
+	xor a
+	ldh [hRedrawRowOrColumnMode], a
+	call FullColorAuditLoadRedrawDestination
+	ld a, [wCurMap]
+	cp PALLET_TOWN
+	jr nz, .movement
+	ld a, [wYCoord]
+	and a
+	jr nz, .movement
+	ld b, SCREEN_WIDTH
+	ld c, 2
+	call EnqueueFullColorMapConnection
+	ret
+.movement
+	call EnqueueFullColorMovementRowStrip
+	ret
+.yellow
+	ld a, REDRAW_ROW
+	ldh [hRedrawRowOrColumnMode], a
+	ret
+
+FullColorAuditScheduleMovementRow:
+	call GetRendererOwner
+	cp RENDERER_FULL_COLOR_OVERWORLD
+	jr nz, .yellow
+	xor a
+	ldh [hRedrawRowOrColumnMode], a
+	call FullColorAuditLoadRedrawDestination
+	call EnqueueFullColorMovementRowStrip
+	ret
+.yellow
+	ld a, REDRAW_ROW
+	ldh [hRedrawRowOrColumnMode], a
+	ret
+
+FullColorAuditScheduleMovementColumn:
+	call GetRendererOwner
+	cp RENDERER_FULL_COLOR_OVERWORLD
+	jr nz, .yellow
+	xor a
+	ldh [hRedrawRowOrColumnMode], a
+	call FullColorAuditLoadRedrawDestination
+	call EnqueueFullColorMovementColumnStrip
+	ret
+.yellow
+	ld a, REDRAW_COL
+	ldh [hRedrawRowOrColumnMode], a
+	ret
+
+; The WRAM authority path stays identical through LoadScreenRelatedData. Once
+; full color owns the map, legacy tile/palette/player presentation is skipped;
+; the banked lifecycle contract completes reconstruction before LCD enable.
+FullColorAuditLoadMapData:
+	ldh a, [hLoadedROMBank]
+	push af
+	ldh a, [rLCDC]
+	bit B_LCDC_ENABLE, a
+	call nz, DisableLCD
+	call ResetMapVariables
+	call LoadTextBoxTilePatterns
+	call LoadMapHeader
+	call InitMapSprites
+	call LoadScreenRelatedData
+	call GetRendererOwner
+	cp RENDERER_FULL_COLOR_OVERWORLD
+	jr nz, .yellow_presentation
+	call SnapshotFullColorMapAuthority
+	call ReconstructFullColorMapEntry
+	jr c, .failed_restore
+	call EnableLCD
+	jr .music
+.yellow_presentation
+	call CopyMapViewToVRAM
+	ld a, $01
+	ld [wUpdateSpritesEnabled], a
+	call EnableLCD
+	ld b, SET_PAL_OVERWORLD
+	call RunPaletteCommand
+	call LoadPlayerSpriteGraphics
+.music
+	ld a, [wStatusFlags6]
+	and 1 << BIT_DUNGEON_WARP | 1 << BIT_FLY_WARP
+	jr nz, .success_restore
+	ld a, [wStatusFlags7]
+	bit BIT_NO_MAP_MUSIC, a
+	jr nz, .success_restore
+	call UpdateMusic6Times
+	call PlayDefaultMusicFadeOutCurrent
+.success_restore
+	pop af
+	call BankswitchCommon
+	and a
+	ret
+.failed_restore
+	pop af
+	call BankswitchCommon
+	scf
+	ret
+
+POPS
+ENDC

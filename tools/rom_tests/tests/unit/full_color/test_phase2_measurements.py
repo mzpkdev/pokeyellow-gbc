@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+from types import SimpleNamespace
 
 import pytest
 
@@ -83,6 +84,59 @@ def candidate(**changes: object) -> Phase2Candidate:
     }
     values.update(changes)
     return Phase2Candidate(**values)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "mutation, message",
+    [
+        ("wrong-row", "wrong row"),
+        ("missing", "missing audit subject"),
+        ("extra", "extra audit subject"),
+        ("stale-product", "missing audit subject"),
+        ("stale-hash", "stale audit source identity"),
+        ("root-mismatch", "missing audit subject"),
+    ],
+)
+def test_closed_audit_assignment_coverage_fails_closed(mutation, message) -> None:
+    hashes = {
+        "source_sha256": "1" * 64,
+        "rom_sha256": "2" * 64,
+        "sym_sha256": "3" * 64,
+        "map_sha256": "4" * 64,
+    }
+
+    def row(identifier, digest, row_id, product="pokeyellow_phase2_audit"):
+        return SimpleNamespace(
+            id=identifier,
+            product=product,
+            row_id=row_id,
+            subject=SimpleNamespace(sha256=digest),
+            evidence=SimpleNamespace(**hashes),
+        )
+
+    rows = [row("AS-A", "a", "WR-P2-A"), row("AS-B", "b", "MU-P2-B")]
+    if mutation == "wrong-row":
+        rows[0].row_id = "WR-P2-WRONG"
+    elif mutation == "missing":
+        rows.pop()
+    elif mutation == "extra":
+        rows.append(row("AS-C", "c", "WR-P2-A"))
+    elif mutation == "stale-product":
+        rows[0].product = "pokeyellow_debug"
+    elif mutation == "stale-hash":
+        rows[0].evidence.source_sha256 = "0" * 64
+    else:
+        rows[0].subject.sha256 = "root-mutated"
+
+    authority = SimpleNamespace(
+        for_product=lambda product: SimpleNamespace(
+            rows=tuple(item for item in rows if item.product == product)
+        )
+    )
+    with pytest.raises(ValueError, match=message):
+        phase2_measurements._validate_audit_assignment_coverage(
+            authority, {"a": "WR-P2-A", "b": "MU-P2-B"}, hashes
+        )
 
 
 def measurement(*, candidates: tuple[Phase2Candidate, ...] | None = None):
@@ -318,23 +372,27 @@ def test_definition_rejects_duplicate_json_keys(tmp_path) -> None:
         load_definition(path)
 
 
-@pytest.mark.parametrize("mode", ["delete", "add", "substitute"])
-def test_standalone_audit_enforces_exact_planned_row_ids(monkeypatch, mode) -> None:
+@pytest.mark.parametrize("mode", ["delete", "unreview", "substitute"])
+def test_standalone_audit_enforces_exact_phase2_row_ids(monkeypatch, mode) -> None:
     original = WriterInventory.load(ROOT / "specs/full-colors/inventory/writers.json")
     raw = original.to_dict()
-    planned_index = next(index for index, row in enumerate(raw["rows"]) if row["planned"])
+    planned_index = next(
+        index for index, row in enumerate(raw["rows"])
+        if row["id"] in phase2_measurements.PHASE2_PLANNED_ROW_IDS
+    )
     if mode == "delete":
         raw["rows"].pop(planned_index)
-    elif mode == "add":
-        reviewed = next(row for row in raw["rows"] if not row["planned"])
-        reviewed["planned"] = True
-        reviewed["evidence"]["reviewed"] = False
+    elif mode == "unreview":
+        raw["rows"][planned_index]["evidence"]["reviewed"] = False
     else:
         raw["rows"][planned_index]["id"] = "WR-P2-SUBSTITUTED"
         raw["rows"].sort(key=lambda row: row["id"])
     changed = WriterInventory.from_dict(raw)
     monkeypatch.setattr(phase2_measurements.WriterInventory, "load", lambda path: changed)
-    with pytest.raises(Phase2MeasurementError, match="exact closed set"):
+    with pytest.raises(
+        Phase2MeasurementError,
+        match="exact closed set|transition all 18 rows",
+    ):
         audit_phase2_inventory(ROOT)
 
 
@@ -467,7 +525,7 @@ def test_duplicate_discovery_items_fail_before_projection(monkeypatch, kind) -> 
         audit_phase2_inventory(ROOT)
 
 
-def test_empty_exact_planned_row_mapping_is_blocking(tmp_path, monkeypatch) -> None:
+def test_empty_exact_closed_row_rom_mapping_is_blocking(tmp_path, monkeypatch) -> None:
     raw = json.loads(
         (ROOT / phase2_measurements.PLANNED_SUBJECTS_PATH).read_text(encoding="utf-8")
     )
@@ -480,8 +538,33 @@ def test_empty_exact_planned_row_mapping_is_blocking(tmp_path, monkeypatch) -> N
     authority = tmp_path / "empty-planned-row.json"
     authority.write_text(json.dumps(raw), encoding="utf-8")
     monkeypatch.setattr(phase2_measurements, "PLANNED_SUBJECTS_PATH", authority)
-    with pytest.raises(Phase2MeasurementError, match="no row-bound semantic evidence"):
+    with pytest.raises(Phase2MeasurementError, match="ROM subjects"):
         audit_phase2_inventory(ROOT)
+
+
+def test_closed_audit_requires_concrete_palette_and_overlay_subjects() -> None:
+    subjects = {
+        row_id: {"subject"} for row_id in phase2_measurements.PHASE2_PLANNED_ROW_IDS
+    }
+    subjects["WR-P2-YELLOW-BG-PALETTE"] = set()
+    subjects["WR-P2-YELLOW-OVERLAY-TRANSFER"] = set()
+    errors = phase2_measurements._closed_concrete_subject_errors(subjects)
+    assert errors == (
+        "WR-P2-YELLOW-BG-PALETTE: closed audit requires a discoverable concrete source subject",
+        "WR-P2-YELLOW-OVERLAY-TRANSFER: closed audit requires a discoverable concrete source subject",
+    )
+
+
+def test_closed_party_directions_use_inventory_vocabulary() -> None:
+    report = phase2_measurements.discover_phase2_sources(ROOT)
+    normalized = phase2_measurements._normalize_closed_scene_directions(report)
+    directions = {
+        (finding.symbol, finding.destination): finding.direction
+        for finding in normalized.findings
+        if (finding.symbol, finding.destination)
+        in phase2_measurements._CLOSED_SCENE_DIRECTIONS
+    }
+    assert directions == phase2_measurements._CLOSED_SCENE_DIRECTIONS
 
 
 @pytest.mark.parametrize("kind", ["destination", "control"])
@@ -517,7 +600,10 @@ def test_standalone_audit_reuses_strict_v2_transition_validation(
     transition = tmp_path / "transition.json"
     transition.write_text(json.dumps(raw), encoding="utf-8")
     monkeypatch.setattr(baseline_inventory, "SOURCE_TRANSITION_PATH", transition)
-    with pytest.raises(Phase2MeasurementError, match="standalone hostile authority"):
+    with pytest.raises(
+        Phase2MeasurementError,
+        match="standalone hostile authority",
+    ):
         audit_phase2_inventory(ROOT)
 
 
@@ -525,7 +611,7 @@ def test_standalone_audit_reuses_strict_v2_transition_validation(
     "mutation",
     ["machine-site", "bytes", "root", "resources", "commit", "reviewed", "hash"],
 )
-def test_standalone_audit_reuses_strict_planned_row_validation(
+def test_standalone_audit_reuses_strict_closed_row_validation(
     monkeypatch, mutation
 ) -> None:
     original = WriterInventory.load(ROOT / "specs/full-colors/inventory/writers.json")
@@ -545,35 +631,29 @@ def test_standalone_audit_reuses_strict_planned_row_validation(
     elif mutation == "commit":
         row["commit_unit"] = "BYTE"
     elif mutation == "reviewed":
-        row["evidence"]["reviewed"] = True
+        row["evidence"]["reviewed"] = False
     else:
         row["evidence"]["source_sha256"] = "0" * 64
     changed = WriterInventory.from_dict(raw)
     monkeypatch.setattr(phase2_measurements.WriterInventory, "load", lambda path: changed)
-    with pytest.raises(Phase2MeasurementError, match="standalone hostile authority"):
+    with pytest.raises(
+        Phase2MeasurementError,
+        match="standalone hostile authority|hostile inventory audit lacks exact evidence",
+    ):
         audit_phase2_inventory(ROOT)
 
 
-@pytest.mark.parametrize("mutation", ["machine-site", "root", "resources", "commit"])
-def test_planned_only_authority_is_exactly_palette_row_bound(
-    tmp_path, monkeypatch, mutation
+def test_closed_authority_rejects_reintroduced_planned_only_disposition(
+    tmp_path, monkeypatch
 ) -> None:
     raw = json.loads(
         (ROOT / phase2_measurements.PLANNED_SUBJECTS_PATH).read_text(encoding="utf-8")
     )
-    disposition = raw["planned_only_dispositions"]["WR-P2-YELLOW-BG-PALETTE"]
-    if mutation == "machine-site":
-        disposition["machine_sites"] = []
-    elif mutation == "root":
-        disposition["root"] = "RunPaletteCommand.altered"
-    elif mutation == "resources":
-        disposition["resources"][0]["end"] = 0xFF6A
-    else:
-        disposition["commit_unit"] = "BYTE"
+    raw["planned_only_dispositions"]["WR-P2-YELLOW-BG-PALETTE"] = {}
     authority = tmp_path / "planned-subjects.json"
     authority.write_text(json.dumps(raw), encoding="utf-8")
     monkeypatch.setattr(phase2_measurements, "PLANNED_SUBJECTS_PATH", authority)
-    with pytest.raises(Phase2MeasurementError, match="malformed disposition"):
+    with pytest.raises(Phase2MeasurementError, match="must be empty after audit closure"):
         audit_phase2_inventory(ROOT)
 
 

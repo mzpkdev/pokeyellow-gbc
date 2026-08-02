@@ -7,9 +7,12 @@
 ; dropped: DEFERRED increments the observable retry token.
 
 RouteRendererOwnershipVBlank::
-IF DEF(_DEBUG)
+IF DEF(PHASE2_AUDIT)
+	call PollFullColorPhase2DebugCommand
+ELIF DEF(_DEBUG)
 	call PollFullColorDebugCommand
 ENDC
+	call RetryFullColorProducer
 	call GetRendererOwner
 	cp RENDERER_FULL_COLOR_OVERWORLD
 	ret nz
@@ -71,25 +74,25 @@ AdmitFullColorRequest::
 	select_renderer_state_e
 	ld a, [wRendererAdmissionOpen]
 	and a
-	jp z, .defer
+	jp z, AdmitFullColorRequest_defer
 	ld a, [wRendererOwner]
 	cp RENDERER_FULL_COLOR_OVERWORLD
-	jr nz, .wrong_owner
+	jp nz, AdmitFullColorRequest_wrong_owner
 	ld a, [de]
 	and FULL_COLOR_DESCRIPTOR_CLASS_MASK
 	cp NUM_FULL_COLOR_REQUEST_CLASSES
-	jr nc, .defer
+	jp nc, AdmitFullColorRequest_defer
 	inc de
 	ld a, [de]
 	cp RENDERER_FULL_COLOR_OVERWORLD
-	jr nz, .wrong_owner
+	jp nz, AdmitFullColorRequest_wrong_owner
 	inc de
 	ld hl, wRendererGeneration
 	ld b, 4
 .generation
 	ld a, [de]
 	cp [hl]
-	jr nz, .stale
+	jp nz, AdmitFullColorRequest_stale
 	inc de
 	inc hl
 	dec b
@@ -100,14 +103,14 @@ AdmitFullColorRequest::
 	ld d, h
 	ld e, l
 	call ValidateFullColorRequestResourcesSelected
-	jr c, .defer
+	jp c, AdmitFullColorRequest_defer
 	call FindEquivalentFullColorRequestSelected
 	jr nc, .coalesced
 	ld a, [wFullColorRequestCount]
 	cp FULL_COLOR_REQUEST_CAPACITY
-	jr nc, .defer
+	jp nc, AdmitFullColorRequest_defer
 	call FindFreeFullColorDescriptorSelected
-	jr c, .defer
+	jp c, AdmitFullColorRequest_defer
 	; HL = destination descriptor, DE = candidate.
 	push hl
 	ld b, FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
@@ -144,13 +147,637 @@ AdmitFullColorRequest::
 	ld a, b
 	and a
 	ret
+
+; Semantic paired-producer ABI. HL=fixed-WRAM tile source, DE=BG-map
+; destination, B=width, C=height. A is supplied by the class-exact wrappers.
+; The helper derives attributes from independent tile-class authority, creates
+; the exact descriptor, and freezes it into scheduler scratch before return.
+; A returns ACCEPTED or DEFERRED; carry is clear only for ACCEPTED.
+EnqueueFullColorMapRow::
+	ld a, FULL_COLOR_REQUEST_MAP_ROW_PAIRED
+	jp EnqueueFullColorPairedSemantic
+EnqueueFullColorMapColumn::
+	ld a, FULL_COLOR_REQUEST_MAP_COLUMN_PAIRED
+	jp EnqueueFullColorPairedSemantic
+EnqueueFullColorMapConnection::
+	ld a, FULL_COLOR_REQUEST_MAP_CONNECTION_PAIRED
+	jp EnqueueFullColorPairedSemantic
+EnqueueFullColorMapRectangle::
+	ld a, FULL_COLOR_REQUEST_MAP_RECTANGLE_PAIRED
+	jp EnqueueFullColorPairedSemantic
+EnqueueFullColorMapOverlay::
+	ld a, FULL_COLOR_REQUEST_MAP_OVERLAY_PAIRED
+	; fallthrough
+EnqueueFullColorPairedSemantic:
+	push af
+	select_renderer_state_e
+	pop af
+	ld [wFullColorProducerClass], a
+	bit 7, a
+	ld a, 0
+	jr z, .flags_ready
+	ld a, FULL_COLOR_FLAG_MOVEMENT_STRIP
+.flags_ready
+	ld [wFullColorProducerFlags], a
+	ld a, [wFullColorProducerClass]
+	and FULL_COLOR_DESCRIPTOR_CLASS_MASK
+	ld [wFullColorProducerClass], a
+	ld a, h
+	cp $c0
+	jp c, EnqueueFullColorSemantic_defer
+	cp $d0
+	jp nc, EnqueueFullColorSemantic_defer
+	ld a, l
+	ld [wFullColorProducerSource], a
+	ld a, h
+	ld [wFullColorProducerSource + 1], a
+	ld a, e
+	ld [wFullColorProducerDestination], a
+	ld a, d
+	ld [wFullColorProducerDestination + 1], a
+	ld a, b
+	and a
+	jp z, EnqueueFullColorSemantic_defer
+	cp SCREEN_WIDTH + 1
+	jp nc, EnqueueFullColorSemantic_defer
+	ld [wFullColorProducerWidth], a
+	ld a, c
+	and a
+	jp z, EnqueueFullColorSemantic_defer
+	cp SCREEN_HEIGHT + 1
+	jp nc, EnqueueFullColorSemantic_defer
+	ld [wFullColorProducerHeight], a
+	ld a, [wFullColorProducerClass]
+	cp FULL_COLOR_REQUEST_MAP_ROW_PAIRED
+	jr nz, .not_row
+	ld a, c
+	ld d, 1
+	ld a, [wFullColorProducerFlags]
+	and FULL_COLOR_FLAG_MOVEMENT_STRIP
+	jr z, .row_height_ready
+	inc d
+.row_height_ready
+	ld a, c
+	cp d
+	jp nz, EnqueueFullColorSemantic_defer
+.not_row
+	ld a, [wFullColorProducerClass]
+	cp FULL_COLOR_REQUEST_MAP_COLUMN_PAIRED
+	jr nz, .geometry_ok
+	ld a, b
+	ld d, 1
+	ld a, [wFullColorProducerFlags]
+	and FULL_COLOR_FLAG_MOVEMENT_STRIP
+	jr z, .column_width_ready
+	inc d
+.column_width_ready
+	ld a, b
+	cp d
+	jp nz, EnqueueFullColorSemantic_defer
+.geometry_ok
+	call FullColorProducerStorageAvailableSelected
+	jp c, EnqueueFullColorSemantic_defer
+	; BC = width * height.
+	ld a, [wFullColorProducerWidth]
+	ld e, a
+	ld a, [wFullColorProducerHeight]
+	ld d, a
+	ld bc, 0
+.multiply_exact
+	ld a, c
+	add e
+	ld c, a
+	jr nc, .multiply_exact_no_carry
+	inc b
+.multiply_exact_no_carry
+	dec d
+	jr nz, .multiply_exact
+	ld a, c
+	ld [wFullColorRequestStaging], a
+	ld a, b
+	ld [wFullColorRequestStaging + 1], a
+	; The complete caller source must remain inside fixed WRAM0.
+	ld a, [wFullColorProducerSource]
+	ld l, a
+	ld a, [wFullColorProducerSource + 1]
+	ld h, a
+	add hl, bc
+	ld a, h
+	cp $d0
+	jp c, .source_extent_ok
+	jp nz, EnqueueFullColorSemantic_defer
+	ld a, l
+	and a
+	jp nz, EnqueueFullColorSemantic_defer
+.source_extent_ok
+	; Snapshot immutable tiles.
+	ld a, [wFullColorProducerSource]
+	ld e, a
+	ld a, [wFullColorProducerSource + 1]
+	ld d, a
+	ld hl, wFullColorProducerTiles
+	push bc
+.copy_tiles
+	ld a, b
+	or c
+	jr z, .tiles_done
+	ld a, [de]
+	ld [hli], a
+	inc de
+	dec bc
+	jr .copy_tiles
+.tiles_done
+	pop bc
+	; Derive a distinct attribute plane from the frozen tile plane.
+	ld de, wFullColorProducerTiles
+	ld hl, wFullColorProducerTiles
+	add hl, bc
+.derive
+	ld a, b
+	or c
+	jr z, .derived
+	push bc
+	push hl
+	ld a, [de]
+	ld c, a
+	ld b, 0
+	ld hl, FullColorCanaryOverworldTileClasses
+	add hl, bc
+	ld a, [hl]
+	and 7
+	pop hl
+	ld [hli], a
+	pop bc
+	inc de
+	dec bc
+	jr .derive
+.derived
+	call BuildAndPrepareFullColorPairedDescriptorSelected
+	jp FinishFullColorSemanticSelected
+
+; Atomic legacy movement strips. They remain row/column requests, but carry an
+; explicit measured flag binding the complete 20x2 or 2x18 visible unit.
+; Row: HL=40 tile bytes, DE=BG destination. Column: HL=36 bytes, DE=BG dest.
+EnqueueFullColorMovementRowStrip::
+	ld b, SCREEN_WIDTH
+	ld c, 2
+	ld a, $80 | FULL_COLOR_REQUEST_MAP_ROW_PAIRED
+	jp EnqueueFullColorPairedSemantic
+EnqueueFullColorMovementColumnStrip::
+	ld b, 2
+	ld c, SCREEN_HEIGHT
+	ld a, $80 | FULL_COLOR_REQUEST_MAP_COLUMN_PAIRED
+	jp EnqueueFullColorPairedSemantic
+
+; Animation ABI: HL=fixed-WRAM 16-byte tile source, DE=tile-data destination,
+; BC=attribute-map destination. Attribute identity is derived from tile 0.
+EnqueueFullColorAnimation::
+	select_renderer_state_e
+	xor a
+	ld [wFullColorProducerFlags], a
+	ld a, h
+	cp $c0
+	jp c, EnqueueFullColorSemantic_defer
+	cp $d0
+	jp nc, EnqueueFullColorSemantic_defer
+	ld a, l
+	ld [wFullColorProducerSource], a
+	ld a, h
+	ld [wFullColorProducerSource + 1], a
+	ld a, e
+	ld [wFullColorProducerDestination], a
+	ld a, d
+	ld [wFullColorProducerDestination + 1], a
+	ld a, c
+	ld [wFullColorProducerWidth], a
+	ld a, b
+	ld [wFullColorProducerHeight], a
+	ld a, FULL_COLOR_REQUEST_ANIMATION_REPLACEMENT
+	ld [wFullColorProducerClass], a
+	call FullColorProducerStorageAvailableSelected
+	jp c, EnqueueFullColorSemantic_defer
+	ld a, [wFullColorProducerSource]
+	ld e, a
+	ld a, [wFullColorProducerSource + 1]
+	ld d, a
+	ld a, e
+	add FULL_COLOR_ANIMATION_TILE_BYTES
+	ld l, a
+	ld a, d
+	adc 0
+	cp $d0
+	jp nc, EnqueueFullColorSemantic_defer
+	ld hl, wFullColorProducerTiles
+	ld b, FULL_COLOR_ANIMATION_TILE_BYTES
+.tile
+	ld a, [de]
+	ld [hli], a
+	inc de
+	dec b
+	jr nz, .tile
+	ld a, [wFullColorProducerTiles]
+	ld c, a
+	ld b, 0
+	ld hl, FullColorCanaryOverworldTileClasses
+	add hl, bc
+	ld a, [hl]
+	and 7
+	ld [wFullColorProducerTiles + FULL_COLOR_ANIMATION_TILE_BYTES], a
+	call BuildAndPrepareFullColorAnimationDescriptorSelected
+	jp FinishFullColorSemanticSelected
+
+; Carry set if singleton preparation scratch or producer source may still be
+; resident. This check happens before producer storage is overwritten.
+FullColorProducerStorageAvailableSelected:
+	ld a, [wFullColorProducerPending]
+	and a
+	jr nz, .busy
+	ld a, [wRendererAdmissionOpen]
+	and a
+	jr z, .busy
+	ld a, [wRendererOwner]
+	cp RENDERER_FULL_COLOR_OVERWORLD
+	jr nz, .busy
+	and a
+	ret
+.busy
+	scf
+	ret
+
+BuildAndPrepareFullColorPairedDescriptorSelected:
+	call ClearFullColorSemanticDescriptorSelected
+	ld hl, wFullColorSchedulerEnqueueDescriptor
+	ld a, [wFullColorProducerClass]
+	ld [hli], a
+	call WriteFullColorSemanticDescriptorHeaderSelected
+	ld a, [wFullColorProducerWidth]
+	ld [hli], a
+	ld a, [wFullColorProducerHeight]
+	ld [hli], a
+	ld a, FULL_COLOR_RESOURCE_BG_MAP | FULL_COLOR_RESOURCE_ATTRIBUTES
+	ld [hli], a
+	xor a
+	ld [hli], a
+	ld a, [wFullColorRequestStaging]
+	ld [hli], a
+	ld a, [wFullColorRequestStaging + 1]
+	ld [hli], a
+	ld a, [wFullColorRequestStaging]
+	add a
+	ld [hli], a
+	ld a, [wFullColorRequestStaging + 1]
+	rla
+	ld [hli], a
+	ld a, [wFullColorProducerFlags]
+	ld b, a
+	ld a, [wFullColorProducerClass]
+	cp FULL_COLOR_REQUEST_MAP_OVERLAY_PAIRED
+	ld a, b
+	jr nz, .flags
+	or FULL_COLOR_FLAG_OVERLAY
+.flags
+	ld [hli], a
+	xor a
+	ld [hl], a
+	jr AdmitPreparedFullColorSemanticSelected
+
+BuildAndPrepareFullColorAnimationDescriptorSelected:
+	call ClearFullColorSemanticDescriptorSelected
+	ld hl, wFullColorSchedulerEnqueueDescriptor
+	ld a, FULL_COLOR_REQUEST_ANIMATION_REPLACEMENT
+	ld [hli], a
+	call WriteFullColorSemanticDescriptorHeaderSelected
+	ld a, [wFullColorProducerWidth]
+	ld [hli], a
+	ld a, [wFullColorProducerHeight]
+	ld [hli], a
+	ld a, FULL_COLOR_RESOURCE_TILE_DATA | FULL_COLOR_RESOURCE_ATTRIBUTES
+	ld [hli], a
+	xor a
+	ld [hli], a
+	ld a, LOW(FULL_COLOR_ANIMATION_EXTENT)
+	ld [hli], a
+	ld a, HIGH(FULL_COLOR_ANIMATION_EXTENT)
+	ld [hli], a
+	ld a, LOW(FULL_COLOR_ANIMATION_RESERVATION)
+	ld [hli], a
+	ld a, HIGH(FULL_COLOR_ANIMATION_RESERVATION)
+	ld [hli], a
+	xor a
+	ld [hli], a
+	ld [hl], a
+	jr AdmitPreparedFullColorSemanticSelected
+
+; HL points just after class. Writes owner/generation/destination/source.
+WriteFullColorSemanticDescriptorHeaderSelected:
+	ld a, RENDERER_FULL_COLOR_OVERWORLD
+	ld [hli], a
+	ld de, wRendererGeneration
+	REPT 4
+		ld a, [de]
+		ld [hli], a
+		inc de
+	ENDR
+	ld a, [wFullColorProducerDestination]
+	ld [hli], a
+	ld a, [wFullColorProducerDestination + 1]
+	ld [hli], a
+	ld a, LOW(wFullColorProducerTiles)
+	ld [hli], a
+	ld a, HIGH(wFullColorProducerTiles)
+	ld [hli], a
+	ret
+
+ClearFullColorSemanticDescriptorSelected:
+	ld hl, wFullColorSchedulerEnqueueDescriptor
+	ld b, FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+	xor a
+.clear
+	ld [hli], a
+	dec b
+	jr nz, .clear
+	ret
+
+AdmitPreparedFullColorSemanticSelected:
+	ld de, wFullColorSchedulerEnqueueDescriptor
+	call ValidateFullColorRequestResourcesSelected
+	jr c, RetainFullColorSemanticSelected
+	; Singleton preparation scratch may belong to an earlier visible unit. The
+	; new immutable producer descriptor remains queued privately until VBlank.
+	ld hl, wFullColorRequestDescriptors
+	ld b, FULL_COLOR_REQUEST_CAPACITY
+.prepared_scan
+	ld a, [hl]
+	and FULL_COLOR_DESCRIPTOR_STATE_MASK
+	cp PREPARED << FULL_COLOR_DESCRIPTOR_STATE_SHIFT
+	jr z, RetainFullColorSemanticSelected
+	ld de, FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+	add hl, de
+	dec b
+	jr nz, .prepared_scan
+	ld de, wFullColorSchedulerEnqueueDescriptor
+	call FindFreeFullColorDescriptorSelected
+	jr c, RetainFullColorSemanticSelected
+	push hl
+	ld b, FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+.copy
+	ld a, [de]
+	ld [hli], a
+	inc de
+	dec b
+	jr nz, .copy
+	pop hl
+	ld a, [hl]
+	and FULL_COLOR_DESCRIPTOR_CLASS_MASK
+	ld b, a
+	ld a, PENDING << FULL_COLOR_DESCRIPTOR_STATE_SHIFT
+	or b
+	ld [hl], a
+	push hl
+	call PrepareFullColorVisibleUnitSelected
+	pop hl
+	jr c, RetainFullColorSemanticSelected
+	ld a, [hl]
+	and FULL_COLOR_DESCRIPTOR_CLASS_MASK
+	ld b, a
+	ld a, PREPARED << FULL_COLOR_DESCRIPTOR_STATE_SHIFT
+	or b
+	ld [hl], a
+	ld hl, wFullColorRequestCount
+	inc [hl]
+	ld a, PREPARED
+	call RecordFullColorTransitionSelected
+	ld a, ACCEPTED
+	ret
+
+RetainFullColorSemanticSelected:
+	ld hl, wFullColorRetryCounter
+	ld a, [hl]
+	cp $ff
+	jr z, .retry_saturated
+	inc [hl]
+.retry_saturated
+	ld a, TRUE
+	ld [wFullColorProducerPending], a
+	ld a, DEFERRED
+	ret
+
+; Retry the single immutable producer slot. This is called before the owner
+; decision on every routed VBlank, so a one-shot movement request cannot be
+; lost under preparation pressure. It admits at most one complete unit.
+RetryFullColorProducer::
+	select_renderer_state_e
+	ld a, [wFullColorProducerPending]
+	and a
+	jr z, .done
+	ld a, [wRendererOwner]
+	cp RENDERER_FULL_COLOR_OVERWORLD
+	jr nz, .done
+	ld a, [wRendererAdmissionOpen]
+	and a
+	jr z, .done
+	call AdmitPreparedFullColorSemanticSelected
+	cp ACCEPTED
+	jr nz, .publish
+	xor a
+	ld [wFullColorProducerPending], a
+.publish
+	ld [wFullColorLastAdmissionResult], a
+	call PublishFullColorSchedulerDebugSelected
+.done
+	restore_renderer_state_e
+	ret
+
+EnqueueFullColorSemantic_defer:
+	ld hl, wFullColorRetryCounter
+	ld a, [hl]
+	cp $ff
+	jr z, .saturated
+	inc [hl]
+.saturated
+	ld a, DEFERRED
+	; fallthrough
+FinishFullColorSemanticSelected:
+	ld [wFullColorLastAdmissionResult], a
+	ld b, a
+	call PublishFullColorSchedulerDebugSelected
+	restore_renderer_state_e
+	ld a, b
+	cp ACCEPTED
+	ret z
+	scf
+	ret
+
+EXPORT EnqueueFullColorMapRow, EnqueueFullColorMapColumn
+EXPORT EnqueueFullColorMapConnection, EnqueueFullColorMapRectangle
+EXPORT EnqueueFullColorMapOverlay, EnqueueFullColorAnimation
+EXPORT EnqueueFullColorMovementRowStrip
+EXPORT EnqueueFullColorMovementColumnStrip, RetryFullColorProducer
+
+; Scheduler-owned exact OAM enqueue. HL points to a finished 160-byte batch in
+; fixed WRAM. Producers never fabricate descriptors or borrow preparation
+; scratch. A returns ACCEPTED/DEFERRED/rejection; carry is clear only on
+; ACCEPTED. The reservation remains 200 for batch construction's 40 identity
+; lookups even though the visible extent and snapshotted source are 160 bytes.
+EnqueueFullColorOAMBatch::
+	ld c, l
+	ld b, h
+	select_renderer_state_e
+	ld a, c
+	ld [wFullColorActiveDescriptor], a
+	ld a, b
+	ld [wFullColorActiveDescriptor + 1], a
+	ld a, [wRendererAdmissionOpen]
+	and a
+	jp z, .defer
+	ld a, [wRendererOwner]
+	cp RENDERER_FULL_COLOR_OVERWORLD
+	jp nz, .wrong_owner
+	ld a, [wFullColorRequestCount]
+	cp FULL_COLOR_REQUEST_CAPACITY
+	jp nc, .defer
+	ld a, [wFullColorProducerPending]
+	and a
+	jp nz, .defer
+	; Reject a duplicate OAM resident. A non-OAM PREPARED descriptor owns the
+	; shared scratch tail, so defer before snapshotting over it.
+	ld hl, wFullColorRequestDescriptors
+	ld d, FULL_COLOR_REQUEST_CAPACITY
+.resident
+	ld a, [hl]
+	and FULL_COLOR_DESCRIPTOR_STATE_MASK
+	ld c, a
+	cp FULL_COLOR_DESCRIPTOR_FREE
+	jr z, .next
+	cp COMPLETE << FULL_COLOR_DESCRIPTOR_STATE_SHIFT
+	jr z, .next
+	cp CANCELLED << FULL_COLOR_DESCRIPTOR_STATE_SHIFT
+	jr z, .next
+	ld a, [hl]
+	and FULL_COLOR_DESCRIPTOR_CLASS_MASK
+	cp FULL_COLOR_REQUEST_OAM_BATCH_AND_DMA
+	jp z, .defer
+	ld a, c
+	cp PREPARED << FULL_COLOR_DESCRIPTOR_STATE_SHIFT
+	jp z, .defer
+.next
+	ld a, l
+	add FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+	ld l, a
+	jr nc, .next_ready
+	inc h
+.next_ready
+	dec d
+	jr nz, .resident
+	ld hl, wFullColorSchedulerEnqueueDescriptor
+	ld d, FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+	xor a
+.clear
+	ld [hli], a
+	dec d
+	jr nz, .clear
+	ld hl, wFullColorSchedulerEnqueueDescriptor
+	ld a, FULL_COLOR_REQUEST_OAM_BATCH_AND_DMA
+	ld [hli], a
+	ld a, RENDERER_FULL_COLOR_OVERWORLD
+	ld [hli], a
+	ld de, wRendererGeneration
+	ld a, [de]
+	ld [hli], a
+	inc de
+	ld a, [de]
+	ld [hli], a
+	inc de
+	ld a, [de]
+	ld [hli], a
+	inc de
+	ld a, [de]
+	ld [hli], a
+	ld a, LOW(FULL_COLOR_OAM_DESTINATION)
+	ld [hli], a
+	ld a, HIGH(FULL_COLOR_OAM_DESTINATION)
+	ld [hli], a
+	ld a, [wFullColorActiveDescriptor]
+	ld [hli], a
+	ld a, [wFullColorActiveDescriptor + 1]
+	ld [hli], a
+	xor a
+	ld [hli], a
+	ld [hli], a
+	ld a, FULL_COLOR_RESOURCE_SHADOW_OAM | FULL_COLOR_RESOURCE_HARDWARE_OAM
+	ld [hli], a
+	xor a
+	ld [hli], a
+	ld a, LOW(FULL_COLOR_OAM_EXTENT)
+	ld [hli], a
+	ld a, HIGH(FULL_COLOR_OAM_EXTENT)
+	ld [hli], a
+	ld a, LOW(FULL_COLOR_OAM_RESERVATION)
+	ld [hli], a
+	ld a, HIGH(FULL_COLOR_OAM_RESERVATION)
+	ld [hli], a
+	ld a, FULL_COLOR_FLAG_OAM_FINISHED
+	ld [hli], a
+	ld a, [wFullColorRetryCounter]
+	ld [hl], a
+	ld de, wFullColorSchedulerEnqueueDescriptor
+	call ValidateFullColorRequestResourcesSelected
+	jr c, .defer
+	call FindFreeFullColorDescriptorSelected
+	jr c, .defer
+	push hl
+	ld b, FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+.copy
+	ld a, [de]
+	ld [hli], a
+	inc de
+	dec b
+	jr nz, .copy
+	pop hl
+	ld a, PREPARED << FULL_COLOR_DESCRIPTOR_STATE_SHIFT | FULL_COLOR_REQUEST_OAM_BATCH_AND_DMA
+	ld [hl], a
+	; Snapshot before return so later sprite authority mutations are irrelevant.
+	call PrepareFullColorOAMBatchSelected
+	ld hl, wFullColorRequestCount
+	inc [hl]
+	ld a, PREPARED
+	call RecordFullColorTransitionSelected
+	ld a, ACCEPTED
+	ld [wFullColorLastAdmissionResult], a
+	ld b, a
+	call PublishFullColorSchedulerDebugSelected
+	restore_renderer_state_e
+	ld a, b
+	and a
+	ret
 .wrong_owner
 	ld a, REJECTED_WRONG_OWNER
 	jr .reject
-.stale
-	ld a, REJECTED_STALE_GENERATION
-	jr .reject
 .defer
+	ld hl, wFullColorRetryCounter
+	ld a, [hl]
+	cp $ff
+	jr z, .retry_ready
+	inc [hl]
+.retry_ready
+	ld a, DEFERRED
+.reject
+	ld [wFullColorLastAdmissionResult], a
+	ld b, a
+	call PublishFullColorSchedulerDebugSelected
+	restore_renderer_state_e
+	ld a, b
+	scf
+	ret
+
+EXPORT EnqueueFullColorOAMBatch
+AdmitFullColorRequest_wrong_owner:
+	ld a, REJECTED_WRONG_OWNER
+	jr AdmitFullColorRequest_reject
+AdmitFullColorRequest_stale:
+	ld a, REJECTED_STALE_GENERATION
+	jr AdmitFullColorRequest_reject
+AdmitFullColorRequest_defer:
 	ld hl, wFullColorRetryCounter
 	ld a, [hl]
 	cp $ff
@@ -158,7 +785,7 @@ AdmitFullColorRequest::
 	inc [hl]
 .retry_saturated
 	ld a, DEFERRED
-.reject
+AdmitFullColorRequest_reject:
 	ld [wFullColorLastAdmissionResult], a
 	ld b, a
 	call PublishFullColorSchedulerDebugSelected
@@ -226,6 +853,17 @@ ValidateFullColorRequestResourcesSelected:
 	jr nz, .not_row
 	ld a, h
 	cp 1
+	jr z, .not_row
+	cp 2
+	jp nz, .invalid
+	push hl
+	ld hl, FULL_COLOR_DESCRIPTOR_FLAGS
+	add hl, de
+	bit 3, [hl]
+	pop hl
+	jp z, .invalid
+	ld a, c
+	cp SCREEN_WIDTH
 	jp nz, .invalid
 .not_row
 	ld a, b
@@ -233,6 +871,17 @@ ValidateFullColorRequestResourcesSelected:
 	jr nz, .geometry_product
 	ld a, c
 	cp 1
+	jr z, .geometry_product
+	cp 2
+	jp nz, .invalid
+	push hl
+	ld hl, FULL_COLOR_DESCRIPTOR_FLAGS
+	add hl, de
+	bit 3, [hl]
+	pop hl
+	jp z, .invalid
+	ld a, h
+	cp SCREEN_HEIGHT
 	jp nz, .invalid
 .geometry_product
 	; BC = width * height (at most 1024).

@@ -27,13 +27,18 @@ class Phase2Rom:
     emulator: Emulator
     constants: dict[str, int]
 
-    def call(self, name: str, *, a: int = 0, c: int = 0, hl: int = 0) -> tuple[int, int]:
+    def call(
+        self, name: str, *, a: int = 0, b: int = 0, c: int = 0,
+        de: int = 0, hl: int = 0,
+    ) -> tuple[int, int]:
         emu = self.emulator
         regs = emu.pyboy.register_file
         address = emu.symbols[name]
         bank = emu.symbol_banks[name]
         stack = 0xCFFE
-        regs.A, regs.C, regs.HL, regs.SP = a, c, hl, stack
+        regs.A, regs.B, regs.C = a, b, c
+        regs.D, regs.E = (de >> 8) & 0xFF, de & 0xFF
+        regs.HL, regs.SP = hl, stack
         emu.pyboy.memory[stack] = 0
         emu.pyboy.memory[stack + 1] = 1
         emu.pyboy.memory[0xFFFF] = 0
@@ -55,7 +60,7 @@ class Phase2Rom:
             # A maximum 360-cell paired PREPARE/COMMIT is intentionally larger
             # than one emulated frame. Keep stepping until the return hook has
             # fired, with a small hard ceiling so a real ROM loop still fails.
-            for _ in range(4):
+            for _ in range(64):
                 emu.pyboy.tick(1, render=False, sound=False)
                 if returned:
                     break
@@ -150,6 +155,56 @@ class Phase2Rom:
         return self.call("AdmitFullColorRequest", hl=0xC700)
 
 
+def _farcall_from_wram(
+    phase2_rom: Phase2Rom, name: str, *, entry_bank: int,
+) -> tuple[int, int]:
+    """Execute a no-argument routine through the production Bankswitch path."""
+    emu = phase2_rom.emulator
+    regs = emu.pyboy.register_file
+    target = emu.symbols[name]
+    target_bank = emu.symbol_banks[name]
+    bankswitch = emu.symbols["Bankswitch"]
+    trampoline = 0xC6F0
+    stack = 0xCFFE
+    phase2_rom.write_fixed(trampoline, bytes((
+        0x06, target_bank,                    # ld b, BANK(target)
+        0x21, target & 0xFF, target >> 8,    # ld hl, target
+        0xCD, bankswitch & 0xFF, bankswitch >> 8,
+        0xC9,
+    )))
+    emu.pyboy.memory[emu.symbols["hLoadedROMBank"]] = entry_bank
+    emu.pyboy.memory[0x2000] = entry_bank
+    regs.SP = stack
+    emu.pyboy.memory[stack] = 0
+    emu.pyboy.memory[stack + 1] = 1
+    emu.pyboy.memory[0xFFFF] = 0
+    regs.PC = trampoline
+    returned = False
+
+    def stop(_: object) -> None:
+        nonlocal returned
+        returned = True
+        emu.pyboy.memory[0xC780] = 0x18
+        emu.pyboy.memory[0xC781] = 0xFE
+        regs.PC = 0xC780
+
+    emu.pyboy.hook_register(0, 0x0100, stop, None)
+    try:
+        for _ in range(64):
+            emu.pyboy.tick(1, render=False, sound=False)
+            if returned:
+                break
+    finally:
+        emu.pyboy.hook_deregister(0, 0x0100)
+    assert returned, (
+        f"{name} did not return through Bankswitch "
+        f"(PC={regs.PC:#06x}, SP={regs.SP:#06x}, "
+        f"ROM={emu.pyboy.memory[emu.symbols['hLoadedROMBank']]:#04x})"
+    )
+    assert emu.pyboy.memory[emu.symbols["hLoadedROMBank"]] == entry_bank
+    return regs.A, regs.F
+
+
 @pytest.fixture
 def phase2_rom(request: pytest.FixtureRequest):
     rom = Path(os.environ.get("ROM_TEST_ROM", REPOSITORY_ROOT / "pokeyellow_phase2_audit.gbc"))
@@ -161,6 +216,106 @@ def phase2_rom(request: pytest.FixtureRequest):
         yield instance
     finally:
         emulator.close()
+
+
+@pytest.mark.parametrize("entry_bank", (1, 4))
+@pytest.mark.parametrize(
+    ("owner", "owned"),
+    (
+        ("RENDERER_YELLOW", False),
+        ("RENDERER_FULL_COLOR_OVERWORLD", True),
+    ),
+)
+def test_farcall_owner_predicate_preserves_carry_and_state(
+    phase2_rom: Phase2Rom, entry_bank: int, owner: str, owned: bool,
+) -> None:
+    phase2_rom.write_wram2("wRendererOwner", phase2_rom.constants[owner])
+    generation = phase2_rom.generation
+
+    _, flags = _farcall_from_wram(
+        phase2_rom, "IsFullColorOverworldOwnerFar", entry_bank=entry_bank,
+    )
+
+    assert bool(flags & 0x10) is not owned
+    assert phase2_rom.read_wram2("wRendererOwner") == bytes((phase2_rom.constants[owner],))
+    assert phase2_rom.generation == generation
+
+
+def test_owned_vblank_commits_window_bg1_before_presentation_and_close_hides_it(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator
+    tile_map = phase2_rom.emulator.symbols["wTileMap"]
+    payload = bytes((index * 11 + 3) & 0xFF for index in range(20 * 18))
+    phase2_rom.write_fixed(tile_map, payload)
+    phase2_rom.write_wram2("wFullColorAuthorityVRAMView", b"\x00\x98")
+    bg0_before = bytes((0xA0 + index) & 0xFF for index in range(20))
+    for offset, value in enumerate(bg0_before):
+        phase2_rom.emulator.pyboy.memory[0x9800 + offset] = value
+
+    _, flags = _farcall_from_wram(
+        phase2_rom, "EnqueueFullColorWindowTileMapOverlayFar", entry_bank=4,
+    )
+    assert flags & 0x10 == 0
+    phase2_rom.write_fixed(tile_map, b"\xee" * len(payload))
+    emu.pyboy.memory[emu.symbols["wUpdateSpritesEnabled"]] = 0xFF
+    shadow = emu.symbols["wShadowOAM"]
+    oam_batch = bytes((index * 13 + 7) & 0xFF for index in range(160))
+    phase2_rom.write_fixed(shadow, oam_batch)
+    for offset in range(160):
+        emu.pyboy.memory[0xFE00 + offset] = 0x5A
+    emu.pyboy.memory[emu.symbols["hSCX"]] = 7
+    emu.pyboy.memory[emu.symbols["hSCY"]] = 9
+    emu.pyboy.memory[emu.symbols["hWY"]] = 0
+    emu.pyboy.memory[0xFF43] = 0x55
+    emu.pyboy.memory[0xFF42] = 0x66
+    emu.pyboy.memory[0xFF4A] = 0x90
+    barrier_samples: list[tuple[int, bytes, bytes]] = []
+    barrier_name = "FullColorVBlankOwnerConsumed.publishWindowY"
+    barrier = emu.symbols[barrier_name]
+    barrier_bank = emu.symbol_banks[barrier_name]
+
+    def observe_barrier(_: object) -> None:
+        barrier_samples.append((
+            emu.pyboy.memory[0xFF4A],
+            emu.read_vram_bank(0, 0x9C00, 20),
+            emu.read_vram_bank(0, 0x9800, 20),
+        ))
+
+    emu.pyboy.hook_register(barrier_bank, barrier, observe_barrier, None)
+    try:
+        _, flags = _farcall_from_wram(
+            phase2_rom, "FullColorVBlankOwnerConsumed", entry_bank=4,
+        )
+    finally:
+        emu.pyboy.hook_deregister(barrier_bank, barrier)
+    assert flags & 0x10 == 0
+    assert barrier_samples == [(0x90, payload[:20], bg0_before)]
+    assert emu.pyboy.memory[0xFF43] == 7
+    assert emu.pyboy.memory[0xFF42] == 9
+    assert emu.pyboy.memory[0xFF4A] == 0
+    assert emu.read_vram_bank(0, 0x9800, 20) == bg0_before
+    for row in range(18):
+        start = row * 20
+        assert emu.read_vram_bank(0, 0x9C00 + row * 32, 20) == (
+            payload[start:start + 20]
+        )
+        assert emu.read_vram_bank(1, 0x9C00 + row * 32, 20) == bytes(
+            value & 7 for value in payload[start:start + 20]
+        )
+    hardware_oam = bytes(emu.pyboy.memory[0xFE00 + offset] for offset in range(160))
+    assert hardware_oam == b"\x5a" * 160
+    assert phase2_rom.read_wram2("wFullColorRetryCounter")[0] >= 1
+
+    emu.pyboy.memory[emu.symbols["hWY"]] = 0x90
+    _, flags = _farcall_from_wram(
+        phase2_rom, "FullColorVBlankOwnerConsumed", entry_bank=1,
+    )
+    assert flags & 0x10 == 0
+    assert emu.pyboy.memory[0xFF4A] == 0x90
+    hardware_oam = bytes(emu.pyboy.memory[0xFE00 + offset] for offset in range(160))
+    assert hardware_oam == oam_batch
+    assert phase2_rom.read_wram2("wFullColorRequestCount") == b"\x00"
 
 
 def test_admission_coalescing_and_oam_noncoalescing(phase2_rom: Phase2Rom) -> None:
@@ -209,6 +364,183 @@ def test_capacity_plus_one_defers_and_retry_is_observable(phase2_rom: Phase2Rom)
     phase2_rom.write_fixed(0xC900, b"\x55\x06")
     phase2_rom.call("RunFullColorOwnershipVBlank")
     assert phase2_rom.admit(ninth)[0] == phase2_rom.constants["ACCEPTED"]
+
+
+def test_movement_row_strip_is_one_atomic_20_by_2_visible_unit(
+    phase2_rom: Phase2Rom,
+) -> None:
+    tiles = bytes(range(40))
+    phase2_rom.write_fixed(0xC900, tiles)
+    result, flags = phase2_rom.call(
+        "EnqueueFullColorMovementRowStrip", hl=0xC900, de=0x9800,
+    )
+    assert result == phase2_rom.constants["ACCEPTED"]
+    assert flags & 0x10 == 0
+    descriptor = phase2_rom.read_wram2("wFullColorRequestDescriptors", 20)
+    assert descriptor[10:12] == bytes((20, 2))
+    assert int.from_bytes(descriptor[14:16], "little") == 40
+    assert int.from_bytes(descriptor[16:18], "little") == 80
+    assert descriptor[18] == phase2_rom.constants["FULL_COLOR_FLAG_MOVEMENT_STRIP"]
+
+    phase2_rom.write_fixed(0xC900, b"\xee" * 40)
+    phase2_rom.call("RunFullColorOwnershipVBlank")
+    assert phase2_rom.emulator.read_vram_bank(0, 0x9800, 20) == tiles[:20]
+    assert phase2_rom.emulator.read_vram_bank(0, 0x9820, 20) == tiles[20:]
+    assert phase2_rom.emulator.read_vram_bank(1, 0x9800, 20) == bytes(v & 7 for v in tiles[:20])
+    assert phase2_rom.emulator.read_vram_bank(1, 0x9820, 20) == bytes(v & 7 for v in tiles[20:])
+
+
+def test_deferred_movement_strip_is_retained_and_retried_without_partial_commit(
+    phase2_rom: Phase2Rom,
+) -> None:
+    first = bytes(range(40))
+    second = bytes((0x80 + index) & 0xFF for index in range(36))
+    phase2_rom.write_fixed(0xC900, first)
+    assert phase2_rom.call(
+        "EnqueueFullColorMovementRowStrip", hl=0xC900, de=0x9800,
+    )[0] == phase2_rom.constants["ACCEPTED"]
+
+    phase2_rom.write_fixed(0xC940, second)
+    assert phase2_rom.call(
+        "EnqueueFullColorMovementColumnStrip", hl=0xC940, de=0x9840,
+    )[0] == phase2_rom.constants["DEFERRED"]
+    assert phase2_rom.read_wram2("wFullColorProducerPending") == b"\x01"
+    assert phase2_rom.emulator.read_vram_bank(0, 0x9840, 2) != second[:2]
+    phase2_rom.write_fixed(0xC940, b"\xff" * 36)
+    phase2_rom.emulator.pyboy.memory[
+        phase2_rom.emulator.symbols["wUpdateSpritesEnabled"]
+    ] = 0xFF
+
+    _farcall_from_wram(
+        phase2_rom, "FullColorVBlankOwnerConsumed", entry_bank=1,
+    )
+    assert phase2_rom.read_wram2("wFullColorProducerPending") == b"\x01"
+    _farcall_from_wram(
+        phase2_rom, "FullColorVBlankOwnerConsumed", entry_bank=1,
+    )
+    assert phase2_rom.read_wram2("wFullColorProducerPending") == b"\x00"
+    for row in range(18):
+        assert phase2_rom.emulator.read_vram_bank(0, 0x9840 + row * 32, 2) == second[row * 2:row * 2 + 2]
+
+
+def test_reconstruction_commits_complete_palette_and_20_by_18_pair_before_activation(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    tiles = bytes(index & 0xFF for index in range(360))
+    phase2_rom.write_fixed(phase2_rom.emulator.symbols["wTileMap"], tiles)
+    prior_svbk = emu.memory[0xFF70]
+    emu.memory[0xFF70] = 1
+    try:
+        address = phase2_rom.emulator.symbols["wMapViewVRAMPointer"]
+        emu.memory[address] = 0x00
+        emu.memory[address + 1] = 0x98
+    finally:
+        emu.memory[0xFF70] = prior_svbk
+    phase2_rom.write_wram2(
+        "wRendererOwner", phase2_rom.constants["RENDERER_YELLOW"],
+    )
+    phase2_rom.write_wram2("wRendererPhase", phase2_rom.constants["YELLOW_ACTIVE"])
+    phase2_rom.write_wram2("wRendererAdmissionOpen", 1)
+    assert phase2_rom.call("BeginFullColorMapEntry")[1] & 0x10 == 0
+    emu.memory[0xFF40] &= 0x7F
+    assert _farcall_from_wram(
+        phase2_rom, "ReconstructFullColorMapEntry", entry_bank=4,
+    )[1] & 0x10 == 0
+    assert phase2_rom.read_wram2("wFullColorProducerTiles", 360) == tiles
+    assert phase2_rom.read_wram2("wRendererPhase") == bytes((phase2_rom.constants["OVERWORLD_ACTIVE"],))
+    assert phase2_rom.read_wram2("wRendererAdmissionOpen") == b"\x01"
+    for row in range(18):
+        start = row * 20
+        assert phase2_rom.emulator.read_vram_bank(0, 0x9800 + row * 32, 20) == tiles[start:start + 20]
+        assert phase2_rom.emulator.read_vram_bank(1, 0x9800 + row * 32, 20) == bytes(
+            value & 7 for value in tiles[start:start + 20]
+        )
+
+
+def test_reconstruction_expands_complete_font_before_activation_and_preserves_banks(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator
+    font_1bpp = (REPOSITORY_ROOT / "gfx/font/font.1bpp").read_bytes()
+    expected_font = b"".join(bytes((value, value)) for value in font_1bpp)
+    vfont = phase2_rom.emulator.symbols["vFont"]
+    bank1_sentinel = bytes((index * 13 + 7) & 0xFF for index in range(len(expected_font)))
+    for offset in range(len(expected_font)):
+        emu.pyboy.memory[0, vfont + offset] = 0xA5
+        emu.pyboy.memory[1, vfont + offset] = bank1_sentinel[offset]
+
+    phase2_rom.write_wram2(
+        "wRendererOwner", phase2_rom.constants["RENDERER_YELLOW"],
+    )
+    phase2_rom.write_wram2("wRendererPhase", phase2_rom.constants["YELLOW_ACTIVE"])
+    phase2_rom.write_wram2("wRendererAdmissionOpen", 1)
+    prior_svbk = emu.pyboy.memory[0xFF70]
+    emu.pyboy.memory[0xFF70] = 1
+    try:
+        map_view = emu.symbols["wMapViewVRAMPointer"]
+        emu.pyboy.memory[map_view] = 0x00
+        emu.pyboy.memory[map_view + 1] = 0x98
+    finally:
+        emu.pyboy.memory[0xFF70] = prior_svbk
+    assert phase2_rom.call("BeginFullColorMapEntry")[1] & 0x10 == 0
+    emu.pyboy.memory[0xFF40] &= 0x7F
+    emu.pyboy.memory[0xFF70] = 3
+    emu.pyboy.memory[0xFF4F] = 1
+
+    observed: dict[str, bytes | int] = {}
+    activation = emu.symbols["ActivateFullColorOwnerForDiagnostic"]
+    activation_bank = emu.symbol_banks["ActivateFullColorOwnerForDiagnostic"]
+
+    def capture_before_activation(_: object) -> None:
+        observed["font"] = emu.read_vram_bank(0, vfont, len(expected_font))
+        observed["bank1"] = emu.read_vram_bank(1, vfont, len(expected_font))
+        observed["svbk"] = emu.pyboy.memory[0xFF70]
+        observed["vbk"] = emu.pyboy.memory[0xFF4F] & 1
+
+    emu.pyboy.hook_register(activation_bank, activation, capture_before_activation, None)
+    try:
+        _, flags = _farcall_from_wram(
+            phase2_rom, "ReconstructFullColorMapEntry", entry_bank=4,
+        )
+    finally:
+        emu.pyboy.hook_deregister(activation_bank, activation)
+
+    assert flags & 0x10 == 0
+    assert observed == {
+        "font": expected_font,
+        "bank1": bank1_sentinel,
+        "svbk": 3,
+        "vbk": 1,
+    }
+    assert emu.pyboy.memory[0xFF70] == 3
+    assert emu.pyboy.memory[0xFF4F] & 1 == 1
+
+
+def test_reconstruction_with_visible_lcd_fails_before_font_write(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator
+    vfont = phase2_rom.emulator.symbols["vFont"]
+    sentinel = bytes((index * 5 + 0x31) & 0xFF for index in range(0x800))
+    for offset, value in enumerate(sentinel):
+        emu.pyboy.memory[0, vfont + offset] = value
+    phase2_rom.write_wram2(
+        "wRendererOwner", phase2_rom.constants["RENDERER_YELLOW"],
+    )
+    phase2_rom.write_wram2("wRendererPhase", phase2_rom.constants["YELLOW_ACTIVE"])
+    phase2_rom.write_wram2("wRendererAdmissionOpen", 1)
+    assert phase2_rom.call("BeginFullColorMapEntry")[1] & 0x10 == 0
+    emu.pyboy.memory[0xFF40] |= 0x80
+
+    _, flags = phase2_rom.call("ReconstructFullColorMapEntry")
+
+    assert flags & 0x10
+    assert emu.read_vram_bank(0, vfont, len(sentinel)) == sentinel
+    assert phase2_rom.read_wram2("wRendererPhase") == bytes((
+        phase2_rom.constants["OVERWORLD_RECONSTRUCTING"],
+    ))
+    assert phase2_rom.read_wram2("wRendererAdmissionOpen") == b"\x00"
 
 
 def test_retry_and_transition_counters_saturate_in_real_rom(phase2_rom: Phase2Rom) -> None:

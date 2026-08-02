@@ -82,15 +82,16 @@ PHASE2_HOSTILE_SCENE_ROOTS = (
 PHASE2_HOSTILE_MUTATION_ROOTS = (
     "AutoBgMapTransfer",
     "DMARoutine",
+    "LoadGBPal",
     "LoadMapData",
     "LoadNorthSouthConnectionsTileMap",
     "PrepareOAMData",
     "RedrawRowOrColumn",
-    "RunPaletteCommand",
     "ScheduleEastColumnRedraw",
     "ScheduleNorthRowRedraw",
     "ScheduleSouthRowRedraw",
     "ScheduleWestColumnRedraw",
+    "TransferBGPPals",
     "UpdateMovingBgTiles",
 )
 
