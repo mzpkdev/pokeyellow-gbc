@@ -473,3 +473,139 @@ def test_retained_smoke_failure_does_not_stale_or_destroy_prior_success(
     assert (failed / "diagnostics/emulator.log").read_text() == "attempt 2"
     assert not (failed / "semantic-snapshot.json").exists()
     assert not (failed / "observability.json").exists()
+
+
+def test_cli_retained_json_mode_emits_one_document(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def smoke(
+        root: Path,
+        *,
+        snapshot_output: Path | None = None,
+        diagnostics_output: Path | None = None,
+    ) -> dict[str, object]:
+        del root
+        assert snapshot_output is not None
+        assert diagnostics_output is not None
+        snapshot_output.write_text("snapshot", encoding="utf-8")
+        diagnostics_output.mkdir(parents=True)
+        return {"schema": "smoke-report-v1"}
+
+    monkeypatch.setattr(runtime_observability, "run_smoke", smoke)
+    results = tmp_path / "results with spaces"
+    assert runtime_observability.main(
+        ["--root", str(tmp_path), "--results", str(results), "--output", "json"]
+    ) == 0
+    captured = capsys.readouterr()
+    summary = json.loads(captured.out)
+    assert summary["status"] == "passed"
+    assert captured.out.count("\n") == 1
+    assert captured.err == ""
+
+
+def test_json_failure_uses_current_attempt_not_malformed_stale_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    results = tmp_path / "results"
+    stale = results / "attempt-9999"
+    stale.mkdir(parents=True)
+    (stale / "summary.json").write_text("{malformed", encoding="utf-8")
+
+    def smoke(*args, **kwargs):
+        del args, kwargs
+        raise RuntimeError("current")
+
+    monkeypatch.setattr(runtime_observability, "run_smoke", smoke)
+    assert runtime_observability.main(
+        ["--results", str(results), "--output", "json"]
+    ) == 1
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["attempt"] == "attempt-0001"
+    assert captured.out.count("\n") == 1
+    assert captured.err == ""
+
+
+def test_cli_retained_failure_is_bounded_and_keeps_diagnostics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def smoke(
+        root: Path,
+        *,
+        snapshot_output: Path | None = None,
+        diagnostics_output: Path | None = None,
+    ) -> dict[str, object]:
+        del root, snapshot_output
+        assert diagnostics_output is not None
+        diagnostics_output.mkdir(parents=True)
+        (diagnostics_output / "emulator.log").write_text(
+            "complete diagnostic detail", encoding="utf-8"
+        )
+        raise AssertionError("first actionable line\nextra\nnoise")
+
+    monkeypatch.setattr(runtime_observability, "run_smoke", smoke)
+    results = tmp_path / "results"
+    assert runtime_observability.main(
+        ["--root", str(tmp_path), "--results", str(results)]
+    ) == 1
+    captured = capsys.readouterr()
+    assert len(captured.err.splitlines()) <= 5
+    assert "EVIDENCE" in captured.err
+    assert (results / "attempt-0001/diagnostics/emulator.log").read_text() == (
+        "complete diagnostic detail"
+    )
+
+
+def test_cli_preserves_explicit_gate0_outputs_and_rejects_mixed_modes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def smoke(
+        root: Path,
+        *,
+        snapshot_output: Path | None = None,
+        diagnostics_output: Path | None = None,
+    ) -> dict[str, object]:
+        del root
+        assert snapshot_output is not None
+        assert diagnostics_output is not None
+        snapshot_output.parent.mkdir(parents=True, exist_ok=True)
+        snapshot_output.write_text("snapshot", encoding="utf-8")
+        diagnostics_output.mkdir(parents=True)
+        return {"schema": "smoke-report-v1"}
+
+    monkeypatch.setattr(runtime_observability, "run_smoke", smoke)
+    snapshot = tmp_path / "semantic snapshot.json"
+    diagnostics = tmp_path / "diagnostics with spaces"
+    assert runtime_observability.main(
+        [
+            "--root",
+            str(tmp_path),
+            "--snapshot-output",
+            str(snapshot),
+            "--diagnostics-output",
+            str(diagnostics),
+        ]
+    ) == 0
+    assert snapshot.is_file()
+    assert diagnostics.is_dir()
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as error:
+        runtime_observability.main(
+            [
+                "--root",
+                str(tmp_path),
+                "--results",
+                str(tmp_path / "retained"),
+                "--snapshot-output",
+                str(snapshot),
+            ]
+        )
+    assert error.value.code == 2

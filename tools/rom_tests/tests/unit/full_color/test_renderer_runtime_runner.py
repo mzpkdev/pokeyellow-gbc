@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from tools.rom_tests.full_color import renderer_runtime_runner
 from tools.rom_tests.full_color.errors import RendererConformanceError
 from tools.rom_tests.full_color.renderer_conformance_artifacts import (
     CONFORMANCE_MANIFEST_SCHEMA,
@@ -30,6 +31,31 @@ ROOT = Path(__file__).resolve().parents[5]
 
 def _attempt(results: Path, number: int = 1) -> Path:
     return results / f"attempt-{number:04d}"
+
+
+def test_json_failure_uses_current_attempt_not_malformed_stale_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    stale = tmp_path / "attempt-9999"
+    stale.mkdir()
+    (stale / "summary.json").write_text("{malformed", encoding="utf-8")
+
+    def fail_current(root: Path, results: Path, *, reporter, **kwargs):
+        del root, kwargs
+        attempt = renderer_runtime_runner.new_attempt(results.resolve())
+        reporter.attempt(attempt)
+        summary = {"attempt": attempt.name, "status": "failed", "error": "current"}
+        renderer_runtime_runner.write_json(attempt / "summary.json", summary)
+        raise RendererConformanceError("current")
+
+    monkeypatch.setattr(renderer_runtime_runner, "run_renderer_runtime", fail_current)
+    assert main(["--results", str(tmp_path), "--output", "json"]) == 1
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["attempt"] == "attempt-0001"
+    assert captured.out.count("\n") == 1
+    assert captured.err == ""
 
 
 def _run(results: Path) -> tuple[Path, Path, dict[str, object]]:
@@ -427,8 +453,27 @@ def test_runtime_contract_does_not_weaken_synthetic_manifest() -> None:
     assert RUNTIME_CASE_ROLES == REQUIRED_ROLES
 
 
-def test_real_cli_returns_success_and_writes_two_runs(tmp_path: Path) -> None:
+def test_real_cli_returns_success_and_writes_two_runs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     assert main(["--root", str(ROOT), "--results", str(tmp_path)]) == 0
+    captured = capsys.readouterr()
+    assert "RUN renderer-runtime evidence=" in captured.out
+    assert "PASS renderer-runtime summary=" in captured.out
+    assert captured.err == ""
     attempt = _attempt(tmp_path)
     assert (attempt / "run-1/manifest.json").is_file()
     assert (attempt / "run-2/manifest.json").is_file()
+
+
+def test_cli_json_mode_emits_one_document_with_two_fresh_runs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(
+        ["--root", str(ROOT), "--results", str(tmp_path), "--output", "json"]
+    ) == 0
+    captured = capsys.readouterr()
+    summary = json.loads(captured.out)
+    assert set(summary["runs"]) == {"run-1", "run-2"}
+    assert captured.out.count("\n") == 1
+    assert captured.err == ""

@@ -9,10 +9,16 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import sys
+import warnings
 from typing import Any
 
-from tools.rom_tests.emulator import Emulator
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message=r"Using SDL2 binaries from pysdl2-dll .+",
+        category=UserWarning,
+    )
+    from tools.rom_tests.emulator import Emulator
 
 from .errors import RendererConformanceError
 from .phase1_baseline import BaselineSemanticReport, compare_phase1_baseline
@@ -36,6 +42,12 @@ from .runtime_observability import (
     capture_yellow_baseline_snapshot,
     restore_phase1_to_yellow,
     wait_until_phase1_capture_ready,
+)
+from .runner_output import (
+    NULL_REPORTER,
+    OutputMode,
+    RunnerReporter,
+    add_output_argument,
 )
 from .snapshots import SemanticSnapshot
 from .trace import WriterTrace
@@ -330,10 +342,12 @@ def run_renderer_runtime(
     results_root: Path,
     *,
     mutation_by_run: Mapping[str, str | RuntimeMutation] | None = None,
+    reporter: RunnerReporter = NULL_REPORTER,
 ) -> dict[str, object]:
     """Complete both fresh runs, then fail for red or nondeterministic evidence."""
     root = root.resolve()
     attempt = new_attempt(results_root.resolve())
+    reporter.attempt(attempt)
     runs = ("run-1", "run-2")
     summary: dict[str, object] = {
         "schema": RUNTIME_RUNNER_SCHEMA,
@@ -345,12 +359,21 @@ def run_renderer_runtime(
     statuses: dict[str, bool] = {}
     errors: dict[str, str] = {}
     for name in runs:
+        started = reporter.running(name)
         try:
             statuses[name] = run_phase1_runtime(
                 root,
                 attempt / name,
                 mutation=(mutation_by_run or {}).get(name),
             )
+            if statuses[name]:
+                reporter.passed(name, started)
+            else:
+                reporter.failed(
+                    name,
+                    RendererConformanceError("runtime checks failed"),
+                    attempt / name / "run-summary.json",
+                )
         except Exception as exc:
             statuses[name] = False
             errors[name] = str(exc)
@@ -360,9 +383,13 @@ def run_renderer_runtime(
                 run / "run-error.json",
                 {"schema": RUNTIME_RUNNER_SCHEMA, "run": name, "error": str(exc)},
             )
+            reporter.failed(name, exc, run / "run-error.json")
+    comparison_started = reporter.running("comparison")
     comparison = compare_stable_runtime_evidence(
         attempt / "run-1", attempt / "run-2"
     )
+    if comparison["byte_identical"]:
+        reporter.passed("comparison", comparison_started)
     summary["runs"] = {
         name: {
             "status": "passed" if statuses[name] else "failed",
@@ -377,18 +404,24 @@ def run_renderer_runtime(
         summary["errors"] = errors
     write_json(attempt / "summary.json", summary)
     if errors:
-        raise RendererConformanceError(
+        error = RendererConformanceError(
             "runtime capture failed in " + ", ".join(sorted(errors))
         )
+        reporter.failed("renderer-runtime", error, attempt / "summary.json")
+        raise error
     if not comparison["byte_identical"]:
-        raise RendererConformanceError(
+        error = RendererConformanceError(
             "independent runtime executions produced different evidence"
         )
+        reporter.failed("comparison", error, attempt / "summary.json")
+        raise error
     failed = [name for name, status in statuses.items() if not status]
     if failed:
-        raise RendererConformanceError(
+        error = RendererConformanceError(
             "runtime checks failed in " + ", ".join(failed)
         )
+        reporter.failed("renderer-runtime", error, attempt / "summary.json")
+        raise error
     return summary
 
 
@@ -397,9 +430,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--results", type=Path, required=True)
     parser.add_argument("--mutation-run-2", choices=sorted(TEST_MUTATIONS))
+    add_output_argument(parser)
     args = parser.parse_args(argv)
+    reporter = RunnerReporter("renderer-runtime", args.output)
     if args.mutation_run_2 is not None and "CI" in os.environ:
-        print("runtime evidence mutation is forbidden in CI", file=sys.stderr)
+        error = RendererConformanceError(
+            "runtime evidence mutation is forbidden in CI"
+        )
+        reporter.failed(
+            "renderer-runtime",
+            error,
+            args.results,
+        )
+        if reporter.mode is OutputMode.JSON:
+            reporter.finish({"status": "failed", "error": str(error)}, None)
         return 2
     try:
         summary = run_renderer_runtime(
@@ -410,11 +454,33 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if args.mutation_run_2 is None
                 else {"run-2": args.mutation_run_2}
             ),
+            reporter=reporter,
         )
     except Exception as exc:
-        print(f"renderer runtime failed: {exc}", file=sys.stderr)
+        reporter.failed("renderer-runtime", exc, args.results)
+        if reporter.mode is OutputMode.JSON:
+            summary_path = (
+                reporter.attempt_path / "summary.json"
+                if reporter.attempt_path is not None
+                else None
+            )
+            failed_summary: Mapping[str, object] = {
+                "status": "failed",
+                "error": str(exc),
+            }
+            if summary_path is not None and summary_path.is_file():
+                try:
+                    loaded = json.loads(summary_path.read_text(encoding="utf-8"))
+                    if isinstance(loaded, dict):
+                        failed_summary = loaded
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                    pass
+            reporter.finish(failed_summary, summary_path)
         return 1
-    print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
+    reporter.finish(
+        summary,
+        args.results.resolve() / str(summary["attempt"]) / "summary.json",
+    )
     return 0
 
 

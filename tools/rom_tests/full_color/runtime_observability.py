@@ -7,10 +7,16 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
-import sys
 from typing import Sequence, TYPE_CHECKING
+import warnings
 
-from tools.rom_tests.emulator import Emulator
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message=r"Using SDL2 binaries from pysdl2-dll .+",
+        category=UserWarning,
+    )
+    from tools.rom_tests.emulator import Emulator
 
 from .enums import CancellationReason, JobState, Owner, Phase, RequestResult
 from .snapshots import (
@@ -22,6 +28,12 @@ from .trace import (
     TraceSymbols,
     WriterTrace,
     decode_writer_ring,
+)
+from .runner_output import (
+    NULL_REPORTER,
+    OutputMode,
+    RunnerReporter,
+    add_output_argument,
 )
 
 if TYPE_CHECKING:
@@ -951,10 +963,17 @@ def _new_smoke_attempt(results_root: Path) -> Path:
     raise RuntimeError("smoke results root contains too many attempts")
 
 
-def run_retained_smoke(root: Path, results_root: Path) -> dict[str, object]:
+def run_retained_smoke(
+    root: Path,
+    results_root: Path,
+    *,
+    reporter: RunnerReporter = NULL_REPORTER,
+) -> dict[str, object]:
     """Run smoke into a fresh attempt, retaining both successes and failures."""
     root = root.resolve()
     attempt = _new_smoke_attempt(results_root.resolve())
+    reporter.attempt(attempt)
+    started = reporter.running("observability")
     status: dict[str, object] = {
         "schema": "full-color-debug-observability-attempt-v1",
         "attempt": attempt.name,
@@ -972,11 +991,13 @@ def run_retained_smoke(root: Path, results_root: Path) -> dict[str, object]:
         status["status"] = "failed"
         status["error"] = str(exc)
         _write_json(attempt / "summary.json", status)
+        reporter.failed("observability", exc, attempt / "summary.json")
         raise
     status["status"] = "passed"
     status["report"] = "observability.json"
     status["snapshot"] = "semantic-snapshot.json"
     _write_json(attempt / "summary.json", status)
+    reporter.passed("observability", started)
     return status
 
 
@@ -1005,25 +1026,49 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Path,
         help="retain this smoke invocation below a fresh attempt directory",
     )
+    add_output_argument(parser)
     args = parser.parse_args(argv)
     if args.results is not None and (
         args.snapshot_output is not None or args.diagnostics_output is not None
     ):
         parser.error("--results cannot be combined with explicit output paths")
+    reporter = RunnerReporter("smoke", args.output)
+    summary_path: Path | None = None
     try:
-        report = (
-            run_retained_smoke(args.root, args.results)
-            if args.results is not None
-            else run_smoke(
+        if args.results is not None:
+            report = run_retained_smoke(
+                args.root, args.results, reporter=reporter
+            )
+            summary_path = (
+                args.results.resolve() / str(report["attempt"]) / "summary.json"
+            )
+        else:
+            started = reporter.running("observability")
+            report = run_smoke(
                 args.root,
                 snapshot_output=args.snapshot_output,
                 diagnostics_output=args.diagnostics_output,
             )
-        )
+            reporter.passed("observability", started)
     except Exception as exc:
-        print(f"full-color observability smoke failed: {exc}", file=sys.stderr)
+        reporter.failed("observability", exc, summary_path or args.results)
+        if reporter.mode is OutputMode.JSON:
+            if summary_path is None and reporter.attempt_path is not None:
+                summary_path = reporter.attempt_path / "summary.json"
+            failed_report: dict[str, object] = {
+                "status": "failed",
+                "error": str(exc),
+            }
+            if summary_path is not None and summary_path.is_file():
+                try:
+                    loaded = json.loads(summary_path.read_text(encoding="utf-8"))
+                    if isinstance(loaded, dict):
+                        failed_report = loaded
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                    pass
+            reporter.finish(failed_report, summary_path)
         return 1
-    print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+    reporter.finish(report, summary_path)
     return 0
 
 
