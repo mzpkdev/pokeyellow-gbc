@@ -103,7 +103,7 @@ def test_canonical_authorities_load_and_round_trip() -> None:
     assert MutationInventory.from_json(mutations.to_json()) == mutations
     assert DiscoveryAssignmentAuthority.from_json(assignments.to_json()) == assignments
     assert len(assignments.for_product().rows) == 8
-    assert len(assignments.for_product("pokeyellow_phase2_audit").rows) == 919
+    assert len(assignments.for_product("pokeyellow_phase2_audit").rows) == 1379
 
 
 def test_exact_reviewed_map_entry_tranche() -> None:

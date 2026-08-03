@@ -1,5 +1,7 @@
 """Automation for receiving Pikachu and completing the first rival battle."""
 
+from collections.abc import Callable
+
 from tools.rom_tests.emulator import Emulator
 from tools.rom_tests.scenarios.new_game import reach_bedroom_overworld
 
@@ -12,6 +14,8 @@ PIKACHU = 0x54
 SCRIPT_OAKSLAB_PLAYER_DONT_GO_AWAY = 6
 SCRIPT_OAKSLAB_RIVAL_CHALLENGES_PLAYER = 12
 SCRIPT_OAKSLAB_NOOP = 22
+
+JourneyCheckpoint = Callable[[str, Emulator], None]
 
 
 def _advance_to_value(
@@ -30,8 +34,8 @@ def _advance_to_value(
     )
 
 
-def walk_from_bedroom_to_oak(emulator: Emulator) -> None:
-    """Leave Red's house and walk north until Oak intercepts the player."""
+def walk_from_bedroom_to_pallet(emulator: Emulator) -> None:
+    """Leave Red's bedroom and stop at the first stable Pallet Town frame."""
     _advance_to_value(emulator, "wXCoord", 5, "right", "bedroom aisle")
     _advance_to_value(emulator, "wYCoord", 1, "up", "bedroom stairs")
     _advance_to_value(emulator, "wCurMap", REDS_HOUSE_1F, "right", "first floor")
@@ -39,9 +43,30 @@ def walk_from_bedroom_to_oak(emulator: Emulator) -> None:
     _advance_to_value(emulator, "wYCoord", 6, "down", "house exit row")
     _advance_to_value(emulator, "wXCoord", 3, "left", "house exit")
     _advance_to_value(emulator, "wCurMap", PALLET_TOWN, "down", "Pallet Town")
+    emulator.tick(60)
+
+
+def walk_from_pallet_to_oak(emulator: Emulator) -> None:
+    """Walk north from Pallet Town until Oak intercepts the player."""
+    if emulator.read("wCurMap") != PALLET_TOWN:
+        raise AssertionError("Oak approach must start in Pallet Town")
 
     _advance_to_value(emulator, "wXCoord", 10, "right", "north exit column")
     _advance_to_value(emulator, "wYCoord", 0, "up", "Oak interception")
+    emulator.tick(60)
+
+
+def walk_from_bedroom_to_oak(
+    emulator: Emulator,
+    checkpoint: JourneyCheckpoint | None = None,
+) -> None:
+    """Leave Red's house and walk north until Oak intercepts the player."""
+    walk_from_bedroom_to_pallet(emulator)
+    if checkpoint is not None:
+        checkpoint("pallet-before-oak", emulator)
+    walk_from_pallet_to_oak(emulator)
+    if checkpoint is not None:
+        checkpoint("oak-interception", emulator)
 
 
 def follow_oak_and_receive_pikachu(emulator: Emulator) -> None:
@@ -101,9 +126,16 @@ def finish_rival_battle_and_leave_lab(emulator: Emulator) -> None:
     emulator.tick(120)
 
 
-def complete_oaks_lab_intro(emulator: Emulator) -> None:
+def complete_oaks_lab_intro(
+    emulator: Emulator,
+    checkpoint: JourneyCheckpoint | None = None,
+) -> None:
     """Start a new game, receive Pikachu, battle the rival, and leave the lab."""
     reach_bedroom_overworld(emulator)
-    walk_from_bedroom_to_oak(emulator)
+    if checkpoint is not None:
+        checkpoint("bedroom", emulator)
+    walk_from_bedroom_to_oak(emulator, checkpoint)
     follow_oak_and_receive_pikachu(emulator)
     finish_rival_battle_and_leave_lab(emulator)
+    if checkpoint is not None:
+        checkpoint("post-lab-pallet", emulator)

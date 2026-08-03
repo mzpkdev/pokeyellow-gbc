@@ -2,9 +2,6 @@ EnterMap::
 ; Load a new map.
 	ld a, PAD_BUTTONS | PAD_CTRL_PAD
 	ld [wJoyIgnore], a
-IF DEF(PHASE2_AUDIT)
-	farcall FullColorAuditBeginBoundedMapEntry
-ENDC
 	call LoadMapData
 	farcall ClearVariablesOnEnterMap
 	ld hl, wStatusFlags2
@@ -48,10 +45,14 @@ OverworldLoop::
 OverworldLoopLessDelay::
 	call DelayFrame
 	call IsSurfingPikachuInParty
-IF DEF(PHASE2_AUDIT)
-	farcall FullColorAuditLoadGBPal
-ELSE
 	call LoadGBPal
+IF DEF(PHASE2_AUDIT)
+	; Yellow's fade and menu restoration stay authoritative.
+	; Probe donor state afterward; publication stays VBlank-deferred.
+	; Hardware access remains isolated in the audit-only passive module.
+	; Prep helpers derive their extents after the farcall bank switch.
+	; Keep this hook line-neutral with frozen Yellow writer coordinates.
+	farcall PassiveFullColorRefreshAfterLoadGBPal
 ENDC
 	call HandleMidJump
 	ld a, [wWalkCounter]
@@ -658,20 +659,20 @@ CheckMapConnections::
 	call LoadMapHeader
 	call PlayDefaultMusicFadeOutCurrent
 IF DEF(PHASE2_AUDIT)
-	farcall FullColorAuditHandleConnectedMap
+	; Yellow's palette command also translates its SGB block packet into CGB
+	; attributes. Keep the LCD off until both Yellow and the passive donor
+	; planes have completed, avoiding a partially recolored connection frame.
+	call DisableLCD
 ENDC
 	ld b, SET_PAL_OVERWORLD
-IF DEF(PHASE2_AUDIT)
-	farcall FullColorAuditRunOverworldPalette
-ELSE
 	call RunPaletteCommand
-ENDC
 ; Since the sprite set shouldn't change, this will just update VRAM slots at
 ; x#SPRITESTATEDATA2_IMAGEBASEOFFSET without loading any tile patterns.
 	call InitMapSprites
 	call LoadTileBlockMap
 IF DEF(PHASE2_AUDIT)
-	farcall FullColorAuditSnapshotConnectedMap
+	farcall PassiveFullColorApplyMap
+	call EnableLCD
 ENDC
 	jp OverworldLoopLessDelay
 .didNotEnterConnectedMap
@@ -1453,9 +1454,6 @@ AdvancePlayerSprite::
 	pop af
 	ld [wUpdateSpritesEnabled], a
 	ret
-; the following 6 functions are used to tell the V-blank handler to redraw
-; the portion of the map that was newly exposed due to the player's movement
-
 ScheduleNorthRowRedraw::
 	hlcoord 0, 0
 	call CopyToRedrawRowOrColumnSrcTiles
@@ -1464,12 +1462,11 @@ ScheduleNorthRowRedraw::
 	ld a, [wMapViewVRAMPointer + 1]
 	ldh [hRedrawRowOrColumnDest + 1], a
 IF DEF(PHASE2_AUDIT)
-	farjp FullColorAuditScheduleNorthRow
-ELSE
+	farcall PassiveFullColorPrepareRedrawAttributes
+ENDC
 	ld a, REDRAW_ROW
 	ldh [hRedrawRowOrColumnMode], a
 	ret
-ENDC
 CopyToRedrawRowOrColumnSrcTiles::
 	ld de, wRedrawRowOrColumnSrcTiles
 	ld c, 2 * SCREEN_WIDTH
@@ -1496,12 +1493,11 @@ ScheduleSouthRowRedraw::
 	ld a, l
 	ldh [hRedrawRowOrColumnDest], a
 IF DEF(PHASE2_AUDIT)
-	farjp FullColorAuditScheduleMovementRow
-ELSE
+	farcall PassiveFullColorPrepareRedrawAttributes
+ENDC
 	ld a, REDRAW_ROW
 	ldh [hRedrawRowOrColumnMode], a
 	ret
-ENDC
 ScheduleEastColumnRedraw::
 	hlcoord 18, 0
 	call ScheduleColumnRedrawHelper
@@ -1517,12 +1513,11 @@ ScheduleEastColumnRedraw::
 	ld a, [wMapViewVRAMPointer + 1]
 	ldh [hRedrawRowOrColumnDest + 1], a
 IF DEF(PHASE2_AUDIT)
-	farjp FullColorAuditScheduleMovementColumn
-ELSE
+	farcall PassiveFullColorPrepareColumnAttributes
+ENDC
 	ld a, REDRAW_COL
 	ldh [hRedrawRowOrColumnMode], a
 	ret
-ENDC
 ScheduleColumnRedrawHelper::
 	ld de, wRedrawRowOrColumnSrcTiles
 	ld c, SCREEN_HEIGHT
@@ -1550,12 +1545,11 @@ ScheduleWestColumnRedraw::
 	ld a, [wMapViewVRAMPointer + 1]
 	ldh [hRedrawRowOrColumnDest + 1], a
 IF DEF(PHASE2_AUDIT)
-	farjp FullColorAuditScheduleMovementColumn
-ELSE
+	farcall PassiveFullColorPrepareColumnAttributes
+ENDC
 	ld a, REDRAW_COL
 	ldh [hRedrawRowOrColumnMode], a
 	ret
-ENDC
 ; function to write the tiles that make up a tile block to memory
 ; Input: c = tile block ID, hl = destination address
 DrawTileBlock::
@@ -1954,9 +1948,6 @@ CopySignData::
 	ret
 ; function to load map data
 LoadMapData::
-IF DEF(PHASE2_AUDIT)
-	farjp FullColorAuditLoadMapData
-ELSE
 	ldh a, [hLoadedROMBank]
 	push af
 	call DisableLCD
@@ -1968,9 +1959,19 @@ ELSE
 	call CopyMapViewToVRAM
 	ld a, $01
 	ld [wUpdateSpritesEnabled], a
+IF DEF(PHASE2_AUDIT)
+	; Yellow owns its complete map palette command, including its bank-1
+	; attribute translation. Publish the donor planes only after that command
+	; has finished, while the LCD is still safely disabled.
+	ld b, SET_PAL_OVERWORLD
+	call RunPaletteCommand
+	farcall PassiveFullColorApplyMap
+	call EnableLCD
+ELSE
 	call EnableLCD
 	ld b, SET_PAL_OVERWORLD
 	call RunPaletteCommand
+ENDC
 	call LoadPlayerSpriteGraphics
 	ld a, [wStatusFlags6]
 	and 1 << BIT_DUNGEON_WARP | 1 << BIT_FLY_WARP
@@ -1984,7 +1985,6 @@ ELSE
 	pop af
 	call BankswitchCommon
 	ret
-ENDC
 LoadScreenRelatedData::
 	call LoadTileBlockMap
 	call LoadTilesetTilePatternData

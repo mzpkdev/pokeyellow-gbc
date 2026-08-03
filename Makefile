@@ -64,6 +64,8 @@ RGBGFXFLAGS  ?= -Weverything
 	measure-full-color-phase1 \
 	verify-full-color-phase2-audit \
 	test-full-color-gate0 \
+	test-full-color-gate0-ci-run \
+	test-full-color-gate0-ci-compare \
 	test-full-color-renderer-conformance \
 	test-full-color-renderer-runtime \
 	test-full-color-smoke \
@@ -125,6 +127,12 @@ test-full-color-setup:
 
 test-full-color-gate0: pokeyellow.gbc pokeyellow_debug.gbc pokeyellow_vc.gbc
 	$(PYTHON) -m tools.rom_tests.full_color.gate0_runner --root . --results "$(FULL_COLOR_RESULTS)"
+
+test-full-color-gate0-ci-run: pokeyellow.gbc pokeyellow_debug.gbc pokeyellow_vc.gbc
+	$(PYTHON) -m tools.rom_tests.full_color.gate0_runner --root . --results "$(FULL_COLOR_RESULTS)" --one-run "run-$(FULL_COLOR_GATE0_RUN)"
+
+test-full-color-gate0-ci-compare:
+	$(PYTHON) -m tools.rom_tests.full_color.gate0_runner --root . --results "$(FULL_COLOR_RESULTS)" --compare-runs run-1 run-2
 
 verify-full-color-phase2-audit: pokeyellow.gbc pokeyellow_debug.gbc pokeyellow_vc.gbc pokeyellow_phase2_audit.gbc
 	$(PYTHON) -m tools.rom_tests.full_color.phase2_measurements --root . --output specs/full-colors/evidence/phase2-hostile-slice-representation.json --verify

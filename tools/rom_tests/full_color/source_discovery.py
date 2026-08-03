@@ -68,7 +68,11 @@ REGISTER_SYMBOLS: dict[str, int] = {
 }
 
 # Exact source roots retained by the compile-time-only Phase 2 audit product.
-PHASE2_HOSTILE_LIFECYCLE_ROOTS = ("EnterMap",)
+PHASE2_HOSTILE_LIFECYCLE_ROOTS = (
+    "EnterMap",
+    "PassiveFullColorApplyMap",
+    "PassiveFullColorHandleConnection",
+)
 PHASE2_HOSTILE_SCENE_ROOTS = (
     "DisplayPartyMenu",
     "DisplayStartMenu",
@@ -85,6 +89,14 @@ PHASE2_HOSTILE_MUTATION_ROOTS = (
     "LoadGBPal",
     "LoadMapData",
     "LoadNorthSouthConnectionsTileMap",
+    "PassiveFullColorClearBGMapAttributes",
+    "PassiveFullColorClearBGMapChunk",
+    "PassiveFullColorCommitPalettes",
+    "PassiveFullColorCommitRedrawColumn",
+    "PassiveFullColorCommitRedrawRow",
+    "PassiveFullColorCommitVisibleAttributes",
+    "PassiveFullColorHomogenizeBGPalettes",
+    "PassiveFullColorVBlank",
     "PrepareOAMData",
     "RedrawRowOrColumn",
     "ScheduleEastColumnRedraw",

@@ -25,9 +25,13 @@ def _job(workflow: str, name: str) -> str:
 
 def _validate_phase2_audit_provisioning(workflow: str) -> None:
     test_job = _job(workflow, "test")
-    gate0_job = _job(workflow, "gate-0-baseline")
+    gate0_job = _job(workflow, "gate-0-baseline-runs")
+    gate0_aggregator = _job(workflow, "gate-0-baseline")
     test_command = "run: python -m pytest tools/rom_tests/tests/unit"
-    gate0_command = "run: make test-full-color-gate0"
+    gate0_command = (
+        "run: make test-full-color-gate0-ci-run "
+        "FULL_COLOR_GATE0_RUN=${{ matrix.run }}"
+    )
 
     assert re.findall(r"^    timeout-minutes: (.+)$", test_job, re.MULTILINE) == [
         "20"
@@ -56,8 +60,10 @@ def _validate_phase2_audit_provisioning(workflow: str) -> None:
         "Gate 0 CI must build the genuine root-level Phase 2 audit product"
     )
     run_commands = re.findall(r"^        run: (.+)$", gate0_job, re.MULTILINE)
-    assert run_commands.count("make test-full-color-gate0") == 1, (
-        "Gate 0 CI must retain the exact stable make test-full-color-gate0 command"
+    assert run_commands.count(
+        "make test-full-color-gate0-ci-run FULL_COLOR_GATE0_RUN=${{ matrix.run }}"
+    ) == 1, (
+        "each Gate 0 CI matrix leg must retain the exact complete-run command"
     )
     assert gate0_job.index(SETUP_BUILD_ACTION) < gate0_job.index(
         AUDIT_BUILD_COMMAND
@@ -68,6 +74,12 @@ def _validate_phase2_audit_provisioning(workflow: str) -> None:
         AUDIT_BUILD_COMMAND
     ) < gate0_job.index(gate0_command), (
         "Gate 0 CI must provision the Phase 2 audit product after setup and before execution"
+    )
+    assert "needs: gate-0-baseline-runs" in gate0_aggregator, (
+        "Gate 0 aggregator must wait for every complete matrix run"
+    )
+    assert "run: make test-full-color-gate0-ci-compare" in gate0_aggregator, (
+        "Gate 0 aggregator must compare the independently produced evidence"
     )
 
 
@@ -105,7 +117,7 @@ def _move_gate0_rgbds_setup_after_audit(workflow: str) -> str:
         "      - name: Build Phase 2 audit ROM\n"
         f"        run: {AUDIT_BUILD_COMMAND}\n"
     )
-    execution = "      - name: Run lean Gate 0\n"
+    execution = "      - name: Run one complete lean Gate 0 execution\n"
     return workflow.replace(
         setup + dependencies + audit + "\n" + execution,
         dependencies + audit + "\n" + setup + execution,
@@ -155,8 +167,8 @@ def _move_gate0_rgbds_setup_after_audit(workflow: str) -> str:
             lambda text: text.replace(
                 "      - name: Build Phase 2 audit ROM\n"
                 f"        run: {AUDIT_BUILD_COMMAND}\n\n"
-                "      - name: Run lean Gate 0\n",
-                "      - name: Run lean Gate 0\n",
+                "      - name: Run one complete lean Gate 0 execution\n",
+                "      - name: Run one complete lean Gate 0 execution\n",
             ),
             "Gate 0 CI must build the genuine root-level Phase 2 audit product",
         ),
@@ -166,9 +178,9 @@ def _move_gate0_rgbds_setup_after_audit(workflow: str) -> str:
         ),
         (
             lambda text: text.replace(
-                "run: make test-full-color-gate0", "run: python -m pytest"
+                "run: make test-full-color-gate0-ci-run", "run: python -m pytest"
             ),
-            "exact stable make test-full-color-gate0 command",
+            "exact complete-run command",
         ),
     ],
     ids=(

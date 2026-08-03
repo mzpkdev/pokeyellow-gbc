@@ -1,4 +1,4 @@
-"""Workflow contract for the blocking lean Gate 0 CI job."""
+"""Workflow contract for parallel Gate 0 execution and blocking comparison."""
 
 from pathlib import Path
 import re
@@ -10,73 +10,55 @@ ROOT = Path(__file__).parents[5]
 WORKFLOW = ROOT / ".github/workflows/ci.yml"
 
 
-def _gate0_job(workflow: str) -> str:
+def _job(workflow: str, name: str) -> str:
     match = re.search(
-        r"^  gate-0-baseline:\n(?P<body>(?: {4}[^\n]*\n| {6}[^\n]*\n| {8}[^\n]*\n| {10}[^\n]*\n| {12}[^\n]*\n|\n)*)",
+        rf"^  {re.escape(name)}:\n"
+        r"(?P<body>(?: {4}[^\n]*\n| {6}[^\n]*\n| {8}[^\n]*\n| {10}[^\n]*\n| {12}[^\n]*\n|\n)*)",
         workflow,
         re.MULTILINE,
     )
-    assert match is not None, "CI is missing the blocking gate-0-baseline job"
+    assert match is not None, f"CI is missing the {name} job"
     return match.group("body")
 
 
 def _validate_gate0_contract(workflow: str) -> None:
-    job = _gate0_job(workflow)
-    assert "FULL_COLOR_RESULTS: test-results/full-color-gate0" in job, (
-        "Gate 0 CI must define one common FULL_COLOR_RESULTS root"
-    )
-    assert "uses: ./.github/actions/setup-build" in job, (
-        "Gate 0 CI must install the pinned RGBDS toolchain"
-    )
-    assert "run: make test-full-color-setup" in job, (
-        "Gate 0 CI must install the pinned Python dependencies"
-    )
-    assert "continue-on-error:" not in job, "Gate 0 CI must remain blocking"
+    runs = _job(workflow, "gate-0-baseline-runs")
+    comparison = _job(workflow, "gate-0-baseline")
 
-    initialize_step = re.search(
-        r"      - name: Initialize Gate 0 evidence root\n"
-        r"(?P<body>(?: {8}[^\n]*\n| {10}[^\n]*\n| {12}[^\n]*\n)+)",
-        job,
+    assert "fail-fast: false" in runs, "Gate 0 matrix must run both legs"
+    assert "run: [1, 2]" in runs, "Gate 0 matrix must contain exactly two runs"
+    assert "needs: build" in runs, "Gate 0 runs must wait for the build"
+    assert "FULL_COLOR_RESULTS: test-results/full-color-gate0" in runs
+    assert "uses: ./.github/actions/setup-build" in runs
+    assert "run: make test-full-color-setup" in runs
+    assert 'run: make -j"$(nproc)" yellow_phase2_audit' in runs
+    assert (
+        "run: make test-full-color-gate0-ci-run "
+        "FULL_COLOR_GATE0_RUN=${{ matrix.run }}"
+    ) in runs, "each matrix leg must execute one complete Gate 0 run"
+    assert "continue-on-error:" not in runs, "Gate 0 runs must remain blocking"
+    assert runs.count("if: always()") == 1, (
+        "each Gate 0 run must always upload evidence"
     )
-    assert initialize_step is not None, (
-        "CI must initialize Gate 0 evidence immediately after checkout"
-    )
-    initialize_body = initialize_step.group("body")
-    assert 'mkdir -p "$FULL_COLOR_RESULTS"' in initialize_body, (
-        "Gate 0 CI must initialize the common FULL_COLOR_RESULTS root"
-    )
-    assert '"$FULL_COLOR_RESULTS/ci-run.txt"' in initialize_body, (
-        "Gate 0 CI must seed evidence metadata before fallible setup"
-    )
-    assert job.index("Initialize Gate 0 evidence root") < job.index("Set up Python"), (
-        "Gate 0 evidence must be initialized before fallible setup"
-    )
+    assert "path: ${{ env.FULL_COLOR_RESULTS }}/run-${{ matrix.run }}/" in runs
 
-    run_step = re.search(
-        r"      - name: Run lean Gate 0\n(?P<body>(?: {8}[^\n]*\n)+)", job
+    assert "name: Gate 0 Baseline" in comparison
+    assert "needs: gate-0-baseline-runs" in comparison
+    assert re.search(r"^    if: always\(\)$", comparison, re.MULTILINE), (
+        "the blocking comparison must run even when a matrix leg fails"
     )
-    assert run_step is not None, "CI must retain the lean Gate 0 run step"
-    run_body = run_step.group("body")
-    assert "run: make test-full-color-gate0" in run_body, (
-        "Gate 0 CI must invoke the stable make test-full-color-gate0 command"
+    assert "continue-on-error:" not in comparison, (
+        "the Gate 0 comparison must remain blocking"
     )
-    upload_step = re.search(
-        r"      - name: Upload Gate 0 evidence\n"
-        r"(?P<body>(?: {8}[^\n]*\n| {10}[^\n]*\n| {12}[^\n]*\n)+)",
-        job,
+    assert comparison.count("uses: actions/download-artifact@v7") == 2
+    assert "path: ${{ env.FULL_COLOR_RESULTS }}/run-1" in comparison
+    assert "path: ${{ env.FULL_COLOR_RESULTS }}/run-2" in comparison
+    assert "run: make test-full-color-gate0-ci-compare" in comparison
+    assert comparison.count("if: always()") == 2, (
+        "the aggregator must always run and always upload compared evidence"
     )
-    assert upload_step is not None, "CI must retain the Gate 0 evidence upload"
-    upload_body = upload_step.group("body")
-    assert "if: always()" in upload_body, (
-        "Gate 0 evidence must upload on success or failure"
-    )
-    assert re.search(
-        r"^          path: \$\{\{ env\.FULL_COLOR_RESULTS \}\}/$",
-        upload_body,
-        re.MULTILINE,
-    ), (
-        "Gate 0 evidence upload must retain the whole FULL_COLOR_RESULTS root"
-    )
+    assert "uses: actions/upload-artifact@v7" in comparison
+    assert "path: ${{ env.FULL_COLOR_RESULTS }}/" in comparison
 
 
 def test_gate0_ci_contract() -> None:
@@ -87,31 +69,39 @@ def test_gate0_ci_contract() -> None:
     ("mutate", "failure"),
     [
         (
-            lambda text: text.replace(
-                "run: make test-full-color-gate0", "run: python -m pytest"
-            ),
-            "stable make test-full-color-gate0 command",
+            lambda text: text.replace("fail-fast: false", "fail-fast: true"),
+            "matrix must run both legs",
+        ),
+        (
+            lambda text: text.replace("run: [1, 2]", "run: [1]"),
+            "exactly two runs",
         ),
         (
             lambda text: text.replace(
-                "    timeout-minutes: 30",
-                "    timeout-minutes: 30\n    continue-on-error: true",
+                "make test-full-color-gate0-ci-run", "python -m pytest"
             ),
-            "must remain blocking",
-        ),
-        (
-            lambda text: text.replace("        if: always()\n", ""),
-            "upload on success or failure",
+            "one complete Gate 0 run",
         ),
         (
             lambda text: text.replace(
-                "path: ${{ env.FULL_COLOR_RESULTS }}/",
-                "path: ${{ env.FULL_COLOR_RESULTS }}/summary.json",
+                "    needs: gate-0-baseline-runs\n"
+                "    if: always()\n"
+                "    runs-on: ubuntu-latest\n",
+                "    needs: gate-0-baseline-runs\n"
+                "    runs-on: ubuntu-latest\n",
+                1,
             ),
-            "retain the whole FULL_COLOR_RESULTS root",
+            "comparison must run even when a matrix leg fails",
+        ),
+        (
+            lambda text: text.replace(
+                "run: make test-full-color-gate0-ci-compare",
+                "run: true",
+            ),
+            "test-full-color-gate0-ci-compare",
         ),
     ],
-    ids=("stable-command", "blocking", "always-upload", "whole-results-root"),
+    ids=("fail-fast", "two-runs", "complete-run", "always-compare", "compare"),
 )
 def test_gate0_ci_contract_rejects_targeted_mutations(mutate, failure: str) -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")

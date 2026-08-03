@@ -5,11 +5,14 @@ VBlank::
 	push de
 	push hl
 
-	; An interrupt can arrive while renderer state has WRAM bank 2 selected.
-	; Save the raw entry register on the stack before touching any banked WRAM,
-	; then run Yellow's legacy VBlank work against its established bank 1.
 	ldh a, [rSVBK]
+IF DEF(PHASE2_AUDIT)
+	; The outer register frame is already on the interrupted WRAM bank. Save
+	; SVBK in HRAM so restoring it never tries to read through another bank.
+	ldh [hPassiveFullColorVBlankSavedSVBK], a
+ELSE
 	push af
+ENDC
 	ld a, 1
 	ldh [rSVBK], a
 
@@ -21,12 +24,7 @@ VBlank::
 	ldh a, [hLoadedROMBank]
 	ld [wVBlankSavedROMBank], a
 
-IF DEF(PHASE2_AUDIT)
-	; Decide visible ownership once. Carry clear means the full-color owner has
-	; consumed this VBlank, so no Yellow-visible writer may run afterward.
-	farcall FullColorVBlankOwnerConsumed
-	jr nc, :+
-ELSE
+IF !DEF(PHASE2_AUDIT)
 	; Phase 1 dispatch is banked to keep the already-full Home section bounded.
 	; Its full-color route is a no-op; Yellow's mechanics continue unchanged.
 	farcall RouteRendererOwnershipVBlank
@@ -46,7 +44,19 @@ ENDC
 
 	call AutoBgMapTransfer
 	call VBlankCopyBgMap
+
+IF DEF(PHASE2_AUDIT)
+	; RedrawRowOrColumn consumes its mode. Freeze that one byte so the passive
+	; bank-1 mirror can follow the completed Yellow bank-0 write geometrically.
+	ldh a, [hRedrawRowOrColumnMode]
+	push af
+ENDC
 	call RedrawRowOrColumn
+IF DEF(PHASE2_AUDIT)
+	; D carries the consumed mode through Bankswitch; E is the discarded flags.
+	pop de
+	farcall PassiveFullColorVBlank
+ENDC
 	call VBlankCopy
 	call VBlankCopyDouble
 	call UpdateMovingBgTiles
@@ -91,8 +101,13 @@ ENDC
 	pop af
 	ldh [rVBK], a
 
+IF DEF(PHASE2_AUDIT)
+	ldh a, [hPassiveFullColorVBlankSavedSVBK]
+	ldh [rSVBK], a
+ELSE
 	pop af
 	ldh [rSVBK], a
+ENDC
 
 	pop hl
 	pop de

@@ -37,21 +37,6 @@ PrepareFullColorPairedTransferSelected::
 .tile_done
 	pop bc
 	pop hl
-	ld a, [hl]
-	and FULL_COLOR_DESCRIPTOR_CLASS_MASK
-	cp FULL_COLOR_REQUEST_MAP_OVERLAY_PAIRED
-	jr nz, .normal
-	ld a, 1
-	jr .mode
-.normal
-	xor a
-.mode
-	ld [wFullColorRequestStaging], a
-	ld a, [wFullColorRequestStaging]
-	and a
-	jr z, .attributes_ready
-	ld de, wFullColorAttributeRectangle
-.attributes_ready
 	; The second frozen plane uses the four palette buffers followed by the
 	; first 104 bytes of the OAM buffer. Singleton preparation makes that union
 	; safe and keeps the measured scratch allocation unchanged.
@@ -68,16 +53,8 @@ PrepareFullColorPairedTransferSelected::
 	jr nz, .attribute_source
 	ld hl, wFullColorShadowOAMBatch
 .attribute_source
-	ld a, [wFullColorRequestStaging]
-	and a
-	jr z, .owned_attribute
-	ld a, [de]
-	and 7
-	jr .store
-.owned_attribute
 	ld a, [de]
 	and $ef
-.store
 	ld [hli], a
 	inc de
 	dec bc

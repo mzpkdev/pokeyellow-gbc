@@ -2607,7 +2607,13 @@ wFullColorLastAdmissionResult:: db
 wFullColorTransitionCount:: db
 wFullColorTransitionLog:: ds 8
 wFullColorActiveDescriptor:: dw
-wFullColorTimingState:: ds 4
+wFullColorTimingState::
+; The passive audit doesn't invoke the dormant scheduler. Its two persistent
+; state bytes safely alias that scheduler's timing scratch without growing WRAM.
+wPassiveFullColorActive:: db
+wPassiveFullColorPalettePending:: db
+wPassiveFullColorClearChunks:: db
+wPassiveFullColorGeneration:: db
 wFullColorReconstructionItems:: ds 4
 wFullColorRequestStaging:: ds 5
 wFullColorReconstructionLedgerEnd::

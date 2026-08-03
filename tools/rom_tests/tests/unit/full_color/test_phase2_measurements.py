@@ -1,10 +1,8 @@
 """Phase 2 hostile-slice measured-representation tests."""
 
 from dataclasses import replace
-import hashlib
 import json
 from pathlib import Path
-import shutil
 from types import SimpleNamespace
 
 import pytest
@@ -19,8 +17,6 @@ from tools.rom_tests.full_color.phase2_measurements import (
     Phase2Candidate,
     Phase2Measurement,
     Phase2MeasurementError,
-    RequestClassMeasurement,
-    generate,
     discover_phase2_sources,
     load_definition,
     select_phase2_representation,
@@ -565,6 +561,180 @@ def test_closed_party_directions_use_inventory_vocabulary() -> None:
         in phase2_measurements._CLOSED_SCENE_DIRECTIONS
     }
     assert directions == phase2_measurements._CLOSED_SCENE_DIRECTIONS
+
+
+def test_passive_production_contract_is_closed() -> None:
+    report = phase2_measurements.discover_phase2_sources(ROOT)
+    assert phase2_measurements._passive_production_contract_errors(report) == ()
+
+
+def test_passive_production_contract_rejects_required_edge_omission() -> None:
+    report = phase2_measurements.discover_phase2_sources(ROOT)
+    omitted = (
+        "PassiveFullColorApplyMap.apply",
+        "PassiveFullColorCommitVisibleAttributes",
+    )
+    changed = replace(
+        report,
+        findings=tuple(
+            finding
+            for finding in report.findings
+            if (finding.symbol, finding.destination) != omitted
+        ),
+    )
+    assert phase2_measurements._passive_production_contract_errors(changed) == (
+        "passive production edge omitted: "
+        "PassiveFullColorApplyMap.apply -> PassiveFullColorCommitVisibleAttributes",
+    )
+
+
+def test_passive_production_contract_rejects_donor_writer_alteration() -> None:
+    report = phase2_measurements.discover_phase2_sources(ROOT)
+    changed = replace(
+        report,
+        findings=tuple(
+            replace(finding, resource="SYMBOLIC_SINK")
+            if finding.category == "writer"
+            and finding.symbol.startswith("PassiveFullColorCommitPalettes")
+            and finding.resource == "CGB_PALETTE"
+            else finding
+            for finding in report.findings
+        ),
+    )
+    assert phase2_measurements._passive_production_contract_errors(changed) == (
+        "PassiveFullColorCommitPalettes: passive donor writer resources omitted: "
+        "['CGB_PALETTE']",
+    )
+
+
+def test_passive_production_contract_rejects_hostile_edge_resurrection() -> None:
+    report = phase2_measurements.discover_phase2_sources(ROOT)
+    template = next(
+        finding
+        for finding in report.findings
+        if finding.symbol == "LoadMapData"
+        and finding.destination == "PassiveFullColorApplyMap"
+    )
+    resurrected = replace(template, destination="EnterFullColorOverlay")
+    changed = replace(report, findings=(*report.findings, resurrected))
+    errors = phase2_measurements._passive_production_contract_errors(changed)
+    assert errors == (
+        "hostile ownership/scheduler edge resurrected in production: "
+        "LoadMapData -> EnterFullColorOverlay",
+    )
+
+
+def test_passive_production_contract_rejects_renderer_generation_mutation() -> None:
+    report = phase2_measurements.discover_phase2_sources(ROOT)
+    template = next(
+        finding
+        for finding in report.findings
+        if finding.symbol == "LoadMapData"
+        and finding.destination == "PassiveFullColorApplyMap"
+    )
+    mutated = replace(template, destination="wRendererGeneration")
+    changed = replace(report, findings=(*report.findings, mutated))
+    assert phase2_measurements._passive_production_contract_errors(changed) == (
+        "passive production mutates Yellow ownership/generation: "
+        "LoadMapData -> wRendererGeneration",
+    )
+
+
+def test_dormant_scheduler_seam_is_not_production_reachability() -> None:
+    report = phase2_measurements.discover_phase2_sources(ROOT)
+    assert any(
+        finding.symbol == "EnqueueFullColorStartMenuOverlay.retry"
+        and finding.destination == "EnqueueFullColorWindowTileMapOverlayFar"
+        for finding in report.findings
+    )
+    assert phase2_measurements._passive_production_contract_errors(report) == ()
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"root": "PassiveFullColorCommitPalettes"}, "unreviewed passive ROM pointer"),
+        ({"bytes": "77"}, "unreviewed passive ROM pointer"),
+        (
+            {"call_path": ("PassiveFullColorCommitVisibleAttributes", "altered")},
+            "unreviewed passive ROM pointer",
+        ),
+        ({"resource": "UNKNOWN_OTHER"}, "unclassified resource"),
+    ],
+)
+def test_passive_rom_pointer_projection_is_exact(changes, message) -> None:
+    report = phase2_measurements.discover_phase2_rom(ROOT)
+    finding = next(
+        finding
+        for finding in report.findings
+        if finding.root == "PassiveFullColorCommitVisibleAttributes"
+        and finding.resource == "UNKNOWN_DESTINATION"
+    )
+    assert (
+        phase2_measurements._planned_rom_row_for(finding)
+        == "WR-P2-YELLOW-OVERLAY-TRANSFER"
+    )
+    with pytest.raises(Phase2MeasurementError, match=message):
+        phase2_measurements._planned_rom_row_for(replace(finding, **changes))
+
+
+def test_passive_rom_pointer_authority_has_exact_site_and_root_coverage() -> None:
+    report = phase2_measurements.discover_phase2_rom(ROOT)
+    findings = tuple(
+        finding
+        for finding in report.findings
+        if finding.root in phase2_measurements._phase2_roots()
+    )
+    phase2_measurements._validate_passive_rom_pointer_authority(findings)
+    assert len(phase2_measurements._PASSIVE_ROM_POINTER_WRITES) == 78
+    assert {
+        phase2_measurements._planned_rom_row_for(finding)
+        for finding in findings
+        if finding.category == "writer"
+        and finding.resource == "UNKNOWN_DESTINATION"
+        and finding.root.startswith("PassiveFullColor")
+    } == {"WR-P2-YELLOW-OVERLAY-TRANSFER"}
+
+
+@pytest.mark.parametrize(
+    "mutation", ["stale-site", "missing-root", "stale-ancestry"],
+)
+def test_passive_rom_pointer_authority_rejects_stale_entries(
+    monkeypatch,
+    mutation,
+) -> None:
+    report = phase2_measurements.discover_phase2_rom(ROOT)
+    findings = tuple(
+        finding
+        for finding in report.findings
+        if finding.root in phase2_measurements._phase2_roots()
+    )
+    authority = {
+        site: dict(roots)
+        for site, roots in phase2_measurements._PASSIVE_ROM_POINTER_WRITES.items()
+    }
+    site = next(iter(authority))
+    if mutation == "stale-site":
+        authority[(site[0], site[1] - 1, site[2])] = authority.pop(site)
+        message = "pointer sites changed"
+    else:
+        root = next(iter(authority[site]))
+        if mutation == "missing-root":
+            authority[site].pop(root)
+            message = "pointer roots changed"
+        else:
+            authority[site][root] = (
+                *authority[site][root],
+                (*authority[site][root][0], "altered"),
+            )
+            message = "pointer ancestry changed"
+    monkeypatch.setattr(
+        phase2_measurements,
+        "_PASSIVE_ROM_POINTER_WRITES",
+        authority,
+    )
+    with pytest.raises(Phase2MeasurementError, match=message):
+        phase2_measurements._validate_passive_rom_pointer_authority(findings)
 
 
 @pytest.mark.parametrize("kind", ["destination", "control"])

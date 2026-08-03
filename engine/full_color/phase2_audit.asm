@@ -18,6 +18,16 @@ Phase2AuditRoots::
 	dw LoadNorthSouthConnectionsTileMap
 	dw PalletTown_h
 	dw PartyMenuInit
+	dw PassiveFullColorApplyMap
+	dw PassiveFullColorClearBGMapAttributes
+	dw PassiveFullColorClearBGMapChunk
+	dw PassiveFullColorCommitPalettes
+	dw PassiveFullColorCommitRedrawColumn
+	dw PassiveFullColorCommitRedrawRow
+	dw PassiveFullColorCommitVisibleAttributes
+	dw PassiveFullColorHandleConnection
+	dw PassiveFullColorHomogenizeBGPalettes
+	dw PassiveFullColorVBlank
 	dw PrepareOAMData
 	dw RedrawRowOrColumn
 	dw RestoreScreenTilesAndReloadTilePatterns
@@ -31,5 +41,5 @@ Phase2AuditRoots::
 	dw UpdateMovingBgTiles
 Phase2AuditRootsEnd::
 
-ASSERT Phase2AuditRootsEnd - Phase2AuditRoots == 22 * 2
+ASSERT Phase2AuditRootsEnd - Phase2AuditRoots == 32 * 2
 ENDC

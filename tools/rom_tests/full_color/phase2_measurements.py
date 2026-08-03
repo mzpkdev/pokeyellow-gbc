@@ -70,35 +70,26 @@ DEFINITION_PATH = "specs/full-colors/definitions/phase2-hostile-slice-representa
 SOURCE_TRANSITION_PATH = "specs/full-colors/definitions/phase1-audit-source-transition.json"
 PLANNED_SUBJECTS_PATH = "specs/full-colors/definitions/phase2-planned-subjects.json"
 
-PLANNED_ONLY_DISPOSITION_ROWS = frozenset({"WR-P2-YELLOW-BG-PALETTE"})
+PLANNED_ONLY_DISPOSITION_ROWS = frozenset()
 
 PHASE2_SCENE_EDGE_CLASSIFICATIONS = {
     ("DisplayPartyMenu", "PartyMenuInit"): ("DIRECTED_EDGE", "MAP_TO_YELLOW"),
     (
         "StartMenu_Pokemon.exitMenu",
-        "ReturnFullColorFromParty",
-    ): ("DIRECTED_EDGE", "YELLOW_TO_MAP"),
+        "RestoreScreenTilesAndReloadTilePatterns",
+    ): ("DIRECTED_EDGE", "YELLOW_TO_YELLOW"),
 }
 
 _CLOSED_SCENE_DIRECTIONS = {
-    ("DisplayPartyMenu", "PartyMenuInit"): "MAP_TO_YELLOW",
+    ("DisplayPartyMenu", "PartyMenuInit"): "YELLOW_TO_YELLOW",
     (
         "StartMenu_Pokemon.exitMenu",
-        "ReturnFullColorFromParty",
-    ): "YELLOW_TO_MAP",
+        "RestoreScreenTilesAndReloadTilePatterns",
+    ): "YELLOW_TO_YELLOW",
 }
 
 _CLOSED_PALETTE_ROW_CONTRACT = {
     "commit_unit": "PALETTE",
-    "machine_sites": (
-        {
-            "bank": 0x1C,
-            "address": 0x64BA,
-            "rom_offset": 0x724BA,
-            "bytes": "f040",
-            "runtime_copy": None,
-        },
-    ),
     "resources": (
         {
             "aliases": [],
@@ -108,18 +99,79 @@ _CLOSED_PALETTE_ROW_CONTRACT = {
             "vram_bank": None,
         },
     ),
-    "source_sites": (
-        {
-            "aliases": [],
-            "line": 916,
-            "object": None,
-            "path": "engine/gfx/palettes.asm",
-            "symbol": "TransferBGPPals.loop",
-        },
+    "roots": (
+        "PassiveFullColorCommitPalettes",
+        "PassiveFullColorHomogenizeBGPalettes",
     ),
-    "roots": ("LoadGBPal", "TransferBGPPals"),
-    "call_paths": (("LoadGBPal", "TransferBGPPals"),),
 }
+
+_PASSIVE_REQUIRED_EDGES = (
+    ("LoadMapData", "RunPaletteCommand"),
+    ("LoadMapData", "PassiveFullColorApplyMap"),
+    ("CheckMapConnections.loadNewMap", "RunPaletteCommand"),
+    ("CheckMapConnections.loadNewMap", "PassiveFullColorApplyMap"),
+    ("PassiveFullColorApplyMap.apply", "PassiveFullColorCommitPalettes"),
+    (
+        "PassiveFullColorApplyMap.apply",
+        "PassiveFullColorCommitVisibleAttributes",
+    ),
+    ("PassiveFullColorVBlank.slice", "PassiveFullColorCommitRedrawRow"),
+    ("PassiveFullColorVBlank.slice", "PassiveFullColorCommitRedrawColumn"),
+    ("PassiveFullColorVBlank.inactive", "PassiveFullColorHomogenizeBGPalettes"),
+    ("PassiveFullColorVBlank.bounded_clear", "PassiveFullColorClearBGMapChunk"),
+    ("DisplayPartyMenu", "PartyMenuInit"),
+    (
+        "StartMenu_Pokemon.exitMenu",
+        "RestoreScreenTilesAndReloadTilePatterns",
+    ),
+    ("StartMenu_Pokemon.exitMenu", "LoadGBPal"),
+    ("DisplayTextID.skipSpriteHandling", "PrintText_NoCreatingTextBox"),
+    ("DisplayStartMenu", "FullColorDisplayStartMenu"),
+    ("FullColorStartMenuReveal", "PrintSafariZoneSteps"),
+    ("FullColorHandleStartMenuInput", "HandleMenuInput"),
+    ("FullColorPlaceUnfilledStartMenuCursor", "PlaceUnfilledArrowMenuCursor"),
+    ("PrepareOAMData.spriteusesOBP0", "MapFullColorOAMAttributeFar"),
+)
+
+_PASSIVE_REQUIRED_WRITERS = {
+    "PassiveFullColorCommitPalettes": frozenset({"CGB_PALETTE"}),
+    "PassiveFullColorCommitVisibleAttributes": frozenset(
+        {"VRAM_BANK", "COMPUTED_POINTER"}
+    ),
+    "PassiveFullColorCommitRedrawColumn": frozenset(
+        {"VRAM_BANK", "COMPUTED_POINTER"}
+    ),
+    "PassiveFullColorCommitRedrawRow": frozenset(
+        {"VRAM_BANK", "COMPUTED_POINTER"}
+    ),
+    "PassiveFullColorHomogenizeBGPalettes": frozenset({"CGB_PALETTE"}),
+    "PassiveFullColorClearBGMapChunk": frozenset(
+        {"VRAM_BANK", "COMPUTED_POINTER"}
+    ),
+}
+
+_FORBIDDEN_PRODUCTION_DESTINATIONS = frozenset({
+    "BeginFullColorMapEntry",
+    "EnqueueFullColorStartMenuOverlay",
+    "EnqueueFullColorWindowTileMapOverlayFar",
+    "EnsureFullColorPartyHandoff",
+    "EnsureFullColorPartyMenuYellow",
+    "EnterFullColorOverlay",
+    "FullColorAuditBeginBoundedMapEntry",
+    "FullColorAuditLoadMapData",
+    "FullColorVBlankOwnerConsumed",
+    "PrepareFullColorOAMDataForOwnedVBlank",
+    "ReturnFullColorFromParty",
+    "RunFullColorOwnershipVBlank",
+})
+
+_PRODUCTION_INTEGRATION_SYMBOLS = frozenset({
+    "CheckMapConnections.loadNewMap",
+    "FullColorDisplayStartMenu",
+    "FullColorHandleStartMenuInput",
+    "FullColorPlaceUnfilledStartMenuCursor",
+    "FullColorStartMenuReveal",
+})
 
 # Each root maps its control/entry evidence first and its concrete writer
 # evidence second.  This keeps duplicate inventory rows distinct without ever
@@ -134,6 +186,16 @@ PHASE2_ROOT_ROWS = {
     "LoadGBPal": ("MU-P2-PALETTE-PAYLOADS", "MU-P2-PALETTE-PAYLOADS"),
     "LoadMapData": ("MU-P2-MAP-RECONSTRUCTION", "MU-P2-MAP-RECONSTRUCTION"),
     "LoadNorthSouthConnectionsTileMap": ("MU-P2-MAP-CONNECTION-NORTH", "MU-P2-MAP-CONNECTION-NORTH"),
+    "PassiveFullColorApplyMap": ("MU-P2-MAP-RECONSTRUCTION", "WR-P2-YELLOW-OVERLAY-TRANSFER"),
+    "PassiveFullColorClearBGMapAttributes": ("WR-P2-YELLOW-OVERLAY-TRANSFER", "WR-P2-YELLOW-OVERLAY-TRANSFER"),
+    "PassiveFullColorClearBGMapChunk": ("WR-P2-YELLOW-OVERLAY-TRANSFER", "WR-P2-YELLOW-OVERLAY-TRANSFER"),
+    "PassiveFullColorCommitPalettes": ("MU-P2-PALETTE-PAYLOADS", "WR-P2-YELLOW-BG-PALETTE"),
+    "PassiveFullColorCommitRedrawColumn": ("MU-P2-MOVEMENT-HORIZONTAL", "WR-P2-YELLOW-OVERLAY-TRANSFER"),
+    "PassiveFullColorCommitRedrawRow": ("MU-P2-MOVEMENT-VERTICAL", "WR-P2-YELLOW-OVERLAY-TRANSFER"),
+    "PassiveFullColorCommitVisibleAttributes": ("MU-P2-MAP-RECONSTRUCTION", "WR-P2-YELLOW-OVERLAY-TRANSFER"),
+    "PassiveFullColorHandleConnection": ("MU-P2-MAP-CONNECTION-NORTH", "WR-P2-YELLOW-OVERLAY-TRANSFER"),
+    "PassiveFullColorHomogenizeBGPalettes": ("MU-P2-PALETTE-PAYLOADS", "WR-P2-YELLOW-BG-PALETTE"),
+    "PassiveFullColorVBlank": ("WR-P2-YELLOW-MAP-STREAM", "WR-P2-YELLOW-OVERLAY-TRANSFER"),
     "PalletTown_h": ("SC-P2-PALLET-ROUTE1-NORTH", "SC-P2-PALLET-ROUTE1-NORTH"),
     "PartyMenuInit": ("SC-P2-PARTY-ENTRY", "SC-P2-PARTY-ENTRY"),
     "PrepareOAMData": ("MU-P2-OAM-FOLLOWER-NPC", "WR-P2-YELLOW-OAM-BUILD"),
@@ -1077,9 +1139,239 @@ def _source_finding_root(finding: object) -> str | None:
     )
 
 
-def _planned_row_for(root: str, category: str) -> str:
+_PASSIVE_PALETTE_RESOURCES = frozenset({"CGB_PALETTE", "PALETTES"})
+_PASSIVE_ATTRIBUTE_RESOURCES = frozenset({
+    "ATTRIBUTES",
+    "BG_WINDOW_MAP",
+    "COMPUTED_POINTER",
+    "SYMBOLIC_SINK",
+    "VRAM_BANK",
+    "WRAM_BANK",
+})
+
+
+def _planned_row_for(
+    root: str, category: str, *, resource: str | None = None,
+) -> str:
+    if category == "writer" and root.startswith("PassiveFullColor"):
+        if resource in _PASSIVE_PALETTE_RESOURCES:
+            return "WR-P2-YELLOW-BG-PALETTE"
+        if resource in _PASSIVE_ATTRIBUTE_RESOURCES:
+            return "WR-P2-YELLOW-OVERLAY-TRANSFER"
+        raise Phase2MeasurementError(
+            f"{root}: passive writer has unclassified resource {resource!r}"
+        )
     control_row, writer_row = PHASE2_ROOT_ROWS[root]
     return writer_row if category == "writer" else control_row
+
+
+_PASSIVE_VISIBLE_POINTER_ROOTS = {
+    "PassiveFullColorApplyMap": (
+        (
+            "PassiveFullColorApplyMap",
+            "3b:533b",
+            "3b:547a",
+        ),
+    ),
+    "PassiveFullColorCommitVisibleAttributes": (
+        ("PassiveFullColorCommitVisibleAttributes",),
+    ),
+}
+_PASSIVE_CLEAR_POINTER_ROOTS = {
+    "PassiveFullColorClearBGMapChunk": (
+        ("PassiveFullColorClearBGMapChunk",),
+        ("PassiveFullColorClearBGMapChunk", "3b:54d0"),
+        ("PassiveFullColorClearBGMapChunk", "3b:54d0", "3b:54d0"),
+    ),
+    "PassiveFullColorVBlank": (
+        (
+            "PassiveFullColorVBlank", "3b:5405", "3b:543d", "3b:544c",
+            "3b:545a", "3b:54a9",
+        ),
+        (
+            "PassiveFullColorVBlank", "3b:5405", "3b:543d", "3b:544c",
+            "3b:545a", "3b:54a9", "3b:54d0",
+        ),
+        (
+            "PassiveFullColorVBlank", "3b:5405", "3b:543d", "3b:544c",
+            "3b:545a", "3b:54a9", "3b:54d0", "3b:54d0",
+        ),
+    ),
+}
+_PASSIVE_COLUMN_POINTER_ROOTS = {
+    "PassiveFullColorCommitRedrawColumn": (
+        ("PassiveFullColorCommitRedrawColumn",),
+    ),
+    "PassiveFullColorVBlank": (
+        ("PassiveFullColorVBlank", "3b:5405", "3b:5421", "3b:5a97"),
+    ),
+}
+_PASSIVE_ROW_POINTER_ROOTS = {
+    "PassiveFullColorCommitRedrawRow": (("PassiveFullColorCommitRedrawRow",),),
+    "PassiveFullColorVBlank": (
+        ("PassiveFullColorVBlank", "3b:5405", "3b:5421", "3b:5b4c"),
+    ),
+}
+
+# Audit ROM SHA-256 f134bad304c7b43fa5bc76b42fc085b05f4d2fbabb1c0869bcb453a4a19bcb17.
+# Keep every reviewed pointer store literal: address drift, opcode drift, a new
+# store, a new root, or different call ancestry must block projection.
+_PASSIVE_ROM_POINTER_WRITES = {
+    (0x3B, 0x548C, "72"): _PASSIVE_VISIBLE_POINTER_ROOTS,
+    (0x3B, 0x54D0, "22"): _PASSIVE_CLEAR_POINTER_ROOTS,
+    (0x3B, 0x5AA7, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AAA, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AB0, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AB3, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AB9, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5ABC, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AC2, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AC5, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5ACB, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5ACE, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AD4, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AD7, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5ADD, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AE0, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AE6, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AE9, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AEF, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AF2, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AF8, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AFB, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B01, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B04, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B0A, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B0D, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B13, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B16, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B1C, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B1F, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B25, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B28, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B2E, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B31, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B37, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B3A, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B40, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B43, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B5C, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B5F, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B65, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B68, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B6E, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B71, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B77, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B7A, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B80, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B83, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B89, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B8C, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B92, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B95, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B9B, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B9E, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BA4, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BA7, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BAD, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BB0, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BB6, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BB9, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BBF, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BC2, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BC8, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BCB, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BD1, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BD4, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BDA, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BDD, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BE3, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BE6, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BEC, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BEF, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BF5, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BF8, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BFE, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5C01, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5C07, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5C0A, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+}
+
+
+def _validate_passive_rom_pointer_authority(findings: Sequence[object]) -> None:
+    passive_pointer_findings = tuple(
+        finding
+        for finding in findings
+        if finding.category == "writer"
+        and finding.resource == "UNKNOWN_DESTINATION"
+        and finding.root.startswith("PassiveFullColor")
+    )
+    actual_sites = {
+        (finding.bank, finding.address, finding.bytes)
+        for finding in passive_pointer_findings
+    }
+    expected_sites = set(_PASSIVE_ROM_POINTER_WRITES)
+    if actual_sites != expected_sites:
+        raise Phase2MeasurementError(
+            "passive ROM pointer sites changed: "
+            f"missing={sorted(expected_sites - actual_sites)} "
+            f"added={sorted(actual_sites - expected_sites)}"
+        )
+    for site in sorted(expected_sites):
+        actual_roots = {
+            finding.root
+            for finding in passive_pointer_findings
+            if (finding.bank, finding.address, finding.bytes) == site
+        }
+        expected_roots = set(_PASSIVE_ROM_POINTER_WRITES[site])
+        if actual_roots != expected_roots:
+            raise Phase2MeasurementError(
+                "passive ROM pointer roots changed at "
+                f"{site[0]:02x}:{site[1]:04x}: "
+                f"missing={sorted(expected_roots - actual_roots)} "
+                f"added={sorted(actual_roots - expected_roots)}"
+            )
+        for root in sorted(expected_roots):
+            actual_paths = {
+                finding.call_path
+                for finding in passive_pointer_findings
+                if (finding.bank, finding.address, finding.bytes) == site
+                and finding.root == root
+            }
+            expected_paths = set(_PASSIVE_ROM_POINTER_WRITES[site][root])
+            if actual_paths != expected_paths:
+                raise Phase2MeasurementError(
+                    "passive ROM pointer ancestry changed at "
+                    f"{site[0]:02x}:{site[1]:04x} for {root}: "
+                    f"missing={sorted(expected_paths - actual_paths)} "
+                    f"added={sorted(actual_paths - expected_paths)}"
+                )
+
+
+def _planned_rom_row_for(finding: object) -> str:
+    """Project only reviewed passive pointer stores hidden by ROM dataflow."""
+    if finding.category != "writer" or finding.resource != "UNKNOWN_DESTINATION":
+        return _planned_row_for(
+            finding.root, finding.category, resource=finding.resource,
+        )
+    if not finding.root.startswith("PassiveFullColor"):
+        return _planned_row_for(
+            finding.root, finding.category, resource=finding.resource,
+        )
+    expected_roots = _PASSIVE_ROM_POINTER_WRITES.get(
+        (finding.bank, finding.address, finding.bytes)
+    )
+    allowed_paths = None if expected_roots is None else expected_roots.get(finding.root)
+    root_allowed = expected_roots is not None and finding.root in expected_roots
+    path_allowed = root_allowed and finding.call_path in allowed_paths
+    if finding.mechanism != "pointer" or not path_allowed:
+        raise Phase2MeasurementError(
+            "unreviewed passive ROM pointer write: "
+            f"{finding.root} {finding.bank:02x}:{finding.address:04x} "
+            f"{finding.bytes} {finding.resource} {finding.mechanism} "
+            f"{finding.call_path}"
+        )
+    return "WR-P2-YELLOW-OVERLAY-TRANSFER"
 
 
 def _normalize_closed_scene_directions(report: SourceDiscoveryReport) -> SourceDiscoveryReport:
@@ -1096,6 +1388,60 @@ def _normalize_closed_scene_directions(report: SourceDiscoveryReport) -> SourceD
             for finding in report.findings
         ),
     )
+
+
+def _passive_production_contract_errors(
+    report: SourceDiscoveryReport,
+) -> tuple[str, ...]:
+    """Prove that the audit product adds only passive palette/attribute work.
+
+    The old scheduler and ownership helpers deliberately remain buildable as
+    direct test seams.  They are rejected only when a configured production
+    root (or one of its banked integration helpers) reaches them.
+    """
+    errors: list[str] = []
+    edges = {(finding.symbol, finding.destination) for finding in report.findings}
+    for edge in _PASSIVE_REQUIRED_EDGES:
+        if edge not in edges:
+            errors.append(
+                f"passive production edge omitted: {edge[0]} -> {edge[1]}"
+            )
+
+    for symbol, resources in _PASSIVE_REQUIRED_WRITERS.items():
+        discovered = {
+            finding.resource
+            for finding in report.findings
+            if finding.category == "writer"
+            and (finding.symbol == symbol or finding.symbol.startswith(symbol + "."))
+        }
+        missing = sorted(resources - discovered)
+        if missing:
+            errors.append(
+                f"{symbol}: passive donor writer resources omitted: {missing}"
+            )
+
+    for finding in report.findings:
+        production_source = (
+            _source_finding_root(finding) is not None
+            or finding.symbol in _PRODUCTION_INTEGRATION_SYMBOLS
+            or any(
+                finding.symbol.startswith(symbol + ".")
+                for symbol in _PRODUCTION_INTEGRATION_SYMBOLS
+            )
+        )
+        if production_source and finding.destination in _FORBIDDEN_PRODUCTION_DESTINATIONS:
+            errors.append(
+                "hostile ownership/scheduler edge resurrected in production: "
+                f"{finding.symbol} -> {finding.destination}"
+            )
+        if production_source and finding.destination.startswith(
+            ("wRendererOwner", "wRendererGeneration")
+        ):
+            errors.append(
+                "passive production mutates Yellow ownership/generation: "
+                f"{finding.symbol} -> {finding.destination}"
+            )
+    return tuple(errors)
 
 
 def _closed_concrete_subject_errors(
@@ -1152,15 +1498,14 @@ def _closed_inventory_row_errors(
     reachability = palette["reachability"]
     assert isinstance(reachability, Mapping)
     comparisons = {
-        "machine-site": tuple(palette["machine_sites"]) == contract["machine_sites"],
-        "source-site": tuple(palette["source_sites"]) == contract["source_sites"],
         "resource": tuple(palette["resources"]) == contract["resources"],
         "commit": palette["commit_unit"] == contract["commit_unit"],
-        "root": (
-            tuple(reachability["roots"]) == contract["roots"]
-            and tuple(tuple(path) for path in reachability["call_paths"])
-            == contract["call_paths"]
-        ),
+        "root": tuple(sorted(reachability["roots"])) == contract["roots"],
+        "source-site": {
+            site["symbol"].split(".", 1)[0]
+            for site in palette["source_sites"]
+        }
+        == set(contract["roots"]),
     }
     errors.extend(
         f"WR-P2-YELLOW-BG-PALETTE: closed audit {name} contract changed"
@@ -1422,6 +1767,7 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
         )
         if message.split(":", 1)[0] in roots
     )
+    _validate_passive_rom_pointer_authority(scoped_rom)
     actual_source_subjects: dict[str, set[str]] = {
         row_id: set() for row_id in PHASE2_PLANNED_ROW_IDS
     }
@@ -1434,12 +1780,14 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
     for finding in scoped_source:
         finding_root = _source_finding_root(finding)
         assert finding_root is not None
-        actual_source_subjects[_planned_row_for(finding_root, finding.category)].add(
+        actual_source_subjects[_planned_row_for(
+            finding_root, finding.category, resource=finding.resource,
+        )].add(
             source_finding_subject(finding).sha256
         )
     site_rows: dict[tuple[int, int], list[tuple[bool, str]]] = {}
     for finding in scoped_rom:
-        row_id = _planned_row_for(finding.root, finding.category)
+        row_id = _planned_rom_row_for(finding)
         actual_rom_subjects[row_id].add(rom_finding_subject(finding).sha256)
         site_rows.setdefault((finding.bank, finding.address), []).append(
             (finding.category != "writer", row_id)
@@ -1544,6 +1892,9 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
         semantic_subject_errors.extend(
             _closed_concrete_subject_errors(actual_source_subjects)
         )
+        semantic_subject_errors.extend(
+            _passive_production_contract_errors(source_report)
+        )
     discovered_source_sites = {finding.site_key for finding in scoped_source}
     discovered_rom_sites = {finding.site_key for finding in scoped_rom}
     missing_source = sorted(set(source_sites) - discovered_source_sites)
@@ -1567,32 +1918,21 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
         and {"PalletTown_h", "Route1_h"} <= source_root_names
         and {"PalletTown_h", "Route1_h"} <= rom_root_names
     )
-    party_edges_ok = (
+    yellow_restoration_ok = (
         any(
             item.symbol == "DisplayPartyMenu"
             and item.destination == "PartyMenuInit"
             and item.row_kind == "DIRECTED_EDGE"
             and item.direction
-            == ("MAP_TO_YELLOW" if closure_state == "audit-closed" else "YELLOW_TO_PARTY")
+            == ("YELLOW_TO_YELLOW" if closure_state == "audit-closed" else "MAP_TO_YELLOW")
             for item in scoped_source
         )
         and any(
             item.symbol == "StartMenu_Pokemon.exitMenu"
-            and item.destination == "ReturnFullColorFromParty"
+            and item.destination == "RestoreScreenTilesAndReloadTilePatterns"
             and item.row_kind == "DIRECTED_EDGE"
-            and item.direction
-            == "YELLOW_TO_MAP"
+            and item.direction == "YELLOW_TO_YELLOW"
             for item in scoped_source
-        )
-        and any(
-            item.root == "DisplayPartyMenu" and item.address == 0x11CC
-            and item.bytes == "cde411" and item.control_flow_kind == "call"
-            for item in scoped_rom
-        )
-        and any(
-            item.root == "StartMenu_Pokemon.exitMenu" and item.address == 0x5C86
-            and item.bytes == "cd1e3e" and item.control_flow_kind == "call"
-            for item in scoped_rom
         )
     )
     if missing_source or missing_rom or missing_roots or semantic_subject_errors:
@@ -1601,9 +1941,9 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
             f"{missing_source}, ROM={missing_rom}, roots={missing_roots}, "
             f"subjects={semantic_subject_errors}"
         )
-    if not concrete_slice_ok or not party_edges_ok:
+    if not concrete_slice_ok or not yellow_restoration_ok:
         raise Phase2MeasurementError(
-            "hostile slice directed source/ROM identity is not exact"
+            "passive slice directed source/ROM identity is not exact"
         )
     return {
         "concrete_slice": ["PalletTown_h", "Route1_h", "OVERWORLD", "NORTH"],

@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from tools.rom_tests.emulator import Emulator
 from tools.rom_tests.scenarios.oaks_lab import (
+    JourneyCheckpoint,
     PALLET_TOWN,
     complete_oaks_lab_intro,
 )
@@ -58,12 +59,18 @@ def walk_to_value(
     )
 
 
-def walk_from_oaks_lab_to_viridian(emulator: Emulator) -> None:
+def walk_from_oaks_lab_to_viridian(
+    emulator: Emulator,
+    checkpoint: JourneyCheckpoint | None = None,
+    *,
+    use_debug_repel: bool = True,
+) -> None:
     """Cross Pallet Town and Route 1, handling incidental wild battles."""
     if emulator.read("wCurMap") != PALLET_TOWN:
         raise AssertionError("Viridian route must start outside Oak's Lab")
 
-    apply_debug_repel(emulator)
+    if use_debug_repel:
+        apply_debug_repel(emulator)
 
     # Walk around Oak's Lab and approach Pallet Town's north connection.
     walk_to_value(emulator, "wXCoord", 8, "left", "west side of Oak's Lab")
@@ -74,20 +81,40 @@ def walk_from_oaks_lab_to_viridian(emulator: Emulator) -> None:
 
     # Route 1 alternates narrow northbound passages at these coordinates.
     walk_to_value(emulator, "wYCoord", 30, "up", "south Route 1 clearing")
+    emulator.tick(60)
+    if checkpoint is not None:
+        checkpoint("route1-south", emulator)
     walk_to_value(emulator, "wXCoord", 6, "left", "first passage")
     walk_to_value(emulator, "wYCoord", 25, "up", "first passage north")
     walk_to_value(emulator, "wXCoord", 12, "right", "second passage")
     walk_to_value(emulator, "wYCoord", 21, "up", "second passage north")
     walk_to_value(emulator, "wXCoord", 9, "left", "central passage")
     walk_to_value(emulator, "wYCoord", 15, "up", "central passage north")
+    emulator.tick(60)
+    if checkpoint is not None:
+        checkpoint("route1-mid", emulator)
     walk_to_value(emulator, "wXCoord", 14, "right", "final passage")
     walk_to_value(emulator, "wYCoord", 3, "up", "north Route 1 clearing")
+    emulator.tick(60)
+    if checkpoint is not None:
+        checkpoint("route1-north", emulator)
     walk_to_value(emulator, "wXCoord", 10, "left", "Viridian entrance")
     walk_to_value(emulator, "wCurMap", VIRIDIAN_CITY, "up", "Viridian City")
     emulator.tick(180)
+    if checkpoint is not None:
+        checkpoint("viridian-entry", emulator)
 
 
-def reach_viridian_city(emulator: Emulator) -> None:
+def reach_viridian_city(
+    emulator: Emulator,
+    checkpoint: JourneyCheckpoint | None = None,
+    *,
+    use_debug_repel: bool = True,
+) -> None:
     """Start a new game and play continuously through to Viridian City."""
-    complete_oaks_lab_intro(emulator)
-    walk_from_oaks_lab_to_viridian(emulator)
+    complete_oaks_lab_intro(emulator, checkpoint)
+    walk_from_oaks_lab_to_viridian(
+        emulator,
+        checkpoint,
+        use_debug_repel=use_debug_repel,
+    )

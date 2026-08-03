@@ -68,23 +68,6 @@ DisplayTextIDInit::
 	dec c
 	jr nz, .spriteStandStillLoop
 
-IF DEF(PHASE2_AUDIT)
-	; Once full-color owns the hostile slice, Yellow must not publish BG1,
-	; font, or automatic-transfer state. Enter is intentionally strict, so an
-	; already-active overlay is distinguished from an ordinary Yellow caller
-	; by the owner check before choosing the legacy path.
-	farcall EnterFullColorOverlay
-	jr nc, .enqueueFullColorOverlay
-	farcall IsFullColorOverworldOwnerFar
-	jr c, .yellowVideo
-.enqueueFullColorOverlay
-	farcall EnqueueFullColorWindowTileMapOverlayFar
-	jr c, .enqueueFullColorOverlay
-	xor a
-	ldh [hWY], a
-	ret
-.yellowVideo
-ENDC
 	ld b, HIGH(vBGMap1)
 	call CopyScreenTileBufferToVRAM ; transfer background in WRAM to VRAM
 	xor a

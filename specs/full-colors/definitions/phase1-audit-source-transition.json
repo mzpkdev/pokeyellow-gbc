@@ -4,8 +4,8 @@
       "audit_sha256": "f04a7742cb706ca28f663753cf482b0d546d435817454b17f77b8be3d1fa3002",
       "reviewed_sha256": "da3032835057223116f29f463feaf21fb2f5b52ddc617a6de1f3a70b02b6ddb8"
     },
-    "data/tilesets/full_color_canary.asm": {
-      "audit_sha256": "d3c83fb71dbb7a31e57ae69e7905df596db64d2d278b10752ec665361e9580a8",
+    "data/tilesets/full_color_overworld.asm": {
+      "audit_sha256": "a0719019f01205cc60682e6190b60de3bbcb66fb185b8e9bbfd0df49e8237edb",
       "reviewed_sha256": null
     },
     "engine/full_color/debug_runtime.asm": {
@@ -13,7 +13,7 @@
       "reviewed_sha256": "d5ed0b768270718269d8767776383935846953c3e564643486b239a356a99018"
     },
     "engine/full_color/lifecycle.asm": {
-      "audit_sha256": "2bcd0a5b7e44b6eb20b33264eaf2f88b6076e04eeb8dad216e6ecdf6bf26c8fe",
+      "audit_sha256": "2c97660945f9d996129fe9a7d8250a0d0025445ae3e64552cb164f70fed669af",
       "reviewed_sha256": null
     },
     "engine/full_color/oam.asm": {
@@ -28,16 +28,24 @@
       "audit_sha256": "7106a1e8c3bd0f30d8ea9975ef223f920b582507fb882746c3f666bed3f03250",
       "reviewed_sha256": null
     },
+    "engine/full_color/passive_overworld.asm": {
+      "audit_sha256": "4c298a57b349653c7afd2957d0018e75fb4ff96c91cd4a58f088f415e190e646",
+      "reviewed_sha256": null
+    },
+    "engine/full_color/passive_palette_refresh.asm": {
+      "audit_sha256": "b63da2c3a6e018598affc8785e890d47785eb1d5e747a62133964ba2ebb1cdcb",
+      "reviewed_sha256": null
+    },
     "engine/full_color/phase2_audit.asm": {
-      "audit_sha256": "8a142b1c2cf51feacfea8602e3da4d83a9906ea1770c5033c8326ab19d325446",
+      "audit_sha256": "5d0636ceb05915768923991d7fbab6a1e51d5556f1f1aa8c45b9c45c103b56a8",
       "reviewed_sha256": null
     },
     "engine/full_color/scheduler.asm": {
-      "audit_sha256": "1facba8b240450535278878498604096dc4136bfe17e1f1763086113f9f602a9",
+      "audit_sha256": "4fa3270ecf8156373e6fdd9736ddbc0f9b0565bb70a118b8f381183fab8f1a3a",
       "reviewed_sha256": null
     },
     "engine/full_color/transfers.asm": {
-      "audit_sha256": "edc5110ce79bcfb073faabc5ca295c93a11b36708dd8758895cbebb0d6be1918",
+      "audit_sha256": "64d7e46870c536a504cc5386d5ce010f2be320961a6f2610061cb99f9085a363",
       "reviewed_sha256": null
     },
     "engine/gfx/palettes.asm": {
@@ -45,15 +53,15 @@
       "reviewed_sha256": "3291a5b1d096b8380eb4d5abb0085f0ea1d37c67b64f09917a06062eebde0ea9"
     },
     "engine/gfx/sprite_oam.asm": {
-      "audit_sha256": "5e9d6c32cc6ba1b9a3bb5516bdfbf742cf8eb466e2e82094534c725f2c0c86bc",
+      "audit_sha256": "a6271ebe31e60143833c4dee6c4de00b6367a5f3e5b4b92782b6193e1ec176ad",
       "reviewed_sha256": "9f1700bb23ddea4971d2e8d0e703f003113c6764015f1da019b7a4ea3400bb56"
     },
     "engine/menus/display_text_id_init.asm": {
-      "audit_sha256": "d418ea70752345bd6954fa9686d906aaf3d3a20e9f586d0c68d33b25bb946a15",
+      "audit_sha256": "3a3a803f0ef969b00b03a01f1d312eb3628e75f915b2fb508f2776882467290e",
       "reviewed_sha256": "fc3fa8250da755a2dc81c62fe86ef81ebabba4f49f1c2bd8358a8b246f6f0c94"
     },
     "engine/menus/start_sub_menus.asm": {
-      "audit_sha256": "0b0a3931b324b873afebc380a598f22f5dd385f879a7f2dd5ea90a3f9bb9dbf5",
+      "audit_sha256": "dd3efff439e3550d6d32bc4273f0b16c47bc45f4d8c3ba0d2dd7a6bedc2d7ff7",
       "reviewed_sha256": "5bea70e45cfca86946e8785525675347f222ba26ba7bc1d8559fd220f85819e7"
     },
     "engine/overworld/map_sprites.asm": {
@@ -61,23 +69,19 @@
       "reviewed_sha256": "34097395b8a25d076843175400f59f1bec18d91ae09f7132b31d5b0dd295aa37"
     },
     "home/overworld.asm": {
-      "audit_sha256": "75284e136a760860cc3102af78143c2f3e0436135e64b13968df8afdf7fbaa04",
+      "audit_sha256": "348faf3849386fcd6d0bfa28da25ef8532afceceb336c13bd5c31805d311c3a1",
       "reviewed_sha256": "6cb540cf227b35178b5f9370e73fb73cb649627393526bdae231cf4021af4142"
     },
-    "home/pokemon.asm": {
-      "audit_sha256": "16bf027e40970d8c7a1cfb9c8aa4aa528a9d3cea5855100d722b1ab1908bbbb5",
-      "reviewed_sha256": "3bd22ac35b3c796d585714fd2d6ca28b2475168147577cedf58ed80063472d9f"
-    },
     "home/start_menu.asm": {
-      "audit_sha256": "12ea6662da7edf5175ba44407bb0286f75776559e682be8ff5c21ab1a024eb87",
+      "audit_sha256": "031794f0126dbded1cf2afc9a94eb320619737086445162c9a0bc92411b77dee",
       "reviewed_sha256": "a1e8268a79c5994be6cb775f551277cb610e135e203830c911a07c1827bb8d2d"
     },
     "home/text_script.asm": {
-      "audit_sha256": "3d5b7817fb6e97d4c4174d046913d5246bc4f38e676beaa50d1c82dc70664ee7",
+      "audit_sha256": "6e536c3533e081dba56145528f76ccb90cad5e0cdd5f1fb9eb66552025637d59",
       "reviewed_sha256": "5c1e27cbc633f465f59042da17d1557466d53007fb9f369430e8778c8c1e39c2"
     },
     "home/vblank.asm": {
-      "audit_sha256": "950e92ab798f6a9291322b7a217b07d53762769384ea12e2444fc31d68d028ad",
+      "audit_sha256": "3c2490d711432fdd2559dcf41bf30ad7a5b710fb4769af12f5dbd4853af094c4",
       "reviewed_sha256": "39c29d247841dbcc20d91394966f6567b5449b3d9e94fd2a4bf7bb203441d4e3"
     },
     "home/vcopy.asm": {
@@ -85,19 +89,23 @@
       "reviewed_sha256": "a09adc6fc1903b1944a60bcf732a1c5ca71edc02eed19725be47fb9333db77fa"
     },
     "main.asm": {
-      "audit_sha256": "312c7cb071bae68929ae12adfa35565f75a7efd1f82b0ca31654d19ddb5e82b5",
+      "audit_sha256": "d8d88f4692fa257a44dc2a856c4f9070276947640ef9f90c36fbd45bd35039d5",
       "reviewed_sha256": "4097614148ed9256427f73557d5a99948b5af3b069ee4ba4172aed85015b4164"
+    },
+    "ram/hram.asm": {
+      "audit_sha256": "39d3d52236b4446bff05ef4dca077ba2c210573a580444a9224300f9734bd239",
+      "reviewed_sha256": "ade9caba7e3e99c8047800fc9b46818a7407c01dcde74b150f9aa22de88daa61"
     },
     "ram/sram.asm": {
       "audit_sha256": "446a493d4c70507cdef36c60654394a11c4111ece1e4b56fc6b2908488c030f3",
       "reviewed_sha256": "dcbeca2292520e120f7c516bbbb3daa37507d644a7d60f1d678e3c4fd57dd26e"
     },
     "ram/wram.asm": {
-      "audit_sha256": "d517002ca44641cb5aa64927dafa556399a8d351175c425e29ef407596bd52e1",
+      "audit_sha256": "417f7e3db645a07c96881179d95a3e5b9071ae4cfdf6af075baba2f29b0fd7a3",
       "reviewed_sha256": "4d611450cde6c95ea60b9f9290032417d802a89e4b995a5a5dafc48d4f2171bf"
     }
   },
-  "audit_source_sha256": "c4d94b9ac6433681be894192f6e71f2f7216e7f670412d5eeb673cbec111f50e",
+  "audit_source_sha256": "f8a20d96fbbdad978483fe8ff3d34e56671596d9af83b3abc11b27d7fa2bcbaf",
   "baseline_manifest_sha256": "75c058f0d0df07a25918c710dc8ddebf43d3e5b809a06faaf7391cf015a9d774",
   "reviewed_source_sha256": "9b12281f62023dbd80e64ed17d684aaae5754d787166163f213fe21e4ca2ff7f",
   "rom_subject_rebindings": {

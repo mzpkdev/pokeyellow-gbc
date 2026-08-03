@@ -102,10 +102,6 @@ CloseStartMenu::
 	ldh a, [hJoyPressed]
 	bit B_PAD_A, a
 	jr nz, CloseStartMenu
-	IF DEF(PHASE2_AUDIT)
-	farcall IsFullColorOverworldOwnerFar
-	jp nc, CloseTextDisplay
-	ENDC
 	call LoadTextBoxTilePatterns
 	jp CloseTextDisplay
 
@@ -115,35 +111,15 @@ IF DEF(PHASE2_AUDIT)
 ; start-menu implementation instead of consuming the last Home bytes.
 FullColorStartMenuReveal:
 	farcall PrintSafariZoneSteps
-	call EnqueueFullColorStartMenuOverlay
 	ret
 
 ; Mirror HandleMenuInput through its first visible cursor placement, enqueue
 ; that finished authority, then resume the original wait loop and mechanics.
 FullColorHandleStartMenuInput:
-	xor a
-	ld [wPartyMenuAnimMonEnabled], a
-	ldh a, [hDownArrowBlinkCount1]
-	push af
-	ldh a, [hDownArrowBlinkCount2]
-	push af
-	xor a
-	ldh [hDownArrowBlinkCount1], a
-	ld a, 6
-	ldh [hDownArrowBlinkCount2], a
-	xor a
-	ld [wAnimCounter], a
-	call PlaceMenuCursor
-	call EnqueueFullColorStartMenuOverlay
-	call Delay3
-	jp HandleMenuInput_.loop2
+	jp HandleMenuInput
 
 FullColorPlaceUnfilledStartMenuCursor:
-	call PlaceUnfilledArrowMenuCursor
-	push af
-	call EnqueueFullColorStartMenuOverlay
-	pop af
-	ret
+	jp PlaceUnfilledArrowMenuCursor
 
 EnqueueFullColorStartMenuOverlay:
 	farcall IsFullColorOverworldOwnerFar

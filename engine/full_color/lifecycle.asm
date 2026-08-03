@@ -187,10 +187,9 @@ SnapshotFullColorVisibleMapSelected::
 	ld a, [de]
 	ld c, a
 	ld b, 0
-	ld hl, FullColorCanaryOverworldTileClasses
+	ld hl, FullColorOverworldTileAttributes
 	add hl, bc
 	ld a, [hl]
-	and 7
 	pop hl
 	ld [hli], a
 	pop bc
@@ -317,7 +316,7 @@ ReconstructFullColorMapEntry::
 	; hidden. This is one complete payload, never a transition-only success.
 	ld a, $80
 	ldh [rBGPI], a
-	ld hl, FullColorCanaryBGPalettes
+	ld hl, FullColorOverworldBGPalettes
 	ld c, LOW(rBGPD)
 	ld b, FULL_COLOR_PALETTE_EXTENT
 .palette

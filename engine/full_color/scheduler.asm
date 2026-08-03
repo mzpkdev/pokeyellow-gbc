@@ -301,10 +301,9 @@ EnqueueFullColorPairedSemantic:
 	ld a, [de]
 	ld c, a
 	ld b, 0
-	ld hl, FullColorCanaryOverworldTileClasses
+	ld hl, FullColorOverworldTileAttributes
 	add hl, bc
 	ld a, [hl]
-	and 7
 	pop hl
 	ld [hli], a
 	pop bc
@@ -378,10 +377,9 @@ EnqueueFullColorAnimation::
 	ld a, [wFullColorProducerTiles]
 	ld c, a
 	ld b, 0
-	ld hl, FullColorCanaryOverworldTileClasses
+	ld hl, FullColorOverworldTileAttributes
 	add hl, bc
 	ld a, [hl]
-	and 7
 	ld [wFullColorProducerTiles + FULL_COLOR_ANIMATION_TILE_BYTES], a
 	call BuildAndPrepareFullColorAnimationDescriptorSelected
 	jp FinishFullColorSemanticSelected

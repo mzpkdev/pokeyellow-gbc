@@ -205,6 +205,19 @@ def _farcall_from_wram(
     return regs.A, regs.F
 
 
+def _linked_overworld_tile_attributes(phase2_rom: Phase2Rom) -> bytes:
+    """Read the independently linked 256-byte semantic attribute table."""
+    emu = phase2_rom.emulator
+    start_name = "FullColorOverworldTileAttributes"
+    end_name = "FullColorOverworldTileAttributesEnd"
+    bank = emu.symbol_banks[start_name]
+    address = emu.symbols[start_name]
+    assert emu.symbol_banks[end_name] == bank
+    assert emu.symbols[end_name] - address == 0x100
+    offset = address if bank == 0 else bank * 0x4000 + address - 0x4000
+    return emu.rom.read_bytes()[offset:offset + 0x100]
+
+
 @pytest.fixture
 def phase2_rom(request: pytest.FixtureRequest):
     rom = Path(os.environ.get("ROM_TEST_ROM", REPOSITORY_ROOT / "pokeyellow_phase2_audit.gbc"))
@@ -247,6 +260,8 @@ def test_owned_vblank_commits_window_bg1_before_presentation_and_close_hides_it(
     emu = phase2_rom.emulator
     tile_map = phase2_rom.emulator.symbols["wTileMap"]
     payload = bytes((index * 11 + 3) & 0xFF for index in range(20 * 18))
+    attribute_table = _linked_overworld_tile_attributes(phase2_rom)
+    expected_attributes = bytes(attribute_table[tile] for tile in payload)
     phase2_rom.write_fixed(tile_map, payload)
     phase2_rom.write_wram2("wFullColorAuthorityVRAMView", b"\x00\x98")
     bg0_before = bytes((0xA0 + index) & 0xFF for index in range(20))
@@ -300,8 +315,8 @@ def test_owned_vblank_commits_window_bg1_before_presentation_and_close_hides_it(
         assert emu.read_vram_bank(0, 0x9C00 + row * 32, 20) == (
             payload[start:start + 20]
         )
-        assert emu.read_vram_bank(1, 0x9C00 + row * 32, 20) == bytes(
-            value & 7 for value in payload[start:start + 20]
+        assert emu.read_vram_bank(1, 0x9C00 + row * 32, 20) == (
+            expected_attributes[start:start + 20]
         )
     hardware_oam = bytes(emu.pyboy.memory[0xFE00 + offset] for offset in range(160))
     assert hardware_oam == b"\x5a" * 160
@@ -370,6 +385,9 @@ def test_movement_row_strip_is_one_atomic_20_by_2_visible_unit(
     phase2_rom: Phase2Rom,
 ) -> None:
     tiles = bytes(range(40))
+    attribute_table = _linked_overworld_tile_attributes(phase2_rom)
+    expected_attributes = bytes(attribute_table[tile] for tile in tiles)
+    assert expected_attributes != bytes(tile & 7 for tile in tiles)
     phase2_rom.write_fixed(0xC900, tiles)
     result, flags = phase2_rom.call(
         "EnqueueFullColorMovementRowStrip", hl=0xC900, de=0x9800,
@@ -386,8 +404,8 @@ def test_movement_row_strip_is_one_atomic_20_by_2_visible_unit(
     phase2_rom.call("RunFullColorOwnershipVBlank")
     assert phase2_rom.emulator.read_vram_bank(0, 0x9800, 20) == tiles[:20]
     assert phase2_rom.emulator.read_vram_bank(0, 0x9820, 20) == tiles[20:]
-    assert phase2_rom.emulator.read_vram_bank(1, 0x9800, 20) == bytes(v & 7 for v in tiles[:20])
-    assert phase2_rom.emulator.read_vram_bank(1, 0x9820, 20) == bytes(v & 7 for v in tiles[20:])
+    assert phase2_rom.emulator.read_vram_bank(1, 0x9800, 20) == expected_attributes[:20]
+    assert phase2_rom.emulator.read_vram_bank(1, 0x9820, 20) == expected_attributes[20:]
 
 
 def test_deferred_movement_strip_is_retained_and_retried_without_partial_commit(
@@ -428,6 +446,8 @@ def test_reconstruction_commits_complete_palette_and_20_by_18_pair_before_activa
 ) -> None:
     emu = phase2_rom.emulator.pyboy
     tiles = bytes(index & 0xFF for index in range(360))
+    attribute_table = _linked_overworld_tile_attributes(phase2_rom)
+    expected_attributes = bytes(attribute_table[tile] for tile in tiles)
     phase2_rom.write_fixed(phase2_rom.emulator.symbols["wTileMap"], tiles)
     prior_svbk = emu.memory[0xFF70]
     emu.memory[0xFF70] = 1
@@ -453,8 +473,8 @@ def test_reconstruction_commits_complete_palette_and_20_by_18_pair_before_activa
     for row in range(18):
         start = row * 20
         assert phase2_rom.emulator.read_vram_bank(0, 0x9800 + row * 32, 20) == tiles[start:start + 20]
-        assert phase2_rom.emulator.read_vram_bank(1, 0x9800 + row * 32, 20) == bytes(
-            value & 7 for value in tiles[start:start + 20]
+        assert phase2_rom.emulator.read_vram_bank(1, 0x9800 + row * 32, 20) == (
+            expected_attributes[start:start + 20]
         )
 
 
@@ -650,7 +670,10 @@ def test_paired_transfer_commits_whole_tiles_and_attributes(phase2_rom: Phase2Ro
 
 def test_overlay_is_independent_of_vram_or_ambient_map_oracle(phase2_rom: Phase2Rom) -> None:
     tiles = bytes([0x08, 0x19, 0x2A, 0x3B])
-    phase2_rom.write_fixed(0xC900, tiles + b"ambient-not-consumed")
+    attribute_table = _linked_overworld_tile_attributes(phase2_rom)
+    attributes = bytes(attribute_table[tile] for tile in tiles)
+    assert attributes != bytes(value & 7 for value in tiles)
+    phase2_rom.write_fixed(0xC900, tiles + attributes + b"ambient-not-consumed")
     for bank, fill in ((0, 0xA5), (1, 0x5A)):
         old = phase2_rom.emulator.pyboy.memory[0xFF4F]
         phase2_rom.emulator.pyboy.memory[0xFF4F] = bank
@@ -662,7 +685,7 @@ def test_overlay_is_independent_of_vram_or_ambient_map_oracle(phase2_rom: Phase2
     ))
     phase2_rom.call("RunFullColorOwnershipVBlank")
     assert phase2_rom.emulator.read_vram_bank(0, 0x9800, 4) == tiles
-    assert phase2_rom.emulator.read_vram_bank(1, 0x9800, 4) == bytes(value & 7 for value in tiles)
+    assert phase2_rom.emulator.read_vram_bank(1, 0x9800, 4) == attributes
 
 
 def test_oam_preparation_maps_final_identity_with_palette_zero_fallback(phase2_rom: Phase2Rom) -> None:

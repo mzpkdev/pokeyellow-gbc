@@ -83,11 +83,7 @@ ENDM
 	dict  TX_SCRIPT_PRIZE_VENDOR,            TextScript_GameCornerPrizeMenu
 	dict2 TX_SCRIPT_CABLE_CLUB_RECEPTIONIST, callfar CableClubNPC
 
-IF DEF(PHASE2_AUDIT)
-	call PrintFullColorTextAndEnqueue
-ELSE
 	call PrintText_NoCreatingTextBox
-ENDC
 	ld a, [wDoNotWaitForButtonPressAfterDisplayingText]
 	and a
 	jr nz, HoldTextDisplayOpen
@@ -106,15 +102,6 @@ HoldTextDisplayOpen::
 	jr nz, HoldTextDisplayOpen
 
 CloseTextDisplay::
-IF DEF(PHASE2_AUDIT)
-	farcall IsFullColorOverworldOwnerFar
-	jr c, .yellowOwner
-	farcall PrepareCloseFullColorTextDisplay
-	pop af
-	call BankswitchCommon
-	jp UpdateSprites
-.yellowOwner
-ENDC
 	ld a, [wCurMap]
 	call SwitchToMapRomBank
 	ld a, $90
@@ -142,25 +129,16 @@ ENDC
 	bit BIT_FLY_WARP, a
 	call z, LoadPlayerSpriteGraphics
 	call LoadCurrentMapView
+IF DEF(PHASE2_AUDIT)
+	farcall PassiveFullColorRestoreAfterMenu
+ENDC
 	pop af
 	call BankswitchCommon
 	jp UpdateSprites
 
 IF DEF(PHASE2_AUDIT)
-; Standard map dialogue has finished mutating wTileMap. The scheduler snapshots
-; this request before returning, so delayed commit cannot reread text authority.
 PrintFullColorTextAndEnqueue:
-	call PrintText_NoCreatingTextBox
-	push af
-	farcall IsFullColorOverworldOwnerFar
-	jr c, .done
-.enqueue
-	farcall EnqueueFullColorWindowTileMapOverlayFar
-	jr c, .enqueue
-.done
-	pop af
-	ret
-
+	jp PrintText_NoCreatingTextBox
 ENDC
 
 DisplayPokemartDialogue::

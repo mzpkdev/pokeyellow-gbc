@@ -16,8 +16,14 @@ from tools.rom_tests.tests.conftest import REPOSITORY_ROOT
 from tools.rom_tests.tests.unit.full_color.test_phase2_scheduler_rom import (
     Phase2Rom,
     _farcall_from_wram,
-    phase2_rom,
+    _linked_overworld_tile_attributes,
+    phase2_rom as _phase2_rom,  # noqa: F401 - registered by pytest
 )
+
+
+@pytest.fixture(name="phase2_rom")
+def phase2_rom_fixture(request: pytest.FixtureRequest) -> Phase2Rom:
+    return request.getfixturevalue("_phase2_rom")
 
 
 def _set_wram1_word(rom: Phase2Rom, symbol: str, value: int) -> None:
@@ -44,12 +50,13 @@ def _rom_bytes(rom_path: Path, rom: Phase2Rom, start: str, end: str) -> bytes:
 def _assert_reconstructed_visible_state(
     rom: Phase2Rom, tiles: bytes, *, destination: int = 0x9800,
 ) -> None:
+    attributes = _linked_overworld_tile_attributes(rom)
     for row in range(18):
         start = row * 20
         address = destination + row * 32
         assert rom.emulator.read_vram_bank(0, address, 20) == tiles[start:start + 20]
         assert rom.emulator.read_vram_bank(1, address, 20) == bytes(
-            tile & 7 for tile in tiles[start:start + 20]
+            attributes[tile] for tile in tiles[start:start + 20]
         )
 
 
@@ -164,6 +171,7 @@ def test_reconstruction_failure_never_unpoisons_sprite_production(
 def test_guarded_request_classes_commit_complete_units_and_freeze_sources(
     phase2_rom: Phase2Rom,
 ) -> None:
+    attributes = _linked_overworld_tile_attributes(phase2_rom)
     # Complete palette request.
     palette = bytes((index * 5 + 1) & 0x7F for index in range(64))
     phase2_rom.write_fixed(0xC900, palette)
@@ -187,7 +195,7 @@ def test_guarded_request_classes_commit_complete_units_and_freeze_sources(
         expected = paired[row * 3:row * 3 + 3]
         assert phase2_rom.emulator.read_vram_bank(0, 0x9840 + row * 32, 3) == expected
         assert phase2_rom.emulator.read_vram_bank(1, 0x9840 + row * 32, 3) == bytes(
-            value & 7 for value in expected
+            attributes[value] for value in expected
         )
 
     # Overlay uses request authority, never ambient VRAM, and animation binds
@@ -200,7 +208,9 @@ def test_guarded_request_classes_commit_complete_units_and_freeze_sources(
     phase2_rom.write_fixed(0xC760, b"\xcc" * 4)
     phase2_rom.call("RunFullColorOwnershipVBlank")
     assert phase2_rom.emulator.read_vram_bank(0, 0x9C00, 2) == overlay[:2]
-    assert phase2_rom.emulator.read_vram_bank(1, 0x9C20, 2) == bytes(v & 7 for v in overlay[2:])
+    assert phase2_rom.emulator.read_vram_bank(1, 0x9C20, 2) == bytes(
+        attributes[value] for value in overlay[2:]
+    )
 
     animation = bytes(range(0x40, 0x50))
     phase2_rom.write_fixed(0xC780, animation)
@@ -210,7 +220,7 @@ def test_guarded_request_classes_commit_complete_units_and_freeze_sources(
     phase2_rom.write_fixed(0xC780, b"\xbb" * 16)
     phase2_rom.call("RunFullColorOwnershipVBlank")
     assert phase2_rom.emulator.read_vram_bank(0, 0x9000, 16) == animation
-    assert phase2_rom.emulator.read_vram_bank(1, 0x9860, 1) == bytes((animation[0] & 7,))
+    assert phase2_rom.emulator.read_vram_bank(1, 0x9860, 1) == bytes((attributes[animation[0]],))
 
 
 def test_oam_fallback_party_handoff_poison_and_authoritative_return(

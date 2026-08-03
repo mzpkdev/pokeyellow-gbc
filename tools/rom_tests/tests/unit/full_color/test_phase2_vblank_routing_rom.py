@@ -8,8 +8,7 @@ import pytest
 
 from tools.rom_tests.tests.unit.full_color.test_phase2_scheduler_rom import (
     Phase2Rom,
-    _farcall_from_wram,
-    phase2_rom,
+    phase2_rom as _phase2_rom,  # noqa: F401 - registered by pytest
 )
 
 
@@ -67,6 +66,11 @@ YELLOW_VISIBLE_NAMES = (
     "legacy hDMARoutine",
     "PrepareOAMData",
 )
+
+
+@pytest.fixture(name="phase2_rom")
+def phase2_rom_fixture(request: pytest.FixtureRequest) -> Phase2Rom:
+    return request.getfixturevalue("_phase2_rom")
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,131 +206,43 @@ def _run_actual_vblank(rom: Phase2Rom) -> VBlankObservation:
     return observation
 
 
-def _assert_no_yellow_visible_writer(observation: VBlankObservation) -> None:
+def _assert_all_yellow_visible_writers(observation: VBlankObservation) -> None:
     for name in YELLOW_VISIBLE_NAMES:
-        assert name not in observation.call_sites, f"Yellow visible writer executed: {name}"
+        assert name in observation.call_sites, f"Yellow visible writer skipped: {name}"
 
 
-def test_route1_real_map_entry_reenables_and_first_owned_vblank_builds_sprites(
+def test_route1_passive_vblank_keeps_yellow_visible_and_sprite_authority(
     phase2_rom: Phase2Rom,
 ) -> None:
     emu = phase2_rom.emulator.pyboy
     phase2_rom.call("InitRendererOwnership")
     emu.memory[phase2_rom.emulator.symbols["wCurMap"]] = 0x0C  # ROUTE_1
-    emu.memory[phase2_rom.emulator.symbols["wStatusFlags7"]] = 1 << 1
     emu.memory[0xFF40] &= 0x7F
-    _write_banked(
-        phase2_rom,
-        1,
-        phase2_rom.emulator.symbols["wMapViewVRAMPointer"],
-        b"\x00\x98",
+    phase2_rom.call("PassiveFullColorApplyMap")
+    emu.memory[phase2_rom.emulator.symbols["wUpdateSpritesEnabled"]] = 0xFF
+
+    observation = _run_actual_vblank(phase2_rom)
+
+    _assert_all_yellow_visible_writers(observation)
+    assert tuple(
+        name for name in observation.call_sites if name in COMMON_SERVICE_CALLS
+    ) == COMMON_SERVICE_CALLS
+    assert phase2_rom.read_wram2("wRendererOwner") == bytes(
+        (phase2_rom.constants["RENDERER_YELLOW"],)
     )
 
-    # Keep the real guarded LoadMapData orchestration and reconstruction, but
-    # replace boot-dependent Yellow authority loaders with a deterministic
-    # Route 1 authority image. Direct-call ROM fixtures have not run NewGame.
-    player = phase2_rom.emulator.symbols["wSpritePlayerStateData1"]
-    state2 = phase2_rom.emulator.symbols["wSpritePlayerStateData2"]
-    for slot, (identity, image, y, x) in {
-        0: (1, 0x00, 48, 48),       # Red
-        1: (4, 0x10, 64, 64),       # Route 1 Youngster
-        15: (61, 0x20, 80, 80),     # Pikachu
-    }.items():
-        base1 = player + slot * 0x10
-        base2 = state2 + slot * 0x10
-        emu.memory[base1] = identity
-        emu.memory[base1 + 2] = image
-        emu.memory[base1 + 4] = y
-        emu.memory[base1 + 6] = x
-        emu.memory[base2 + 0x0D] = identity
 
-    skipped_loaders = (
-        "ResetMapVariables",
-        "LoadTextBoxTilePatterns",
-        "LoadMapHeader",
-        "InitMapSprites",
-        "LoadScreenRelatedData",
-    )
-
-    def return_from_loader(_: object) -> None:
-        regs = emu.register_file
-        low = emu.memory[regs.SP]
-        high = emu.memory[(regs.SP + 1) & 0xFFFF]
-        regs.SP = (regs.SP + 2) & 0xFFFF
-        regs.PC = low | high << 8
-
-    hooks = tuple(
-        (
-            phase2_rom.emulator.symbol_banks[name],
-            phase2_rom.emulator.symbols[name],
-        )
-        for name in skipped_loaders
-    )
-    for bank, address in hooks:
-        emu.hook_register(bank, address, return_from_loader, None)
-
-    try:
-        assert _farcall_from_wram(
-            phase2_rom, "FullColorAuditBeginBoundedMapEntry", entry_bank=4,
-        )[1] & 0x10 == 0
-        assert emu.memory[phase2_rom.emulator.symbols["wUpdateSpritesEnabled"]] == 0
-        assert _farcall_from_wram(
-            phase2_rom, "FullColorAuditLoadMapData", entry_bank=4,
-        )[1] & 0x10 == 0
-    finally:
-        for bank, address in hooks:
-            emu.hook_deregister(bank, address)
-    assert emu.memory[phase2_rom.emulator.symbols["wUpdateSpritesEnabled"]] == 1
-
-    shadow = phase2_rom.emulator.symbols["wShadowOAM"]
-    for offset in range(160):
-        emu.memory[shadow + offset] = 0xA0
-        emu.memory[0xFE00 + offset] = 0xA0
-    first = _run_actual_vblank(phase2_rom)
-    _assert_no_yellow_visible_writer(first)
-    first_batch = bytes(emu.memory[shadow + offset] for offset in range(160))
-    assert any(first_batch[index] != 0xA0 for index in range(0, 160, 4))
-    assert any(first_batch[index] != 0xA0 for index in range(3, 160, 4))
-    assert bytes(emu.memory[0xFE00 + offset] for offset in range(160)) == first_batch
-
-    # Route 1's two Youngsters are low picture ID $04 and must use palette 0,
-    # while player/Pikachu continue to use their authored slots.
-    active_attributes = tuple(
-        first_batch[index + 3] & 7
-        for index in range(0, 160, 4)
-        if first_batch[index] != 0xA0
-    )
-    assert 0 in active_attributes
-    assert 1 in active_attributes
-    assert 2 in active_attributes
-
-    emu.memory[phase2_rom.emulator.symbols["wSpritePlayerStateData1XPixels"]] += 1
-    second = _run_actual_vblank(phase2_rom)
-    _assert_no_yellow_visible_writer(second)
-    second_batch = bytes(emu.memory[shadow + offset] for offset in range(160))
-    assert second_batch != first_batch
-    assert emu.memory[phase2_rom.emulator.symbols["wUpdateSpritesEnabled"]] == 1
-
-
-def test_full_color_actual_vblank_routes_only_owned_and_common_work(
+def test_passive_actual_vblank_runs_yellow_and_restores_raw_machine_state(
     phase2_rom: Phase2Rom,
 ) -> None:
     emu = phase2_rom.emulator.pyboy
     saved_rom_bank = phase2_rom.emulator.symbols["wVBlankSavedROMBank"]
     assert phase2_rom.emulator.symbol_banks["wVBlankSavedROMBank"] == 1
 
-    # Arm every legacy request without letting it run.  This makes accidental
-    # routing observable both at its exact call site and through request bytes.
-    legacy_requests = {
-        "hAutoBGTransferEnabled": 1,
-        "hVBlankCopyBGSource": 0x98,
-        "hVBlankCopyBGNumRows": 2,
-        "hVBlankCopySize": 3,
-        "hVBlankCopyDoubleSize": 4,
-        "hRedrawRowOrColumnMode": 1,
-    }
-    for symbol, value in legacy_requests.items():
-        emu.memory[phase2_rom.emulator.symbols[symbol]] = value
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[phase2_rom.emulator.symbols["wCurMap"]] = 0x0C
+    emu.memory[0xFF40] &= 0x7F
+    phase2_rom.call("PassiveFullColorApplyMap")
     emu.memory[phase2_rom.emulator.symbols["wUpdateSpritesEnabled"]] = 0xFF
     _write_banked(
         phase2_rom,
@@ -336,11 +252,6 @@ def test_full_color_actual_vblank_routes_only_owned_and_common_work(
     )
     emu.memory[phase2_rom.emulator.symbols["hFrameCounter"]] = 4
     emu.memory[phase2_rom.emulator.symbols["hVBlankOccurred"]] = 0xA5
-    vram_sentinels = (b"\x19\x2a\x3b\x4c", b"\xc4\xb3\xa2\x91")
-    for bank, sentinel in enumerate(vram_sentinels):
-        emu.memory[RVBK] = bank
-        for offset, value in enumerate(sentinel):
-            emu.memory[0x9A00 + offset] = value
     _write_banked(phase2_rom, ENTRY_WRAM_BANK, saved_rom_bank, b"\x6a")
     wram_alias_before = _read_banked(
         phase2_rom, ENTRY_WRAM_BANK, saved_rom_bank, 1,
@@ -348,21 +259,15 @@ def test_full_color_actual_vblank_routes_only_owned_and_common_work(
 
     observation = _run_actual_vblank(phase2_rom)
 
-    _assert_no_yellow_visible_writer(observation)
-    assert observation.call_sites == COMMON_SERVICE_CALLS
+    _assert_all_yellow_visible_writers(observation)
     assert _read_banked(
         phase2_rom, 1, phase2_rom.emulator.symbols["wIgnoreInputCounter"], 1,
     ) == b"\x07"
     assert emu.memory[phase2_rom.emulator.symbols["hFrameCounter"]] == 3
     assert emu.memory[phase2_rom.emulator.symbols["hVBlankOccurred"]] == 0
-    for symbol, value in legacy_requests.items():
-        assert emu.memory[phase2_rom.emulator.symbols[symbol]] == value
-
     assert observation.stack_pointer == 0xFFFC
     assert observation.rsvbk == ENTRY_WRAM_BANK
     assert observation.rvbk & 1 == 1
-    for bank, sentinel in enumerate(vram_sentinels):
-        assert phase2_rom.emulator.read_vram_bank(bank, 0x9A00, 4) == sentinel
     assert observation.interrupt_enable & 0x1F == VBLANK_INTERRUPT
     assert observation.interrupt_flags & 0x1F == JOYPAD_INTERRUPT
     assert observation.loaded_rom_bank == ENTRY_ROM_BANK
@@ -376,26 +281,25 @@ def test_full_color_actual_vblank_routes_only_owned_and_common_work(
     assert _read_banked(phase2_rom, 1, saved_rom_bank, 1) == bytes((ENTRY_ROM_BANK,))
 
 
-def test_reenabled_yellow_writer_mutation_trips_named_routing_assertion(
+def test_skipped_yellow_writer_mutation_trips_named_routing_assertion(
     phase2_rom: Phase2Rom,
 ) -> None:
-    phase2_rom.write_wram2(
-        "wRendererOwner", phase2_rom.constants["RENDERER_YELLOW"],
-    )
-    phase2_rom.emulator.pyboy.memory[
-        phase2_rom.emulator.symbols["wUpdateSpritesEnabled"]
-    ] = 0xFF
-
     observation = _run_actual_vblank(phase2_rom)
-
+    observation = VBlankObservation(
+        stack_pointer=observation.stack_pointer,
+        rsvbk=observation.rsvbk,
+        rvbk=observation.rvbk,
+        interrupt_enable=observation.interrupt_enable,
+        interrupt_flags=observation.interrupt_flags,
+        loaded_rom_bank=observation.loaded_rom_bank,
+        mapped_rom=observation.mapped_rom,
+        call_sites=tuple(
+            name for name in observation.call_sites
+            if name != "scroll-x register publish"
+        ),
+    )
     with pytest.raises(
         AssertionError,
-        match="Yellow visible writer executed: scroll-x register publish",
+        match="Yellow visible writer skipped: scroll-x register publish",
     ):
-        _assert_no_yellow_visible_writer(observation)
-    assert tuple(
-        name for name in observation.call_sites if name in YELLOW_VISIBLE_NAMES
-    ) == YELLOW_VISIBLE_NAMES
-    assert tuple(
-        name for name in observation.call_sites if name in COMMON_SERVICE_CALLS
-    ) == COMMON_SERVICE_CALLS
+        _assert_all_yellow_visible_writers(observation)

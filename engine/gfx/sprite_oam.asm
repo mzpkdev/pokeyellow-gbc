@@ -5,17 +5,8 @@ PrepareOAMData::
 ; as well as tweaking the code to show cgb palettes
 
 IF DEF(PHASE2_AUDIT)
-	; The full-color producer finishes one complete fixed-WRAM batch here. The
-	; scheduler owns the later shadow-OAM commit and hardware DMA.
-	farcall IsFullColorOverworldOwnerFar
-	jr c, .yellow
-	jp PrepareFullColorOAMDataForOwnedVBlank
-.yellow
-	xor a
-	ldh [hSpritePriority], a
 .build
 ENDC
-
 	ld a, [wUpdateSpritesEnabled]
 	dec a
 	jr z, .updateEnabled
