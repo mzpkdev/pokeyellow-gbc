@@ -125,6 +125,7 @@ class Phase1Rom:
             "debug symbol file must export symbolic Phase 1 encodings: "
             + ", ".join(missing_constants)
         )
+        assert "YELLOW_RECONSTRUCTING" in constants
         return cls(emulator, constants)
 
     def wait_for_hard_boot(self, max_frames: int = 180) -> None:
