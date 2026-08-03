@@ -105,6 +105,43 @@ PyBoy is deterministic and practical, but it is not a cycle-accurate hardware
 oracle. Keep timing margins conservative. Recheck suspicious timing failures in
 another emulator or on hardware before changing a runtime contract.
 
+## Fast feedback and certification
+
+| Intent | Command | Claim |
+|---|---|---|
+| inner loop | `make test-full-color-fast` | focused production-foundation feedback, with a warm target of at most 60 seconds |
+| pre-handoff | `make test-full-color-certify` | every retained local authority passed |
+| diagnosis | existing narrow `test-full-color-*` targets | only the named subsystem |
+| compatibility | `make test-full-color-all` | legacy aggregate, not certification |
+
+Fast is explicitly not certification. It runs these exact ordered components:
+`build-products`, `production-linkage`, `phase2-audit`, `smoke`,
+`renderer-conformance`, and `renderer-runtime`. Production linkage runs both
+the production color-mode linkage and Phase 1 runtime-ROM ownership tests. The
+first component visibly builds exactly the release, debug, VC, and Phase 2
+audit products.
+
+Certify is the only local ready-to-handoff claim. It runs these exact ordered
+components: `build-products`, `donor-provenance`, `gate0`, `phase2-audit`,
+`renderer-conformance`, `renderer-runtime`, `cold-boot-journeys`, `handoffs`,
+and `soak`. Donor provenance resolves the workspace authority at
+`.references/pokered-gbc`, verifies its exact pinned origin, HEAD, and cleanup
+parent, then invokes the exact donor comparator without a skip. Gate 0 retains
+both complete independent runs and its Exact comparator. The other authorities
+remain the Phase 2 verifier, mutation-sensitive synthetic conformance checker,
+two-fresh-emulator Phase 1 ownership runner, natural cold-boot journey file,
+focused handoff/reset model tests, and seeded soak sequences. There is no third
+full-unit invocation outside Gate 0 and no duplicate donor or cold-boot
+component.
+
+Both profiles retain complete component stdout and stderr plus JUnit for pytest
+components below an attempt-scoped aggregate root. Each retained runner gets a
+dedicated evidence root. `summary.json` only links those outputs; it never
+copies, relabels, or promotes evidence from one authority into another. Human
+mode prints bounded progress. Use
+`FULL_COLOR_OUTPUT=json make test-full-color-fast` (or certify) for exactly one
+canonical JSON summary.
+
 ## Fast-to-slow development loop
 
 For any ROM-hack change, climb only as far as the claim and blast radius demand:
@@ -116,8 +153,10 @@ For any ROM-hack change, climb only as far as the claim and blast radius demand:
 5. Run `.venv/bin/python -m pytest tools/rom_tests/tests/e2e -q` when shared
    scenarios, menus, scripts, rendering, or transitions changed.
 6. Inspect new or changed screenshots and retained diagnostics manually.
-7. Run the initiative-specific gates below when their contracts are affected.
-8. Push and wait for every hosted check to complete.
+7. Run `make test-full-color-fast` for focused production-foundation feedback.
+8. Run initiative-specific narrow gates when their contracts are affected.
+9. Run `make test-full-color-certify` before handing off full-color work.
+10. Push and wait for every hosted check to complete.
 
 Do not translate “CI is green” into “the ROM was playtested.” Hosted CI runs the
 complete unit directory and the specialized full-color jobs described below,
@@ -197,6 +236,8 @@ make test-full-color-gate0
 make test-full-color-handoffs
 make test-full-color-soak
 make test-full-color-all
+make test-full-color-fast
+make test-full-color-certify
 ```
 
 Their claims are deliberately narrow:
@@ -215,10 +256,11 @@ Their claims are deliberately narrow:
 - `test-full-color-handoffs` and `test-full-color-soak` exercise focused model
   transitions and seeded valid sequences.
 
-Despite its name, `test-full-color-all` combines Gate 0, conformance, Phase 1
-runtime, handoff, and soak checks only. It does **not** run
-`verify-full-color-phase2-audit` or cold-boot E2E. Run both separately before
-declaring Phase 2 work green.
+Despite its name, `test-full-color-all` remains the unchanged compatibility-only
+legacy aggregate of Gate 0, conformance, Phase 1 runtime, handoff, and soak
+checks. It is not certification. It does **not** run Phase 2 verification,
+donor provenance, or cold-boot E2E; use `test-full-color-certify` for the local
+handoff claim.
 
 The retained roots are:
 
@@ -227,8 +269,11 @@ The retained roots are:
 - conformance:
   `test-results/full-color-renderer-conformance/attempt-NNNN`;
 - Phase 1 runtime: `test-results/full-color-renderer-runtime/attempt-NNNN`;
-- cold-boot E2E: `test-results/full-color-cold-boot/`;
+- direct cold-boot E2E: `test-results/full-color-cold-boot/`;
+- certify cold-boot E2E:
+  `test-results/full-color-harness/attempt-NNNN/components/cold-boot-journeys/`;
 - reviewed Phase 1 and Phase 2 evidence: `specs/full-colors/evidence/`.
+- fast/certify aggregate: `test-results/full-color-harness/attempt-NNNN`.
 
 The deterministic runners accept their corresponding `FULL_COLOR_*_RESULTS`
 Make variables when evidence must be routed outside the default tree. Never
@@ -250,15 +295,18 @@ bedroom-to-Viridian progression, paired northbound parity, reverse Route 1
 ledges, Red's house fallback, Oak's capture cutscene, dialogue/menu/party
 boundaries, a natural wild-battle round trip, and save/reset/Continue.
 
-Failures are retained under `test-results/full-color-cold-boot/`. This file is
-part of the locally run E2E suite and is not currently run by hosted CI.
+Direct failures are retained under `test-results/full-color-cold-boot/`.
+Certify overrides that narrow default with its current attempt's dedicated
+`components/cold-boot-journeys/` root, so later or concurrent attempts cannot
+clean or relink earlier evidence. This file is part of the locally run E2E
+suite and is not currently run by hosted CI.
 
 ## Gate 0 contract
 
 `make test-full-color-gate0` performs two independent executions. Each stops at
 the first failure and covers, in order:
 
-1. the complete fast unit suite;
+1. the complete unit tree apart from the separately invoked donor comparator;
 2. baseline source/ROM discovery;
 3. reviewed inventory reconciliation;
 4. synthetic bank-boundary torture;
@@ -289,15 +337,10 @@ runs and a successful comparison remain the contract.
 Use this ordering for renderer work:
 
 1. one focused pytest file or `-k` expression;
-2. `.venv/bin/python -m pytest tools/rom_tests/tests/unit/full_color -q`;
-3. `make test-full-color-smoke`;
-4. `make verify-full-color-phase2-audit` for Phase 2 code, data, or inventory;
-5. `make test-full-color-renderer-conformance`;
-6. `make test-full-color-renderer-runtime`;
-7. `make test-full-color-gate0`;
-8. the focused and then complete cold-boot E2E file;
-9. `make test-full-color-all`, plus the separately required Phase 2 audit and
-   cold-boot commands.
+2. `make test-full-color-fast`;
+3. a stable narrow command for any failed or specially affected authority;
+4. the focused natural gameplay journey and manual frame review when relevant;
+5. `make test-full-color-certify` before handoff.
 
 For renderer work, “green” means relevant local checks passed, retained
 artifacts agree with their claim, screenshots were inspected, and hosted CI

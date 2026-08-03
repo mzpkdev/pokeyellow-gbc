@@ -72,6 +72,8 @@ RGBGFXFLAGS  ?= -Weverything
 	test-full-color-renderer-conformance \
 	test-full-color-renderer-runtime \
 	test-full-color-smoke \
+	test-full-color-fast \
+	test-full-color-certify \
 	test-full-color-handoffs \
 	test-full-color-soak \
 	test-full-color-all
@@ -120,6 +122,7 @@ tools:
 FULL_COLOR_RESULTS ?= test-results/full-color-gate0
 FULL_COLOR_CONFORMANCE_RESULTS ?= test-results/full-color-renderer-conformance
 FULL_COLOR_RUNTIME_RESULTS ?= test-results/full-color-renderer-runtime
+FULL_COLOR_HARNESS_RESULTS ?= test-results/full-color-harness
 
 measure-full-color-phase1: yellow_debug
 	$(PYTHON) -m tools.rom_tests.full_color.phase1_measurements --root . --output specs/full-colors/evidence/phase1-ownership-placement.json
@@ -157,6 +160,12 @@ test-full-color-renderer-runtime: yellow_debug
 
 test-full-color-smoke: yellow_debug
 	$(PYTHON) -m tools.rom_tests.full_color.runtime_observability --root . --results "$(FULL_COLOR_RESULTS)/smoke"
+
+test-full-color-fast:
+	@$(PYTHON) -m tools.rom_tests.full_color.harness_runner --profile fast --root . --results "$(FULL_COLOR_HARNESS_RESULTS)"
+
+test-full-color-certify:
+	@$(PYTHON) -m tools.rom_tests.full_color.harness_runner --profile certify --root . --results "$(FULL_COLOR_HARNESS_RESULTS)"
 
 test-full-color-handoffs:
 	$(PYTHON) -m pytest tools/rom_tests/tests/unit/full_color/test_model.py -k 'handoff or reconstruction or reset'

@@ -1,7 +1,10 @@
 """Stable Gate 0 command-surface checks."""
 
 from pathlib import Path
+import json
+import os
 import re
+import subprocess
 
 
 ROOT = Path(__file__).parents[5]
@@ -17,6 +20,8 @@ def _recipes() -> dict[str, str]:
         "test-full-color-renderer-conformance",
         "test-full-color-renderer-runtime",
         "test-full-color-smoke",
+        "test-full-color-fast",
+        "test-full-color-certify",
         "test-full-color-handoffs",
         "test-full-color-soak",
         "test-full-color-all",
@@ -68,6 +73,56 @@ def test_gate0_artifacts_use_one_overridable_results_root() -> None:
     assert '--results "$(FULL_COLOR_RESULTS)/smoke"' in _recipes()[
         "test-full-color-smoke"
     ]
+
+
+def test_profiles_enter_the_runner_without_make_dependencies() -> None:
+    recipes = _recipes()
+    dependencies = _dependencies()
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert dependencies["test-full-color-fast"] == ()
+    assert dependencies["test-full-color-certify"] == ()
+    assert "--profile fast" in recipes["test-full-color-fast"]
+    assert "--profile certify" in recipes["test-full-color-certify"]
+    assert "full_color.harness_runner" in recipes["test-full-color-fast"]
+    assert "full_color.harness_runner" in recipes["test-full-color-certify"]
+    assert "FULL_COLOR_HARNESS_RESULTS ?= test-results/full-color-harness" in makefile
+    for name in ("test-full-color-fast", "test-full-color-certify"):
+        assert "$(PYTHON)" in recipes[name]
+        assert recipes[name].startswith("\t@$(PYTHON)")
+        assert recipes[name].count("$(FULL_COLOR_HARNESS_RESULTS)") == 1
+        assert '--results "$(FULL_COLOR_HARNESS_RESULTS)"' in recipes[name]
+
+
+def test_json_profile_make_entrypoints_emit_only_the_runner_document(
+    tmp_path: Path,
+) -> None:
+    python = tmp_path / "json-python"
+    python.write_text("#!/bin/sh\nprintf '%s\\n' '{\"status\":\"probe\"}'\n", encoding="utf-8")
+    python.chmod(0o755)
+    direct_make_env = os.environ.copy()
+    for name in ("MAKELEVEL", "MAKEFLAGS", "MFLAGS", "GNUMAKEFLAGS"):
+        direct_make_env.pop(name, None)
+    direct_make_env["FULL_COLOR_OUTPUT"] = "json"
+    for target in ("test-full-color-fast", "test-full-color-certify"):
+        completed = subprocess.run(
+            (
+                "make",
+                target,
+                f"PYTHON={python}",
+                f"FULL_COLOR_HARNESS_RESULTS={tmp_path / 'results with spaces'}",
+            ),
+            cwd=ROOT,
+            env=direct_make_env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0
+        assert json.loads(completed.stdout) == {"status": "probe"}
+        assert len(completed.stdout.splitlines()) == 2
+        assert completed.stdout.splitlines()[0] == ""
+        assert "harness_runner" not in completed.stdout
+        assert completed.stderr == ""
 
 
 def test_gate0_builds_every_phase1_product_rom() -> None:
