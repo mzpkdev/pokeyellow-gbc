@@ -165,17 +165,49 @@ human playtest remain local release evidence.
 
 ## What hosted CI covers
 
-The pull-request workflow currently provides these independent signals:
+Full `CI` runs only for commit-bearing events: opening a pull request and
+synchronizing a new commit. Pushes to `main` retain release certification. A
+new PR commit cancels obsolete in-flight full CI for that pull request, while
+title/body edits, reopening, and draft-state changes run only the lightweight
+`PR Metadata` workflow and cannot cancel certification. Reopening fails closed
+unless the exact current head SHA already has a successful `Test` check. It
+emits a durable `PR Reopen Certification` context; every other metadata event
+emits `PR Title`. Per-PR, per-action concurrency prevents a later edit or
+draft-state change from cancelling or replacing the reopen result, while an
+obsolete repeated run of the same action may still be cancelled.
 
-- `Lint` checks the workflow and Conventional Commit PR title.
+The hosted workflows provide these signals:
+
+- `PR Title` checks the Conventional Commit title without checkout, dependency
+  installation, ROM build, emulator use, or evidence production.
+- `PR Reopen Certification` runs the same title check on reopen and also proves
+  that the exact reopened head already has a successful `Test` check.
+- `Lint` checks the workflows.
 - `Build` produces release, debug, and VC ROMs and rejects build-generated
   changes to tracked files.
-- `Test` downloads those products, builds the Phase 2 audit ROM, and discovers
-  the complete `tools/rom_tests/tests/unit` tree.
-- two `Gate 0 Baseline Run` jobs capture independent evidence, and the blocking
-  `Gate 0 Baseline` job compares it;
+- two `Gate 0 Baseline Run` jobs each install pinned RGBDS, build the Phase 2
+  audit ROM, and execute the complete seven-component Gate 0 independently;
+  the blocking `Gate 0 Baseline` job compares their byte-exact stable evidence;
 - `Renderer Conformance Checker` exercises the synthetic checker corpus;
-- `Phase 1 Runtime Ownership` captures real-ROM ownership evidence.
+- `Phase 1 Runtime Ownership` captures real-ROM ownership evidence;
+- `Test` is the fail-closed final aggregator over donor provenance, lint, build,
+  the Gate 0 comparator, conformance, and runtime ownership. It runs no third
+  copy of the full unit tree.
+
+Because `main` currently has no branch protection rule or ruleset, reviewers
+must check `Test`, the latest `PR Title`, and `PR Reopen Certification` after a
+reopen. The reopen context exists only for reopened events and therefore must
+not be made a universally required branch-protection context.
+
+Hosted targets are a first useful log within 1 second, focused warm feedback
+within 60 seconds, and no duplicate full CI run for one PR head SHA. Gate 0
+component durations should be recorded when evaluating orchestration changes.
+A scheduling or cache follow-up must compare pytest `--dist=load` with
+`--dist=loadscope` across three clean repetitions and demonstrate at least 15%
+wall-time improvement with identical collected test counts, failures, and
+retained mutation outcomes. Until that evidence exists, persistent discovery
+caches, unit sharding, and pytest scheduling changes remain deferred. Gate 0
+runs never share evidence or mutable emulator state.
 
 Hosted CI does not invoke `tools/rom_tests/tests/e2e`, and it does not invoke
 `make verify-full-color-phase2-audit` as a standalone gate. Run the relevant

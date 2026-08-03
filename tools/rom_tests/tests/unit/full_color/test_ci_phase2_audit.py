@@ -27,28 +27,24 @@ def _validate_phase2_audit_provisioning(workflow: str) -> None:
     test_job = _job(workflow, "test")
     gate0_job = _job(workflow, "gate-0-baseline-runs")
     gate0_aggregator = _job(workflow, "gate-0-baseline")
-    test_command = "run: python -m pytest tools/rom_tests/tests/unit"
     gate0_command = (
         "run: make test-full-color-gate0-ci-run "
         "FULL_COLOR_GATE0_RUN=${{ matrix.run }}"
     )
 
     assert re.findall(r"^    timeout-minutes: (.+)$", test_job, re.MULTILINE) == [
-        "20"
-    ], "Test CI timeout must be exactly 20 minutes"
-    assert SETUP_BUILD_ACTION in test_job, (
-        "Test CI must install the pinned RGBDS toolchain"
+        "5"
+    ], "Test aggregator timeout must be exactly 5 minutes"
+    assert "name: Test" in test_job
+    assert re.search(r"^    if: always\(\)$", test_job, re.MULTILINE), (
+        "Test aggregator must run after failed or skipped dependencies"
     )
-    assert f"run: {AUDIT_BUILD_COMMAND}" in test_job, (
-        "Test CI must build the genuine root-level Phase 2 audit product"
+    assert "Require every certification gate" in test_job
+    assert "pytest tools/rom_tests/tests/unit" not in test_job, (
+        "Test aggregator must not execute the full unit suite a third time"
     )
-    assert test_command in test_job, "Test CI must execute the full unit suite"
-    assert test_job.index(SETUP_BUILD_ACTION) < test_job.index(AUDIT_BUILD_COMMAND), (
-        "Test CI must install the pinned RGBDS toolchain before the Phase 2 audit build"
-    )
-    assert test_job.index(AUDIT_BUILD_COMMAND) < test_job.index(test_command), (
-        "Test CI must provision the Phase 2 audit product before the full unit suite"
-    )
+    assert SETUP_BUILD_ACTION not in test_job
+    assert AUDIT_BUILD_COMMAND not in test_job
 
     assert SETUP_BUILD_ACTION in gate0_job, (
         "Gate 0 CI must install the pinned RGBDS toolchain"
@@ -83,25 +79,8 @@ def _validate_phase2_audit_provisioning(workflow: str) -> None:
     )
 
 
-def test_full_suite_jobs_build_phase2_audit_product_before_execution() -> None:
+def test_phase2_audit_and_units_remain_in_both_gate0_legs() -> None:
     _validate_phase2_audit_provisioning(WORKFLOW.read_text(encoding="utf-8"))
-
-
-def _move_test_rgbds_setup_after_audit(workflow: str) -> str:
-    setup = (
-        "      - name: Set up pinned RGBDS\n"
-        "        uses: ./.github/actions/setup-build\n\n"
-    )
-    audit = (
-        "      - name: Build Phase 2 audit ROM\n"
-        f"        run: {AUDIT_BUILD_COMMAND}\n"
-    )
-    workflow = workflow.replace(
-        setup + "      - name: Install ROM test dependencies\n",
-        "      - name: Install ROM test dependencies\n",
-        1,
-    )
-    return workflow.replace(audit, audit + "\n" + setup.rstrip("\n") + "\n", 1)
 
 
 def _move_gate0_rgbds_setup_after_audit(workflow: str) -> str:
@@ -130,38 +109,44 @@ def _move_gate0_rgbds_setup_after_audit(workflow: str) -> str:
     [
         (
             lambda text: text.replace(
-                "  test:\n"
-                "    name: Test\n"
-                "    needs: build\n"
+                "    if: always()\n"
                 "    runs-on: ubuntu-latest\n"
-                "    timeout-minutes: 20\n",
-                "  test:\n"
-                "    name: Test\n"
-                "    needs: build\n"
+                "    timeout-minutes: 5\n\n"
+                "    steps:\n"
+                "      - name: Require every certification gate",
+                "    if: always()\n"
                 "    runs-on: ubuntu-latest\n"
-                "    timeout-minutes: 10\n",
+                "    timeout-minutes: 10\n\n"
+                "    steps:\n"
+                "      - name: Require every certification gate",
                 1,
             ),
-            "Test CI timeout must be exactly 20 minutes",
+            "Test aggregator timeout must be exactly 5 minutes",
         ),
         (
             lambda text: text.replace(
-                "      - name: Set up pinned RGBDS\n"
-                "        uses: ./.github/actions/setup-build\n",
-                "",
+                "    if: always()\n"
+                "    runs-on: ubuntu-latest\n"
+                "    timeout-minutes: 5\n\n"
+                "    steps:\n"
+                "      - name: Require every certification gate",
+                "    runs-on: ubuntu-latest\n"
+                "    timeout-minutes: 5\n\n"
+                "    steps:\n"
+                "      - name: Require every certification gate",
                 1,
             ),
-            "Test CI must install the pinned RGBDS toolchain",
-        ),
-        (
-            _move_test_rgbds_setup_after_audit,
-            "Test CI must install the pinned RGBDS toolchain before the Phase 2 audit build",
+            "Test aggregator must run after failed or skipped dependencies",
         ),
         (
             lambda text: text.replace(
-                f"        run: {AUDIT_BUILD_COMMAND}\n", "", 1
+                "      - name: Require every certification gate",
+                "      - name: Run unit tests\n"
+                "        run: python -m pytest tools/rom_tests/tests/unit\n\n"
+                "      - name: Require every certification gate",
+                1,
             ),
-            "Test CI must build the genuine root-level Phase 2 audit product",
+            "must not execute the full unit suite a third time",
         ),
         (
             lambda text: text.replace(
@@ -184,10 +169,9 @@ def _move_gate0_rgbds_setup_after_audit(workflow: str) -> str:
         ),
     ],
     ids=(
-        "test-timeout",
-        "test-rgbds",
-        "test-rgbds-after-audit",
-        "test-audit-build",
+        "aggregator-timeout",
+        "aggregator-always",
+        "third-unit-run",
         "gate0-audit-build",
         "gate0-rgbds-after-audit",
         "gate0-command",
