@@ -151,6 +151,7 @@ PHASE1_TRACE_SYMBOLS = TraceSymbols(
         3: Phase.OVERWORLD_ACTIVE,
         4: Phase.OVERWORLD_OVERLAY,
         5: Phase.HANDOFF_TO_YELLOW,
+        6: Phase.YELLOW_RECONSTRUCTING,
     },
     job_states={
         0: JobState.PENDING,

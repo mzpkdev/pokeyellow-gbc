@@ -15,9 +15,36 @@ IF DEF(PHASE2_AUDIT)
 	ret nz
 	; fallthrough
 ELSE
-	; Phase 1 links the production substrate without granting it a root.
-	; Retained diagnostics are callable only through the host test seam. No
-	; normal, debug, or VC VBlank root may dispatch an owner-changing payload.
+	; Decide visible ownership once.  Invalid and reconstruction states are
+	; closed: neither renderer is allowed to publish a visible resource.
+	select_renderer_state_e
+	ld a, [wRendererAdmissionOpen]
+	and a
+	jr z, .closed
+	ld a, [wRendererOwner]
+	cp RENDERER_FULL_COLOR_OVERWORLD
+	jr z, .color
+	cp RENDERER_YELLOW
+	jr nz, .closed
+	ld a, [wRendererPhase]
+	cp YELLOW_ACTIVE
+	jr nz, .closed
+	restore_renderer_state_e
+	; E is the farcall-stable tri-state route result. Bankswitch restores the ROM
+	; bank through A/B and leaves DE intact.
+	ld e, VBLANK_ROUTE_YELLOW
+	ret
+.color
+	ld a, [wRendererPhase]
+	cp OVERWORLD_ACTIVE
+	jr nz, .closed
+	restore_renderer_state_e
+	call RunFullColorProductionVBlank
+	ld e, VBLANK_ROUTE_COLOR
+	ret
+.closed
+	restore_renderer_state_e
+	ld e, VBLANK_ROUTE_CLOSED
 	ret
 ENDC
 RunFullColorOwnershipVBlank::
@@ -492,6 +519,21 @@ WriteFullColorSemanticDescriptorHeaderSelected:
 	ld a, HIGH(wFullColorProducerTiles)
 	ld [hli], a
 	ret
+
+IF !DEF(PHASE2_AUDIT)
+; Production palettes are immutable same-bank ROM authorities, not snapshots in
+; the paired-producer tile plane. Preserve the shared map/animation header ABI,
+; then replace only its source field and return HL at the same position.
+WriteFullColorSemanticDescriptorHeaderFromProducerSourceSelected:
+	call WriteFullColorSemanticDescriptorHeaderSelected
+	dec hl
+	dec hl
+	ld a, [wFullColorProducerSource]
+	ld [hli], a
+	ld a, [wFullColorProducerSource + 1]
+	ld [hli], a
+	ret
+ENDC
 
 ClearFullColorSemanticDescriptorSelected:
 	ld hl, wFullColorSchedulerEnqueueDescriptor
@@ -1426,6 +1468,12 @@ CancelFullColorSchedulerSelected::
 	xor a
 	ld [wFullColorRequestCount], a
 	ld [wFullColorRequestCursor], a
+IF !DEF(PHASE2_AUDIT)
+	; This latch is the validity bit for the private retained descriptor. A
+	; lifecycle cancellation invalidates it along with every resident request,
+	; so the next same-owner producer may replace the singleton immediately.
+	ld [wFullColorProducerPending], a
+ENDC
 	ret
 
 LoadFullColorCursorDescriptorSelected:

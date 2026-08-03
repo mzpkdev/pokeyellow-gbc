@@ -24,10 +24,14 @@ ENDC
 	ldh a, [hLoadedROMBank]
 	ld [wVBlankSavedROMBank], a
 
-IF !DEF(PHASE2_AUDIT)
-	; Phase 1 dispatch is banked to keep the already-full Home section bounded.
-	; Its full-color route is a no-op; Yellow's mechanics continue unchanged.
+IF FULL_COLOR_PRODUCTION_ACTIVATED
+	; Resolve visible ownership before the first hardware writer. Color performs
+	; its complete visible route in the banked dispatcher; closed states perform
+	; neither route and join only the owner-neutral tail below.
 	farcall RouteRendererOwnershipVBlank
+	ld a, e
+	cp VBLANK_ROUTE_YELLOW
+	jr nz, .visibleRouteComplete
 ENDC
 
 	ldh a, [hSCX]
@@ -65,6 +69,9 @@ ENDC
 	call BankswitchCommon
 	call PrepareOAMData
 
+IF FULL_COLOR_PRODUCTION_ACTIVATED
+.visibleRouteComplete
+ENDC
 :
 	; VBlank-sensitive operations end.
 	call TrackPlayTime ; keep track of time played

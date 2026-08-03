@@ -23,6 +23,10 @@ DetermineWildOpponent:
 	callfar TryDoWildEncounter
 	ret nz
 InitBattleCommon:
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	ld c, RENDERER_CONTEXT_BATTLE
+	farcall BeginForcedYellowPresentationRoot
+	ENDC
 	ld a, [wMapPalOffset]
 	push af
 	ld hl, wLetterPrintingDelayFlags
@@ -127,6 +131,12 @@ _InitBattleCommon:
 	ld hl, DrawEnemyHUDAndHPBar
 	ld b, BANK(DrawEnemyHUDAndHPBar)
 	call z, Bankswitch ; draw enemy HUD and HP bar if it's a wild battle
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	; The HUD, sprites, tilemaps, and palettes above are the complete battle
+	; destination reconstruction. The closed Yellow VBlank cannot publish BG1,
+	; so the adapter commits the complete 20x18 window before its barrier.
+	farcall RecordAndCompleteYellowPresentationRoot
+	ENDC
 	callfar StartBattle
 	callfar EndOfBattle
 	pop af

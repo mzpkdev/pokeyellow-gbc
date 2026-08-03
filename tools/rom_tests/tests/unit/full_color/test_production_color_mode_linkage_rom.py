@@ -32,10 +32,17 @@ PRODUCTION_SUBSTRATE = frozenset(
         "PoisonLegacyVideoRequests",
         "BeginFullColorMapEntry",
         "CompleteFullColorMapReconstruction",
+        "BeginForcedYellowPresentation",
+        "CompleteYellowPresentation",
+        "ResetRendererOwnershipForReconstruction",
+        "RunFullColorProductionVBlank",
         "wFullColorProductionSchedulerStateStart",
         "wFullColorProductionSchedulerStateEnd",
         "wFullColorProductionLifecycleStateStart",
-        "wFullColorProductionReconstructionBarrier",
+        "wFullColorProductionYellowReconstructionBarrier",
+        "wFullColorProductionColorReconstructionBarrier",
+        "wFullColorProductionReconstructionLedger",
+        "wFullColorProductionTransitionStatus",
         "wFullColorProductionLifecycleStateEnd",
     }
 )
@@ -147,9 +154,10 @@ def test_production_products_link_only_the_allowlisted_substrate(product: str) -
     assert symbols["wFullColorProductionSchedulerStateEnd"] == (2, 0xD3D5)
     assert symbols["wFullColorProductionLifecycleStateStart"] == (2, 0xD3D5)
     timing = symbols["wFullColorTimingState"][1]
-    barrier = symbols["wFullColorProductionReconstructionBarrier"][1]
+    yellow_barrier = symbols["wFullColorProductionYellowReconstructionBarrier"][1]
+    color_barrier = symbols["wFullColorProductionColorReconstructionBarrier"][1]
     lifecycle_end = symbols["wFullColorProductionLifecycleStateEnd"][1]
-    assert timing + 4 <= barrier < lifecycle_end < 0xD800
+    assert timing + 4 <= yellow_barrier < color_barrier < lifecycle_end < 0xD800
 
 
 def _read_wram2(emulator: Emulator, start: int, end: int) -> bytes:
@@ -401,10 +409,7 @@ def _reachable_symbols(
 @pytest.mark.parametrize("product", PRODUCTS)
 def test_static_production_roots_cannot_reach_color_writers_or_activation(product: str) -> None:
     symbols, _ = _symbols(product)
-    bank, address = symbols["RouteRendererOwnershipVBlank"]
-    offset = bank * 0x4000 + address - 0x4000
-    route = (REPOSITORY_ROOT / f"{product}.gbc").read_bytes()[offset : offset + 4]
-    assert route[0] == 0xC9
+    assert _constants(product)["FULL_COLOR_PRODUCTION_ACTIVATED"] == 0
     assert "PollFullColorDebugCommand" not in symbols
     assert set(PRODUCTION_ROOTS) <= symbols.keys()
     reached = _reachable_symbols(product, PRODUCTION_ROOTS)

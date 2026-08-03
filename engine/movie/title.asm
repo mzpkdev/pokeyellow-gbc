@@ -60,22 +60,42 @@ DisplayTitleScreen:
 	call .WriteCopyrightTiles
 	call SaveScreenTilesToBuffer2
 	call LoadScreenTilesFromBuffer2
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	ELSE
 	call EnableLCD
+	ENDC
 	callfar TitleScreen_PlacePikachu
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	ld de, vBGMap0 + $300
+	call .CopyHiddenTitleTileMap
+	ELSE
 	ld a, HIGH(vBGMap0 + $300)
 	call TitleScreenCopyTileMapToVRAM
+	ENDC
 	call SaveScreenTilesToBuffer1
 	ld a, $40
 	ldh [hWY], a
 	call LoadScreenTilesFromBuffer2
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	ld de, vBGMap0
+	call .CopyHiddenTitleTileMap
+	ELSE
 	ld a, HIGH(vBGMap0)
 	call TitleScreenCopyTileMapToVRAM
+	ENDC
 	ld b, SET_PAL_TITLE_SCREEN
 	call RunPaletteCommand
 	call GBPalNormal
 	ld a, %11100000
 	ldh [rOBP0], a
 	call UpdateCGBPal_OBP0
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	; Pikachu, both wrapped title tilemaps, BG palettes and the complete eye OAM
+	; batch now exist in the hidden destination. Cross exactly one presentation
+	; barrier at the natural final reveal point.
+	farcall RecordAndCompleteYellowPresentationRoot
+	call EnableLCD
+	ENDC
 
 ; make pokemon logo bounce up and down
 	ld bc, hSCY ; background scroll Y
@@ -131,6 +151,33 @@ DisplayTitleScreen:
 
 .tileScreenCopyrightTiles
 	db $e0,$e1,$e2,$e3,$e1,$e2,$ee,$e5,$e6,$e7,$e8,$e9,$ea,$eb,$ec,$ed,$ff ; ©1995-1999 GAME FREAK inc.
+
+IF FULL_COLOR_PRODUCTION_ACTIVATED
+; LCD-off counterpart of TitleScreenCopyTileMapToVRAM. DE is the wrapped BG
+; destination and wTileMap is the complete 20x18 source.
+.CopyHiddenTitleTileMap:
+	ld hl, wTileMap
+	ld b, SCREEN_HEIGHT
+.row
+	push bc
+	ld c, SCREEN_WIDTH
+.tile
+	ld a, [hli]
+	ld [de], a
+	inc de
+	dec c
+	jr nz, .tile
+	ld a, TILEMAP_WIDTH - SCREEN_WIDTH
+	add e
+	ld e, a
+	jr nc, .noCarry
+	inc d
+.noCarry
+	pop bc
+	dec b
+	jr nz, .row
+	ret
+ENDC
 
 .finishedBouncingPokemonLogo
 	call LoadScreenTilesFromBuffer1

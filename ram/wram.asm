@@ -2759,13 +2759,21 @@ wFullColorProducerClass:: db
 wFullColorPartyReturnPending:: db
 wFullColorProducerFlags:: db
 wFullColorProducerPending:: db
-wFullColorProductionReconstructionBarrier:: db
+wFullColorProductionYellowReconstructionBarrier:: db
+wFullColorProductionColorReconstructionBarrier:: db
+wFullColorProductionReconstructionLedger:: ds 2
+wFullColorProductionReturnContext:: db
+wFullColorProductionTransitionStatus:: db
+wFullColorProductionTransitionRoute:: db
+wFullColorProductionSavedLCDC:: db
+wFullColorTransitionBudget:: dw
 wFullColorProductionLifecycleStateEnd::
 
 ASSERT wFullColorAuthoritySnapshotEnd - wFullColorAuthoritySnapshot == FULL_COLOR_AUTHORITY_SNAPSHOT_BYTES
 ASSERT wFullColorProducerAttributes - wFullColorProducerTiles == SCREEN_AREA
 ASSERT wFullColorProducerSource - wFullColorProducerAttributes == SCREEN_AREA
-ASSERT wFullColorProductionReconstructionBarrier >= wFullColorTimingState + 4
+ASSERT wFullColorProductionYellowReconstructionBarrier >= wFullColorTimingState + 4
+ASSERT wFullColorProductionReconstructionLedger + 2 <= wFullColorProductionReturnContext
 ASSERT wFullColorProductionLifecycleStateStart == FULL_COLOR_PHASE3_WRAM_START
 ASSERT wFullColorProductionLifecycleStateEnd < $d800
 ASSERT BANK(wFullColorProductionLifecycleStateStart) == FULL_COLOR_PHASE2_WRAM_BANK
