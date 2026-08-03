@@ -347,7 +347,7 @@ SECTION "Full Color Ownership Core", ROMX[$4000], BANK[PHASE1_OWNERSHIP_ROM_BANK
 INCLUDE "engine/full_color/ownership.asm"
 
 
-IF DEF(PHASE2_AUDIT)
+IF DEF(PHASE2_AUDIT) || DEF(FULL_COLOR_PRODUCTION_LINKAGE)
 SECTION "Full Color Phase 2 Pipelines", ROMX[FULL_COLOR_PHASE2_ROM_START], BANK[FULL_COLOR_PHASE2_ROM_BANK]
 
 INCLUDE "engine/full_color/scheduler.asm"
@@ -355,7 +355,9 @@ INCLUDE "engine/full_color/palettes.asm"
 INCLUDE "engine/full_color/transfers.asm"
 INCLUDE "engine/full_color/oam.asm"
 INCLUDE "data/tilesets/full_color_overworld.asm"
+IF DEF(PHASE2_AUDIT)
 INCLUDE "engine/full_color/passive_overworld.asm"
+ENDC
 
 	ds FULL_COLOR_PHASE2_ROM_END - @
 ASSERT @ == FULL_COLOR_PHASE2_ROM_END
@@ -366,9 +368,11 @@ SECTION "Full Color Debug Runtime", ROMX[FULL_COLOR_PHASE2_ROM_END], BANK[FULL_C
 
 INCLUDE "engine/full_color/debug_runtime.asm"
 
-IF DEF(PHASE2_AUDIT)
+IF DEF(PHASE2_AUDIT) || DEF(FULL_COLOR_PRODUCTION_LINKAGE)
 INCLUDE "engine/full_color/lifecycle.asm"
+IF DEF(PHASE2_AUDIT)
 INCLUDE "engine/full_color/passive_palette_refresh.asm"
+ENDC
 ASSERT BANK(FullColorLifecycleROMStart) == FULL_COLOR_PHASE2_ROM_BANK
 ASSERT FullColorLifecycleROMStart >= FULL_COLOR_PHASE3_ROM_START
 ASSERT @ <= $8000

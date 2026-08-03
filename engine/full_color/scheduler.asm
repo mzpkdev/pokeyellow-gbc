@@ -9,14 +9,17 @@
 RouteRendererOwnershipVBlank::
 IF DEF(PHASE2_AUDIT)
 	call PollFullColorPhase2DebugCommand
-ELIF DEF(_DEBUG)
-	call PollFullColorDebugCommand
-ENDC
 	call RetryFullColorProducer
 	call GetRendererOwner
 	cp RENDERER_FULL_COLOR_OVERWORLD
 	ret nz
 	; fallthrough
+ELSE
+	; Phase 1 links the production substrate without granting it a root.
+	; Retained diagnostics are callable only through the host test seam. No
+	; normal, debug, or VC VBlank root may dispatch an owner-changing payload.
+	ret
+ENDC
 RunFullColorOwnershipVBlank::
 	select_renderer_state_e
 	call RunFullColorSchedulerSelected
@@ -59,7 +62,11 @@ InitFullColorSchedulerSelected::
 	cpl
 	ld [wFullColorCommitBudget], a
 	ld [wFullColorCommitBudget + 1], a
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
+	jp InitFullColorProductionLifecycleSelected
+ELSE
 	ret
+ENDC
 
 InitFullColorScheduler::
 	select_renderer_state_e

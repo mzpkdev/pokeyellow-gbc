@@ -2696,4 +2696,77 @@ ASSERT wFullColorDebugCarrierEnd - wFullColorDebugCarrierStart == FULL_COLOR_DEB
 ASSERT wFullColorPhase2LifecycleStateStart == FULL_COLOR_PHASE3_WRAM_START
 ASSERT wFullColorPhase2LifecycleStateEnd == FULL_COLOR_PHASE3_WRAM_END
 ASSERT BANK(wFullColorPhase2LifecycleStateStart) == FULL_COLOR_PHASE2_WRAM_BANK
+ELIF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
+; Production owns a neutral, non-aliased scheduler allocation. Audit passive
+; aliases and runtime-observation carriers are intentionally absent.
+SECTION "Full Color Production Scheduler State", WRAMX[FULL_COLOR_PHASE2_WRAM_START], BANK[FULL_COLOR_PHASE2_WRAM_BANK]
+wFullColorProductionSchedulerStateStart::
+wFullColorRequestDescriptors:: ds FULL_COLOR_REQUEST_CAPACITY * FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+wFullColorRequestDescriptorsEnd::
+wFullColorBGPaletteBase:: ds 64
+wFullColorBGPaletteTransformed:: ds 64
+wFullColorOBJPaletteBase:: ds 64
+wFullColorOBJPaletteTransformed:: ds 64
+wFullColorAttributeRectangle:: ds SCREEN_AREA
+wFullColorShadowOAMBatch:: ds 160
+wFullColorReconstructionLedger::
+wFullColorRequestCount:: db
+wFullColorRequestCursor:: db
+wFullColorAvailableResources:: dw
+wFullColorCommitBudget:: dw
+wFullColorRetryCounter:: db
+wFullColorLastAdmissionResult:: db
+wFullColorTransitionCount:: db
+wFullColorTransitionLog:: ds 8
+wFullColorActiveDescriptor:: dw
+wFullColorTimingState:: ds 4
+wFullColorReconstructionItems:: ds 4
+wFullColorRequestStaging:: ds 5
+wFullColorReconstructionLedgerEnd::
+wFullColorProductionSchedulerStateEnd::
+
+ASSERT wFullColorRequestDescriptorsEnd - wFullColorRequestDescriptors == 8 * 20
+ASSERT wFullColorReconstructionLedgerEnd - wFullColorReconstructionLedger == 32
+ASSERT wFullColorProductionSchedulerStateEnd - wFullColorRequestDescriptorsEnd == FULL_COLOR_REQUEST_SCRATCH_BYTES
+ASSERT wFullColorProductionSchedulerStateStart == FULL_COLOR_PHASE2_WRAM_START
+ASSERT wFullColorProductionSchedulerStateEnd == FULL_COLOR_PHASE2_WRAM_END
+ASSERT BANK(wFullColorProductionSchedulerStateStart) == FULL_COLOR_PHASE2_WRAM_BANK
+
+SECTION "Full Color Production Lifecycle State", WRAMX[FULL_COLOR_PHASE3_WRAM_START], BANK[FULL_COLOR_PHASE2_WRAM_BANK]
+wFullColorProductionLifecycleStateStart::
+wFullColorAuthoritySnapshot::
+wFullColorAuthorityMap:: db
+wFullColorAuthorityTileset:: db
+wFullColorAuthorityY:: db
+wFullColorAuthorityX:: db
+wFullColorAuthorityBlockView:: dw
+wFullColorAuthorityVRAMView:: dw
+wFullColorAuthorityMapHeight:: db
+wFullColorAuthorityMapWidth:: db
+wFullColorAuthoritySpriteCount:: db
+wFullColorAuthorityPlayerPicture:: db
+wFullColorAuthorityPikachuPicture:: db
+wFullColorAuthorityReserved:: ds 3
+wFullColorAuthoritySnapshotEnd::
+wFullColorSchedulerEnqueueDescriptor:: ds FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+wFullColorProducerTiles:: ds FULL_COLOR_PRODUCER_PLANE_BYTES
+wFullColorProducerAttributes:: ds FULL_COLOR_PRODUCER_PLANE_BYTES
+wFullColorProducerSource:: dw
+wFullColorProducerDestination:: dw
+wFullColorProducerWidth:: db
+wFullColorProducerHeight:: db
+wFullColorProducerClass:: db
+wFullColorPartyReturnPending:: db
+wFullColorProducerFlags:: db
+wFullColorProducerPending:: db
+wFullColorProductionReconstructionBarrier:: db
+wFullColorProductionLifecycleStateEnd::
+
+ASSERT wFullColorAuthoritySnapshotEnd - wFullColorAuthoritySnapshot == FULL_COLOR_AUTHORITY_SNAPSHOT_BYTES
+ASSERT wFullColorProducerAttributes - wFullColorProducerTiles == SCREEN_AREA
+ASSERT wFullColorProducerSource - wFullColorProducerAttributes == SCREEN_AREA
+ASSERT wFullColorProductionReconstructionBarrier >= wFullColorTimingState + 4
+ASSERT wFullColorProductionLifecycleStateStart == FULL_COLOR_PHASE3_WRAM_START
+ASSERT wFullColorProductionLifecycleStateEnd < $d800
+ASSERT BANK(wFullColorProductionLifecycleStateStart) == FULL_COLOR_PHASE2_WRAM_BANK
 ENDC

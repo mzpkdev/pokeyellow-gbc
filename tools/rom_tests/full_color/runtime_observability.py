@@ -39,6 +39,13 @@ PHASE1_OWNERSHIP_REPLACEMENT_CHECKPOINT = 1
 PHASE1_RESTORE_YELLOW_COMMAND = 2
 PHASE1_RESTORE_YELLOW_CHECKPOINT = 2
 PHASE1_MAX_COMMAND_FRAMES = 120
+PHASE1_DIAGNOSTIC_STACK_BYTES = 128
+PHASE1_TRAP_ADDRESS = 0xFF80
+PHASE1_TRAP_BYTES = 2
+PHASE1_FIXED_WRAM_START = 0xC000
+PHASE1_FIXED_WRAM_BYTES = 0x1000
+PHASE1_HRAM_START = 0xFF80
+PHASE1_HRAM_BYTES = 0x7F
 PHASE1_CASE_ID = "RC-OWNERSHIP-REPLACEMENT"
 PHASE1_CHECKPOINT = "phase1-ownership-replacement"
 _CAPTURE_GUARD_REGISTERS = {
@@ -115,7 +122,10 @@ PHASE1_COMMAND_SYMBOLS = (
     "wFullColorDebugCommand",
     "wFullColorDebugCheckpoint",
 )
-PHASE1_COMMAND_PENDING_SYMBOL = "hFullColorDebugCommandPending"
+PHASE1_DIAGNOSTIC_ROUTINES = {
+    PHASE1_OWNERSHIP_REPLACEMENT_COMMAND: "RunPhase1OwnershipReplacementScenario",
+    PHASE1_RESTORE_YELLOW_COMMAND: "RestoreYellowAfterPhase1Diagnostic",
+}
 
 PHASE1_TRACE_SYMBOLS = TraceSymbols(
     owners={
@@ -483,12 +493,15 @@ def run_debug_command(
     prior_checkpoint: int = 0,
     max_frames: int = PHASE1_MAX_COMMAND_FRAMES,
 ) -> None:
-    """Submit one bounded mailbox command and wait for its exact checkpoint."""
+    """Call one unrooted debug routine through a controlled emulator seam."""
 
     wait_until_debug_ready(emulator)
-    missing = sorted(set(PHASE1_COMMAND_SYMBOLS) - emulator.symbols.keys())
-    if PHASE1_COMMAND_PENDING_SYMBOL not in emulator.symbols:
-        missing.append(PHASE1_COMMAND_PENDING_SYMBOL)
+    routine = PHASE1_DIAGNOSTIC_ROUTINES.get(command)
+    if routine is None:
+        raise AssertionError(f"unsupported Phase 1 diagnostic command: {command}")
+    missing = sorted(
+        (set(PHASE1_COMMAND_SYMBOLS) | {routine}) - emulator.symbols.keys()
+    )
     if missing:
         raise AssertionError(
             "debug ROM is missing Phase 1 command symbols: " + ", ".join(missing)
@@ -503,8 +516,9 @@ def run_debug_command(
             "Phase 1 command symbols are outside reserved SRAM bank 3: "
             + ", ".join(wrong_bank)
         )
-    if emulator.symbol_banks[PHASE1_COMMAND_PENDING_SYMBOL] != 0:
-        raise AssertionError("Phase 1 pending trigger must reside in fixed HRAM")
+    routine_bank = emulator.symbol_banks[routine]
+    if routine_bank == 0:
+        raise AssertionError("Phase 1 diagnostic routine must be banked and unrooted")
     if emulator.read("wFullColorDebugLayoutVersion") != DEBUG_LAYOUT_VERSION:
         raise AssertionError("Phase 1 command requires debug layout version 2")
     if emulator.read("wFullColorDebugActivationPhase") != 1:
@@ -515,22 +529,140 @@ def run_debug_command(
             "Phase 1 command requires checkpoint "
             f"{prior_checkpoint}; got {actual_prior_checkpoint}"
         )
-    emulator.write("wFullColorDebugCommand", command)
-    emulator.write(PHASE1_COMMAND_PENDING_SYMBOL, 1)
-    for _ in range(max_frames + 1):
-        actual = emulator.read("wFullColorDebugCheckpoint")
-        if actual == checkpoint:
-            if emulator.read("wFullColorDebugCommand") != 0:
-                raise AssertionError("Phase 1 debug command was not acknowledged")
-            return
-        if actual not in {prior_checkpoint, checkpoint}:
-            raise AssertionError(
-                f"Phase 1 command reached unexpected checkpoint {actual}; expected {checkpoint}"
-            )
-        emulator.tick()
-    raise AssertionError(
-        f"Phase 1 command did not reach checkpoint {checkpoint} within {max_frames} frames"
+    register_file = emulator.pyboy.register_file
+    registers = {
+        name: getattr(register_file, name)
+        for name in ("A", "F", "B", "C", "D", "E", "HL", "SP", "PC")
+    }
+    memory = emulator.pyboy.memory
+    loaded_bank_address = emulator.symbols["hLoadedROMBank"]
+    stack_top = emulator.symbols.get("wStack")
+    if stack_top is None:
+        raise AssertionError("Phase 1 diagnostic requires the real wStack symbol")
+    if emulator.symbol_banks.get("wStack") != 1 or not 0xD000 <= stack_top < 0xE000:
+        raise AssertionError(
+            "Phase 1 diagnostic requires wStack in switchable WRAM bank 1"
+        )
+    stack_pointer = stack_top - 2
+    stack_start = stack_top - PHASE1_DIAGNOSTIC_STACK_BYTES
+    if stack_start < 0xD000 or stack_pointer + 1 >= stack_top:
+        raise AssertionError(
+            "Phase 1 diagnostic wStack lacks the required 128-byte headroom"
+        )
+    loaded_bank = memory[loaded_bank_address]
+    selected_wram_bank = memory[0xFF70]
+    interrupt_enable = memory[0xFFFF]
+    interrupt_flags = memory[0xFF0F]
+    return_trap = 0x0100
+    stack_before = emulator.read_memory(
+        stack_start, PHASE1_DIAGNOSTIC_STACK_BYTES, bank=1
     )
+    shadow_oam_start = emulator.symbols.get("wShadowOAM")
+    shadow_oam_bytes = 160
+    fixed_wram_end = PHASE1_FIXED_WRAM_START + PHASE1_FIXED_WRAM_BYTES
+    if (
+        shadow_oam_start is None
+        or emulator.symbol_banks.get("wShadowOAM") != 0
+        or not PHASE1_FIXED_WRAM_START
+        <= shadow_oam_start
+        <= fixed_wram_end - shadow_oam_bytes
+    ):
+        raise AssertionError(
+            "Phase 1 diagnostic requires the observed wShadowOAM WRAM0 range"
+        )
+    # wShadowOAM is the sole fixed-WRAM exclusion: semantic evidence observes it
+    # directly, including the patchable negative-test mutation. Everything else
+    # in fixed WRAM must remain byte-identical across the host seam.
+    fixed_wram_regions = (
+        (PHASE1_FIXED_WRAM_START, shadow_oam_start - PHASE1_FIXED_WRAM_START),
+        (
+            shadow_oam_start + shadow_oam_bytes,
+            fixed_wram_end - shadow_oam_start - shadow_oam_bytes,
+        ),
+    )
+    fixed_wram_before = tuple(
+        emulator.read_memory(address, size)
+        for address, size in fixed_wram_regions
+    )
+    hram_before = emulator.read_memory(PHASE1_HRAM_START, PHASE1_HRAM_BYTES)
+    trap_offset = PHASE1_TRAP_ADDRESS - PHASE1_HRAM_START
+    trap_before = hram_before[trap_offset : trap_offset + PHASE1_TRAP_BYTES]
+    returned = False
+
+    def stop(_: object) -> None:
+        nonlocal returned
+        returned = True
+        memory[0xFFFF] = 0
+        memory[PHASE1_TRAP_ADDRESS] = 0x18
+        memory[PHASE1_TRAP_ADDRESS + 1] = 0xFE
+        register_file.PC = PHASE1_TRAP_ADDRESS
+
+    hook_registered = False
+    diagnostic_pc = 0
+    diagnostic_sp = 0
+    try:
+        memory[0xFF70] = 1
+        memory[stack_pointer] = return_trap & 0xFF
+        memory[stack_pointer + 1] = return_trap >> 8
+        memory[0xFFFF] = 0
+        memory[0x2000] = routine_bank & 0xFF
+        memory[0x3000] = routine_bank >> 8
+        memory[loaded_bank_address] = routine_bank
+        register_file.SP = stack_pointer
+        register_file.PC = emulator.symbols[routine]
+        emulator.pyboy.hook_register(0, return_trap, stop, None)
+        hook_registered = True
+        emulator.pyboy.tick(1, render=False, sound=False)
+    finally:
+        diagnostic_pc = register_file.PC
+        diagnostic_sp = register_file.SP
+        if hook_registered:
+            emulator.pyboy.hook_deregister(0, return_trap)
+        memory[0xFF70] = 1
+        for offset, value in enumerate(stack_before):
+            memory[1, stack_start + offset] = value
+        for offset, value in enumerate(trap_before):
+            memory[PHASE1_TRAP_ADDRESS + offset] = value
+        memory[0x2000] = loaded_bank & 0xFF
+        memory[0x3000] = loaded_bank >> 8
+        memory[loaded_bank_address] = loaded_bank
+        memory[0xFF70] = selected_wram_bank
+        memory[0xFFFF] = interrupt_enable
+        memory[0xFF0F] = interrupt_flags
+        for name, value in registers.items():
+            setattr(register_file, name, value)
+    if not returned:
+        raise AssertionError(
+            f"Phase 1 diagnostic did not return within {max_frames} frames "
+            f"(PC={diagnostic_pc:#06x}, SP={diagnostic_sp:#06x})"
+        )
+    unchanged_regions = [
+        ("fixed WRAM0", address, expected)
+        for (address, _), expected in zip(
+            fixed_wram_regions, fixed_wram_before, strict=True
+        )
+    ]
+    unchanged_regions.append(("HRAM", PHASE1_HRAM_START, hram_before))
+    for label, address, expected in unchanged_regions:
+        actual_memory = emulator.read_memory(address, len(expected))
+        if actual_memory != expected:
+            offset = next(
+                index
+                for index, values in enumerate(
+                    zip(expected, actual_memory, strict=True)
+                )
+                if values[0] != values[1]
+            )
+            raise AssertionError(
+                f"Phase 1 diagnostic changed unrelated {label} at "
+                f"{address + offset:#06x}: "
+                f"{expected[offset]:#04x}->{actual_memory[offset]:#04x}"
+            )
+    actual = emulator.read("wFullColorDebugCheckpoint")
+    if actual != checkpoint:
+        raise AssertionError(
+            f"Phase 1 diagnostic reached checkpoint {actual}; expected {checkpoint}"
+        )
 
 
 def restore_phase1_to_yellow(

@@ -8,7 +8,7 @@
 ; Pallet Town and Route 1 both use OVERWORLD; the donor roof table gives both
 ; maps PalletRoof identity.
 
-IF DEF(PHASE2_AUDIT)
+IF DEF(PHASE2_AUDIT) || DEF(FULL_COLOR_PRODUCTION_LINKAGE)
 DEF FULL_COLOR_OVERWORLD_GRAY   EQU 0
 DEF FULL_COLOR_OVERWORLD_RED    EQU 1
 DEF FULL_COLOR_OVERWORLD_GREEN  EQU 2
@@ -23,7 +23,9 @@ DEF FULL_COLOR_OVERWORLD_TEXT   EQU 7
 ; colors 1 and 2, matching the donor's LoadTownPalette behavior.
 FullColorOverworldBGPalettes::
 ; Compatibility aliases retain the existing audit-only size/symbol ABI.
+IF DEF(PHASE2_AUDIT)
 FullColorCanaryBGPalettes::
+ENDC
 	RGB 27, 31, 27 ; OUTDOOR_GRAY
 	RGB 21, 21, 21
 	RGB 13, 13, 13
@@ -57,9 +59,12 @@ FullColorCanaryBGPalettes::
 	RGB 31, 31, 31
 	RGB 0, 0, 0
 FullColorOverworldBGPalettesEnd::
+IF DEF(PHASE2_AUDIT)
 FullColorCanaryBGPalettesEnd::
+ENDC
 
 ; OBJ remains the independently authored canary/fallback for this data phase.
+IF DEF(PHASE2_AUDIT)
 FullColorCanaryOBJPalettes::
 	REPT 8
 		RGB 31, 31, 31
@@ -68,6 +73,11 @@ FullColorCanaryOBJPalettes::
 		RGB 0, 0, 0
 	ENDR
 FullColorCanaryOBJPalettesEnd::
+ELSE
+	; Preserve downstream production authority placement without publishing the
+	; audit-only OBJ canary surface.
+	ds 8 * 4 * 2
+ENDC
 
 ; The pinned donor HEAD's overworld.asm accidentally ends after 94 bytes, so
 ; its $60-byte loader spills WATER, GRAY from the following RedsHouse table.
@@ -77,7 +87,9 @@ FullColorCanaryOBJPalettesEnd::
 ; 96 OVERWORLD assignments without cross-table authority. tilepal selects VRAM
 ; bank 0 and authors no priority. Tiles $60-$ff explicitly use text palette 7.
 FullColorOverworldTileAttributes::
+IF DEF(PHASE2_AUDIT)
 FullColorCanaryOverworldTileClasses::
+ENDC
 	db FULL_COLOR_OVERWORLD_GRAY,  FULL_COLOR_OVERWORLD_BROWN, FULL_COLOR_OVERWORLD_BROWN, FULL_COLOR_OVERWORLD_RED,   FULL_COLOR_OVERWORLD_BROWN, FULL_COLOR_OVERWORLD_ROOF,  FULL_COLOR_OVERWORLD_ROOF,  FULL_COLOR_OVERWORLD_ROOF
 	db FULL_COLOR_OVERWORLD_ROOF,  FULL_COLOR_OVERWORLD_ROOF,  FULL_COLOR_OVERWORLD_YELLOW,FULL_COLOR_OVERWORLD_YELLOW,FULL_COLOR_OVERWORLD_YELLOW,FULL_COLOR_OVERWORLD_GRAY,  FULL_COLOR_OVERWORLD_BROWN, FULL_COLOR_OVERWORLD_GRAY
 	db FULL_COLOR_OVERWORLD_GRAY,  FULL_COLOR_OVERWORLD_BROWN, FULL_COLOR_OVERWORLD_ROOF,  FULL_COLOR_OVERWORLD_BROWN, FULL_COLOR_OVERWORLD_WATER, FULL_COLOR_OVERWORLD_ROOF,  FULL_COLOR_OVERWORLD_ROOF,  FULL_COLOR_OVERWORLD_ROOF
@@ -92,10 +104,14 @@ FullColorCanaryOverworldTileClasses::
 	db FULL_COLOR_OVERWORLD_BROWN, FULL_COLOR_OVERWORLD_BROWN, FULL_COLOR_OVERWORLD_ROOF,  FULL_COLOR_OVERWORLD_BROWN, FULL_COLOR_OVERWORLD_ROOF,  FULL_COLOR_OVERWORLD_ROOF,  FULL_COLOR_OVERWORLD_GRAY,  FULL_COLOR_OVERWORLD_GRAY
 	ds $100 - $60, FULL_COLOR_OVERWORLD_TEXT
 FullColorOverworldTileAttributesEnd::
+IF DEF(PHASE2_AUDIT)
 FullColorCanaryOverworldTileClassesEnd::
+ENDC
 
 ASSERT FullColorOverworldBGPalettesEnd - FullColorOverworldBGPalettes == 8 * 4 * 2
+IF DEF(PHASE2_AUDIT)
 ASSERT FullColorCanaryOBJPalettesEnd - FullColorCanaryOBJPalettes == 8 * 4 * 2
+ENDC
 ASSERT FullColorOverworldTileAttributesEnd - FullColorOverworldTileAttributes == $100
 ELSE
 	; Preserve the exact 384-byte Phase 2 ROM window ABI in release/VC products.

@@ -157,15 +157,15 @@ def _reviewed_source_view(
         raise StaleDiscoveryAssignmentError(
             "assignment rows have stale baseline evidence: mixed source hashes"
         )
-    reviewed_hash = next(iter(reviewed_hashes))
-    if source_report.source_sha256 == reviewed_hash:
-        return source_report, None
+    evidence_hash = next(iter(reviewed_hashes))
     path = repository / SOURCE_TRANSITION_PATH
     try:
         transition = json.loads(
             path.read_text(encoding="utf-8"), object_pairs_hook=_strict_json_object
         )
     except (OSError, json.JSONDecodeError, ValueError) as exc:
+        if source_report.source_sha256 == evidence_hash and not path.is_file():
+            return source_report, None
         raise InventoryReconciliationError(
             "reviewed source hash changed without a valid audit-only transition"
         ) from exc
@@ -178,10 +178,18 @@ def _reviewed_source_view(
         "full-color-phase1-audit-source-transition-v2"
     ):
         raise InventoryReconciliationError("malformed audit-only source transition")
-    if transition["reviewed_source_sha256"] != reviewed_hash:
-        raise InventoryReconciliationError("audit transition does not bind reviewed source hash")
     if transition["audit_source_sha256"] != source_report.source_sha256:
+        if source_report.source_sha256 == evidence_hash:
+            return source_report, None
         raise InventoryReconciliationError("audit transition does not bind current source hash")
+    if evidence_hash not in {
+        transition["reviewed_source_sha256"],
+        transition["audit_source_sha256"],
+    }:
+        raise InventoryReconciliationError(
+            "assignment rows have stale baseline evidence: audit transition does not "
+            "bind assignment source evidence"
+        )
     current_manifest = _source_path_manifest(
         repository, (path for path, _ in source_report.include_graph)
     )
@@ -254,7 +262,7 @@ def _reviewed_source_view(
         translated.get(source_finding_subject(finding).sha256, finding)
         for finding in source_report.findings
     )
-    return replace(source_report, findings=findings, source_sha256=reviewed_hash), transition
+    return replace(source_report, findings=findings, source_sha256=evidence_hash), transition
 
 
 def _reviewed_rom_view(
