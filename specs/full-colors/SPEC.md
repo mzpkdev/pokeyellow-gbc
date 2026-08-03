@@ -4,8 +4,8 @@ Status: proposed
 
 Target: `pokeyellow`
 
-Mechanism reference: `Pokemon_GBC_Celebrations` commit
-`bf823bc15d75ba8335ce2c9418d2eb65897bb878`
+Mechanism reference: `git@github.com:dannye/pokered-gbc.git` commit
+`c1a3b6c5a7591472241036d0cf09c3817f841f93`
 
 ## Goal
 
@@ -59,14 +59,25 @@ The normative owner and return behavior is defined by
 
 ## Reference implementation
 
-The mechanism reference is `Pokemon_GBC_Celebrations` at commit
-`bf823bc15d75ba8335ce2c9418d2eb65897bb878`. Its palette buffers,
+The mechanism reference is `git@github.com:dannye/pokered-gbc.git` at commit
+`c1a3b6c5a7591472241036d0cf09c3817f841f93`. Its palette buffers,
 shade transforms, VBK0/VBK1 transfers, tile attribute lookup, VBlank
 scheduling, and overworld OAM mapping are mechanism evidence. Donor palette,
-mapping, roof, OAM, and content values are non-authoritative candidate
-organization or artistic evidence and are independently authored and
-validated for Yellow. Its static-screen restoration, MBC1 layout, banks, WRAM
+mapping, roof, OAM, and content values outside the accepted OVERWORLD slice are
+non-authoritative candidate organization or artistic evidence and are
+independently authored and validated for Yellow. Its static-screen restoration,
+MBC1 layout, banks, WRAM
 representation, and non-overworld coloring are not inherited.
+
+The ten mechanism paths are `color/init.asm`, `color/wram.asm`,
+`color/loadpalettes.asm`, `color/refreshmaps.asm`, `color/vblank.asm`,
+`color/super_palettes.asm`, `color/color.asm`, `color/sprites.asm`,
+`color/boulder.asm`, and `color/ssanne.asm`. They are distinct from the five
+payload authorities: `color/data/map_palettes.asm`,
+`color/data/map_palette_sets.asm`, `color/data/roofpalettes.asm`,
+`color/data/map_palette_constants.asm`, and `color/tilesets/overworld.asm`.
+Only those five paths authorize the frozen OVERWORLD palette and attribute
+bytes; the broader mechanism inventory does not.
 
 ## Mandatory prerequisite
 

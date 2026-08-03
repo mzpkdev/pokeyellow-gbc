@@ -3,29 +3,20 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import re
-import subprocess
 from pathlib import Path
-
-import pytest
 
 from tools.rom_tests.tests.conftest import REPOSITORY_ROOT
 
 
-DONOR_SHA = "bf823bc15d75ba8335ce2c9418d2eb65897bb878"
-DONOR_PRE_CLEANUP_SHA = "a8b62fb990a13da6add30c92f8440b296dddce49"
-# Frozen from the permitted donor revisions above. These run in CI without a
-# donor checkout; the optional local test below regenerates them with git show.
+# Frozen from the pinned pokered-gbc payload authorities. These checks have no
+# donor checkout dependency and are mandatory in ordinary CI.
 EXPECTED_PALETTE_CHANNELS_SHA256 = (
     "d94e306dcd04f503eaa528df9e57eea329130fd66f588d38a4173d525d1bd968"
 )
 EXPECTED_TILE_ATTRIBUTES_00_5F_SHA256 = (
     "5ecabfc009bbea792623e4ae6078bfd79ac00112d030fad9a7a128184dd11e49"
 )
-DONOR_ROOT = Path(os.environ.get(
-    "POKEMON_GBC_CELEBRATIONS_ROOT", "/tmp/Pokemon_GBC_Celebrations",
-))
 YELLOW_DATA = REPOSITORY_ROOT / "data/tilesets/full_color_overworld.asm"
 
 
@@ -83,21 +74,15 @@ def _yellow_attributes() -> list[int]:
     return values
 
 
-def _git_show(path: str, *, revision: str = DONOR_SHA) -> str:
-    return subprocess.run(
-        ["git", "show", f"{revision}:{path}"],
-        cwd=DONOR_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-
-
 def _digest(values: list[int]) -> str:
     return hashlib.sha256(bytes(values)).hexdigest()
 
 
-def _donor_attributes(source: str, constants_source: str) -> list[int]:
+def _donor_attributes(
+    source: str,
+    constants_source: str,
+    correction_5e_5f: tuple[str, str],
+) -> list[int]:
     names = re.findall(
         r"^\s*const PAL_BG_(GRAY|RED|GREEN|WATER|YELLOW|BROWN|ROOF|TEXT)\s*(?:;.*)?$",
         constants_source,
@@ -114,7 +99,10 @@ def _donor_attributes(source: str, constants_source: str) -> list[int]:
     # Correct the pinned HEAD's truncated table using its last two explicitly
     # authored entries immediately before cleanup commit cb6bb66d.
     assert len(result) == 94
-    result.extend([palette["GRAY"], palette["GRAY"]])
+    assert correction_5e_5f == ("GRAY", "GRAY"), (
+        "$5e/$5f correction must be explicit GRAY, GRAY"
+    )
+    result.extend(palette[name] for name in correction_5e_5f)
     assert len(result) == 96
     return result
 
@@ -170,42 +158,6 @@ def test_yellow_authority_matches_frozen_permitted_donor_digests() -> None:
     )
 
 
-@pytest.mark.skipif(not (DONOR_ROOT / ".git").exists(), reason="donor checkout not supplied")
-def test_yellow_exactly_adapts_permitted_donor_palette_and_tile_tables() -> None:
-    palette_source = _git_show("color/data/map_palettes.asm")
-    set_source = _git_show("color/data/map_palette_sets.asm")
-    roof_source = _git_show("color/data/roofpalettes.asm")
-    overworld_source = _git_show("color/tilesets/overworld.asm")
-    constants_source = _git_show("color/data/map_palette_constants.asm")
-    yellow = YELLOW_DATA.read_text(encoding="utf-8")
-    yellow_colors = _rgb_rows(_between(
-        yellow, "FullColorOverworldBGPalettes::", "FullColorOverworldBGPalettesEnd::",
-    ))
-    donor_colors = _donor_overworld_palettes(palette_source, set_source, roof_source)
-    donor_attributes = _donor_attributes(overworld_source, constants_source)
-    assert yellow_colors == donor_colors
-    assert _yellow_attributes()[:0x60] == donor_attributes
-    assert _digest([channel for color in donor_colors for channel in color]) == (
-        EXPECTED_PALETTE_CHANNELS_SHA256
-    )
-    assert _digest(donor_attributes) == EXPECTED_TILE_ATTRIBUTES_00_5F_SHA256
-
-    # Record the pinned-HEAD defect and prove this adaptation neither inherits
-    # its effective WATER,GRAY spill nor invents the intended correction.
-    assert sum(
-        len(row.split(",")) - 1
-        for row in re.findall(r"^\s*tilepal\s+.+$", overworld_source, re.M)
-    ) == 94
-    reds_house = _git_show("color/tilesets/reds_house.asm")
-    first_next_row = re.search(r"^\s*tilepal\s+\d+,\s*(.+)$", reds_house, re.M).group(1)
-    assert [name.strip() for name in first_next_row.split(",")[:2]] == ["WATER", "GRAY"]
-    previous = _git_show(
-        "color/tilesets/overworld.asm", revision=DONOR_PRE_CLEANUP_SHA,
-    )
-    assert previous.rstrip().endswith("ROOF, ROOF, GRAY, GRAY")
-    assert _yellow_attributes()[0x5E:0x60] == [0, 0]
-
-
 def test_tile_table_has_256_legal_authoritative_assignments_and_semantics() -> None:
     attributes = _yellow_attributes()
     assert len(attributes) == 256
@@ -228,19 +180,10 @@ def test_pallet_and_route_1_share_overworld_blockset_and_pallet_roof() -> None:
         assert max(blocks) < len(blockset) // 16
         assert all(len(blockset[block * 16:block * 16 + 16]) == 16 for block in blocks)
 
-    if (DONOR_ROOT / ".git").exists():
-        roof_source = _between(
-            _git_show("color/data/roofpalettes.asm"),
-            "RoofPalettes:", "PalletRoof:",
-        )
-        roofs = re.findall(r"^\s*dw\s+(\w+)", roof_source, re.M)
-        assert roofs[0] == roofs[12] == "PalletRoof"  # PALLET_TOWN and ROUTE_1
-
-
 def test_authority_is_provenanced_and_not_derived_from_tile_id_low_bits() -> None:
     source = YELLOW_DATA.read_text(encoding="utf-8")
-    assert "https://github.com/CreamElDudJafar/Pokemon_GBC_Celebrations" in source
-    assert DONOR_SHA in source
+    assert "git@github.com:dannye/pokered-gbc.git" in source
+    assert "c1a3b6c5a7591472241036d0cf09c3817f841f93" in source
     assert "adapted with permission" in source.lower()
     consumers = "\n".join(
         (REPOSITORY_ROOT / path).read_text(encoding="utf-8")

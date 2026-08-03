@@ -15,6 +15,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  donor-provenance:
+    name: Donor Provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      POKERED_GBC_ROOT: ${{ github.workspace }}/pokered-gbc-donor
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Checkout pinned pokered-gbc donor
+        uses: actions/checkout@v7
+        with:
+          repository: dannye/pokered-gbc
+          ref: c1a3b6c5a7591472241036d0cf09c3817f841f93
+          path: pokered-gbc-donor
+          fetch-depth: 0
+
+      - name: Normalize donor origin
+        run: git -C "$POKERED_GBC_ROOT" remote set-url origin git@github.com:dannye/pokered-gbc.git
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/rom_tests/requirements.txt
+
+      - name: Install comparator dependencies
+        run: python -m pip install -r tools/rom_tests/requirements.txt
+
+      - name: Run exact donor comparator
+        run: python -m pytest tools/rom_tests/tests/unit/full_color/test_overworld_color_data_donor.py -q
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -127,7 +162,7 @@ jobs:
         run: make -j"$(nproc)" yellow_phase2_audit
 
       - name: Run unit tests
-        run: python -m pytest tools/rom_tests/tests/unit
+        run: python -m pytest tools/rom_tests/tests/unit --ignore=tools/rom_tests/tests/unit/full_color/test_overworld_color_data_donor.py
 
   gate-0-baseline-runs:
     name: Gate 0 Baseline Run ${{ matrix.run }}

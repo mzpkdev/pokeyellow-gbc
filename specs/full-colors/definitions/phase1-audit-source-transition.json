@@ -5,7 +5,7 @@
       "reviewed_sha256": "da3032835057223116f29f463feaf21fb2f5b52ddc617a6de1f3a70b02b6ddb8"
     },
     "data/tilesets/full_color_overworld.asm": {
-      "audit_sha256": "a0719019f01205cc60682e6190b60de3bbcb66fb185b8e9bbfd0df49e8237edb",
+      "audit_sha256": "e7ffcfd778c56eab02e9b307c214a0c76d3a847560511f0aeaa92f4cefbe1adc",
       "reviewed_sha256": null
     },
     "engine/full_color/debug_runtime.asm": {
@@ -105,7 +105,7 @@
       "reviewed_sha256": "4d611450cde6c95ea60b9f9290032417d802a89e4b995a5a5dafc48d4f2171bf"
     }
   },
-  "audit_source_sha256": "8b013bfb539ed3579524adf97e08989d917bdbfe6f8709e4d0ca72ae2798e8eb",
+  "audit_source_sha256": "727407af66db23f7166facb48c4b1b778ae9f866fd34b84cdc33c2452abc7442",
   "baseline_manifest_sha256": "75c058f0d0df07a25918c710dc8ddebf43d3e5b809a06faaf7391cf015a9d774",
   "reviewed_source_sha256": "9b12281f62023dbd80e64ed17d684aaae5754d787166163f213fe21e4ca2ff7f",
   "rom_subject_rebindings": {

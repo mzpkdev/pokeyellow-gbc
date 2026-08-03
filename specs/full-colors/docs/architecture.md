@@ -6,14 +6,19 @@ shape, capacity, descriptor layout, or WRAM address.
 
 ## Conformance and mechanism reference
 
-The mechanism reference is Celebrations commit
-`bf823bc15d75ba8335ce2c9418d2eb65897bb878`, consulted at
+The mechanism reference is `git@github.com:dannye/pokered-gbc.git` commit
+`c1a3b6c5a7591472241036d0cf09c3817f841f93`, consulted at
 `color/{wram,vblank,super_palettes,loadpalettes,refreshmaps,sprites}.asm` and
 the relevant `color/data/` and `color/tilesets/` files. Only palette
 transforms, attribute lookup and transfer, scheduling, and OAM mechanisms are
-candidates. Donor palettes, mappings, roofs, OAM assignments, content, and
-data organization are non-authoritative candidate evidence; every Yellow value
-is independently authored and validated. Celebrations scene ownership,
+candidates. Outside the accepted OVERWORLD palette and corrected attribute
+slice, donor palettes, mappings, roofs, OAM assignments, content, and data
+organization are non-authoritative candidate evidence; every Yellow-specific
+value is independently authored and validated. The five payload authorities
+(`color/data/map_palettes.asm`, `color/data/map_palette_sets.asm`,
+`color/data/roofpalettes.asm`, `color/data/map_palette_constants.asm`, and
+`color/tilesets/overworld.asm`) remain distinct from the ten mechanism paths
+listed in the replacement inventory. pokered-gbc scene ownership,
 static-screen restoration, MBC1 layout, banks, WRAM representation, and
 non-overworld coloring are not part of this realization, as required by
 [R4.1, R4.2, R4.3, R4.4, and R4.5](requirements.md#r4-rom-placement),

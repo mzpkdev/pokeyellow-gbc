@@ -80,6 +80,21 @@ def test_runner_executes_every_real_component_twice_and_compares_bytes(
         "tools.rom_tests.full_color.traceability",
         "tools.rom_tests.full_color.visual_pipeline",
     ]
+    assert calls[0] == (
+        "repo-python",
+        "-m",
+        "pytest",
+        "tools/rom_tests/tests/unit",
+        "--ignore=tools/rom_tests/tests/unit/full_color/test_overworld_color_data_donor.py",
+        "--junitxml",
+        str(
+            tmp_path
+            / "results/attempt-0001/run-1/diagnostics/unit-tests.junit.xml"
+        ),
+    )
+    assert [argument for argument in calls[0] if argument.startswith("--ignore=")] == [
+        "--ignore=tools/rom_tests/tests/unit/full_color/test_overworld_color_data_donor.py"
+    ]
     assert summary["comparison"]["byte_identical"] is True
     assert summary["comparison"]["semantic_snapshot_byte_identical"] is True
     assert summary["comparison"]["traceability_report_byte_identical"] is True

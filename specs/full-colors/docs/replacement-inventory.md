@@ -5,14 +5,16 @@ populate. It contains no claim that source or built-ROM discovery is complete.
 
 ## Donor evidence policy
 
-Every donor reference below is pinned to Celebrations commit
-`bf823bc15d75ba8335ce2c9418d2eb65897bb878`. The commit is mechanism-only
-evidence: donor palette values, mappings, roofs, OAM assignments, content, and
-data organization are candidate artistic or organizational evidence only.
-None is authoritative for Yellow, and it supplies no Yellow scene lifecycle,
-ownership decision, ABI, bank, or WRAM placement. Any retained value or
-organization is independently authored, reviewed, and validated against
-Yellow.
+Every donor reference below is pinned to `git@github.com:dannye/pokered-gbc.git`
+commit
+`c1a3b6c5a7591472241036d0cf09c3817f841f93`. The ten mechanism paths are
+mechanism-only evidence. The separately listed five payload paths authorize
+only the already accepted OVERWORLD palette and corrected 96-byte attribute
+slice. All other donor values, mappings, roofs, OAM assignments, content, and
+data organization remain candidate artistic or organizational evidence. The
+donor supplies no Yellow scene lifecycle, ownership decision, ABI, bank, or
+WRAM placement, and every retained candidate is independently authored,
+reviewed, and validated against Yellow.
 
 The disposition vocabulary is:
 
@@ -21,23 +23,33 @@ The disposition vocabulary is:
   requirements before using it; and
 - `EXCLUDE`: do not import its runtime behavior.
 
-## Donor modules in scope
+## Donor mechanism inventory
 
 | Pinned RGB source | Disposition | Evidence or required adaptation |
 |---|---|---|
-| `color/init.asm@bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `ADAPT` | CGB double-speed sequencing only; initialization follows Yellow owner/reset requirements |
-| `color/wram.asm@bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `MECHANISM` | semantic state categories only; no bank, address, size, or representation is inherited |
-| `color/loadpalettes.asm@bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `ADAPT` | candidate palette-loading organization only; Yellow assignments, roofs, and overrides are independently authored and validated |
-| `color/refreshmaps.asm@bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `MECHANISM` | paired map/window tile and attribute transfer mechanics |
-| `color/vblank.asm@bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `MECHANISM` | transformation and scheduling mechanics; Yellow timing must be measured |
-| `color/super_palettes.asm@bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `MECHANISM` | loading four-color RGB555 palettes |
-| overworld portion of `color/color.asm@bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `ADAPT` | candidate palette-selection organization only; Yellow values are independently authored and ownership follows Yellow's explicit state |
-| overworld portion of `color/sprites.asm@bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `ADAPT` | candidate final-picture OAM organization only; Yellow mappings are independently authored and validated |
-| `color/boulder.asm@bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `ADAPT` | moving-overworld-object evidence where Yellow behavior matches |
-| `color/ssanne.asm@bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `ADAPT` | Vermilion Dock/ship exception audited against Yellow maps and tiles |
-| `color/data/map_*@bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `ADAPT` | candidate artistic organization only; Yellow palette sets and assignments are independently authored and validated per Yellow tile graphic |
-| `color/data/roofpalettes.asm@bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `ADAPT` | candidate artistic evidence only; Yellow roof values and coordinates are independently authored and validated |
-| `color/tilesets/*.asm@bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `ADAPT` | candidate organization only; all Yellow assignments are independently authored and validated, including native `BEACH_HOUSE` data |
+| `color/init.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `ADAPT` | CGB double-speed sequencing only; initialization follows Yellow owner/reset requirements |
+| `color/wram.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `MECHANISM` | semantic state categories only; no bank, address, size, or representation is inherited |
+| `color/loadpalettes.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `ADAPT` | candidate palette-loading organization only; Yellow assignments, roofs, and overrides are independently authored and validated |
+| `color/refreshmaps.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `MECHANISM` | paired map/window tile and attribute transfer mechanics |
+| `color/vblank.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `MECHANISM` | transformation and scheduling mechanics; Yellow timing must be measured |
+| `color/super_palettes.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `MECHANISM` | loading four-color RGB555 palettes |
+| overworld portion of `color/color.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `ADAPT` | candidate palette-selection organization only; Yellow values are independently authored and ownership follows Yellow's explicit state |
+| overworld portion of `color/sprites.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `ADAPT` | candidate final-picture OAM organization only; Yellow mappings are independently authored and validated |
+| `color/boulder.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `ADAPT` | moving-overworld-object evidence where Yellow behavior matches |
+| `color/ssanne.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `ADAPT` | Vermilion Dock/ship exception audited against Yellow maps and tiles |
+
+## Donor payload authorities
+
+The frozen OVERWORLD payload is derived only from these five authorities; they
+are not part of the broader ten-path mechanism inventory.
+
+| Pinned RGB source | Payload authority |
+|---|---|
+| `color/data/map_palettes.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | palette RGB rows |
+| `color/data/map_palette_sets.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `OverworldPalSet` selection |
+| `color/data/roofpalettes.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `PalletRoof` middle colors |
+| `color/data/map_palette_constants.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | palette attribute values |
+| `color/tilesets/overworld.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | 94 authored tile entries, corrected at `$5e/$5f` to explicit `GRAY, GRAY` using the historic `a8b62fb990a13da6add30c92f8440b296dddce49` parent of cleanup `cb6bb66dc91a7a162f442f3bd81ea2887558ada4` |
 
 Every retained candidate must use Yellow's MBC5 banks, labels, interrupt
 model, measured timing, explicit ownership, and current-generation jobs.
@@ -46,18 +58,18 @@ model, measured timing, explicit ownership, and current-generation jobs.
 
 | Pinned RGB source or subsystem | Disposition | Reason |
 |---|---|---|
-| battle palette commands in `color/color.asm@bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `EXCLUDE` | battle rendering remains Yellow-owned |
-| non-overworld portions of `color/sprites.asm@bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `EXCLUDE` | standalone object rendering remains Yellow-owned |
-| `color/animations.asm@bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `EXCLUDE` | non-overworld animation ownership is excluded |
-| HP/EXP bar color modules at `bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `EXCLUDE` | battle HUD remains Yellow-owned |
-| trade, cable club, slots, status, and Oak intro color modules at `bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `EXCLUDE` | standalone presentation remains Yellow-owned |
-| ghost Marowak and HUD Poké Ball modules at `bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `EXCLUDE` | picture and battle HUD behavior is excluded |
-| RGB DMG fallback bank binary at `bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `EXCLUDE` | the product is CGB-only |
-| static 20×18 palette-map and restoration behavior at `bf823bc15d75ba8335ce2c9418d2eb65897bb878` | `EXCLUDE` | return reconstruction follows R2.10, R2.11, R2.12, and R2.13 |
+| battle palette commands in `color/color.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `EXCLUDE` | battle rendering remains Yellow-owned |
+| non-overworld portions of `color/sprites.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `EXCLUDE` | standalone object rendering remains Yellow-owned |
+| `color/animations.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `EXCLUDE` | non-overworld animation ownership is excluded |
+| HP/EXP bar color modules at `c1a3b6c5a7591472241036d0cf09c3817f841f93` | `EXCLUDE` | battle HUD remains Yellow-owned |
+| trade, cable club, slots, status, and Oak intro color modules at `c1a3b6c5a7591472241036d0cf09c3817f841f93` | `EXCLUDE` | standalone presentation remains Yellow-owned |
+| ghost Marowak and HUD Poké Ball modules at `c1a3b6c5a7591472241036d0cf09c3817f841f93` | `EXCLUDE` | picture and battle HUD behavior is excluded |
+| RGB DMG fallback bank binary at `c1a3b6c5a7591472241036d0cf09c3817f841f93` | `EXCLUDE` | the product is CGB-only |
+| static 20×18 palette-map and restoration behavior at `c1a3b6c5a7591472241036d0cf09c3817f841f93` | `EXCLUDE` | return reconstruction follows R2.10, R2.11, R2.12, and R2.13 |
 
-Palette values from excluded systems may be candidate artistic reference only;
-no donor content is authoritative and no excluded runtime lifecycle is
-imported.
+Palette values from excluded systems may be candidate artistic reference only.
+Outside the five frozen OVERWORLD payload authorities above, no donor content
+is authoritative, and no excluded runtime lifecycle is imported.
 
 ## Inventory closure
 

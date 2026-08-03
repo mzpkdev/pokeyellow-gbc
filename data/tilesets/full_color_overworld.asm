@@ -1,11 +1,12 @@
 ; OVERWORLD color authority adapted with permission from the rights holders of
-; https://github.com/CreamElDudJafar/Pokemon_GBC_Celebrations
-; commit bf823bc15d75ba8335ce2c9418d2eb65897bb878.
+; git@github.com:dannye/pokered-gbc.git
+; commit c1a3b6c5a7591472241036d0cf09c3817f841f93.
 ;
 ; Sources: color/data/map_palettes.asm, OverworldPalSet in
-; color/data/map_palette_sets.asm, color/tilesets/overworld.asm, and PalletRoof
-; in color/data/roofpalettes.asm. Pallet Town and Route 1 both use OVERWORLD;
-; the donor roof table gives both maps PalletRoof identity.
+; color/data/map_palette_sets.asm, color/data/map_palette_constants.asm,
+; color/tilesets/overworld.asm, and PalletRoof in color/data/roofpalettes.asm.
+; Pallet Town and Route 1 both use OVERWORLD; the donor roof table gives both
+; maps PalletRoof identity.
 
 IF DEF(PHASE2_AUDIT)
 DEF FULL_COLOR_OVERWORLD_GRAY   EQU 0
