@@ -155,12 +155,12 @@ def test_real_specification_emits_complete_canonical_mapping_report() -> None:
 
     assert payload["schema"] == "full-color-traceability-report-v1"
     assert payload["documents"] == list(SPECIFICATION_DOCUMENTS)
-    assert payload["requirements"] == payload["requirement_rows"] == 115
-    assert payload["acceptances"] == payload["acceptance_rows"] == 39
-    assert payload["checks"] == 27
-    assert payload["relative_links"] == 75
-    assert len(payload["requirement_mappings"]) == 115
-    assert len(payload["acceptance_mappings"]) == 39
+    assert payload["requirements"] == payload["requirement_rows"] == 122
+    assert payload["acceptances"] == payload["acceptance_rows"] == 42
+    assert payload["checks"] == 30
+    assert payload["relative_links"] == 76
+    assert len(payload["requirement_mappings"]) == 122
+    assert len(payload["acceptance_mappings"]) == 42
     assert json.dumps(payload, sort_keys=True) == json.dumps(
         validate_specification(REAL_SPEC_ROOT).to_dict(), sort_keys=True
     )
@@ -173,7 +173,7 @@ def test_cli_writes_identical_report_on_double_execution(tmp_path: Path) -> None
     assert main(("--spec-root", str(REAL_SPEC_ROOT), "--output", str(first))) == 0
     assert main(("--spec-root", str(REAL_SPEC_ROOT), "--output", str(second))) == 0
     assert first.read_bytes() == second.read_bytes()
-    assert json.loads(first.read_text(encoding="utf-8"))["checks"] == 27
+    assert json.loads(first.read_text(encoding="utf-8"))["checks"] == 30
 
 
 def test_cli_reports_output_parent_failure_without_traceback(
@@ -282,7 +282,7 @@ def test_mapping_cells_reject_empty_comma_entries(
     verification = root / "docs/verification-plan.md"
     verification.write_text(
         verification.read_text(encoding="utf-8").replace(
-            "| R-MAP | R1.1 | AC-OWN-01 |",
+            "| R-MAP | R1.1 | AC-DONE-01, AC-OWN-01 |",
             f"| R-MAP | R1.1 | {acceptances} |",
             1,
         ),
@@ -290,6 +290,57 @@ def test_mapping_cells_reject_empty_comma_entries(
     )
 
     with pytest.raises(TraceabilityError, match="comma-separated concrete acceptance"):
+        validate_specification(root)
+
+
+def test_real_specification_rejects_requirement_to_acceptance_asymmetry(
+    tmp_path: Path,
+) -> None:
+    root = _copy_specification(tmp_path)
+    verification = root / "docs/verification-plan.md"
+    verification.write_text(
+        verification.read_text(encoding="utf-8").replace(
+            "| R-MAP | R1.1 | AC-DONE-01, AC-OWN-01 |",
+            "| R-MAP | R1.1 | AC-DONE-01, AC-OAM-01, AC-OWN-01 |",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        TraceabilityError,
+        match=r"R-MAP R1\.1 names AC-OAM-01, but AC-MAP AC-OAM-01 does not name R1\.1",
+    ):
+        validate_specification(root)
+
+
+def test_real_specification_rejects_acceptance_to_requirement_asymmetry(
+    tmp_path: Path,
+) -> None:
+    root = _copy_specification(tmp_path)
+    acceptance = root / "docs/acceptance-criteria.md"
+    verification = root / "docs/verification-plan.md"
+    acceptance.write_text(
+        acceptance.read_text(encoding="utf-8").replace(
+            "Direct requirements: R9.1, R9.2, R9.3, R9.4.",
+            "Direct requirements: R1.1, R9.1, R9.2, R9.3, R9.4.",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    verification.write_text(
+        verification.read_text(encoding="utf-8").replace(
+            "| AC-MAP | AC-OAM-01 | R9.1, R9.2, R9.3, R9.4 |",
+            "| AC-MAP | AC-OAM-01 | R1.1, R9.1, R9.2, R9.3, R9.4 |",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        TraceabilityError,
+        match=r"AC-MAP AC-OAM-01 names R1\.1, but R-MAP R1\.1 does not name AC-OAM-01",
+    ):
         validate_specification(root)
 
 
@@ -301,7 +352,7 @@ def test_direct_requirements_reject_empty_comma_entries(
     acceptance = root / "docs/acceptance-criteria.md"
     acceptance.write_text(
         acceptance.read_text(encoding="utf-8").replace(
-            "Direct requirements: R1.1, R1.2, R1.3, R1.4, R1.5, R10.2.",
+            "Direct requirements: R1.1, R1.2, R1.3, R1.4, R1.5, R1.33, R5.7, R10.2.",
             f"Direct requirements: {requirements}.",
             1,
         ),

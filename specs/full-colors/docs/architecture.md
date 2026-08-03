@@ -25,7 +25,18 @@ non-overworld coloring are not part of this realization, as required by
 [R6.12](requirements.md#r6-attribute-and-overlay-model), and
 [R12.1, R12.3, R12.4, R12.5, and R12.7](requirements.md#r12-isolation-and-removal).
 
-## Ownership and phases
+## Ownership policy and phases
+
+The saved preference is policy input, never write authority. The sole
+authoritative decision is:
+
+```text
+effective_owner(preference, lifecycle, map) = RENDERER_FULL_COLOR_OVERWORLD
+    iff preference == COLOR
+    and lifecycle == ordinary map presentation
+    and map in {Pallet Town, Route 1};
+otherwise RENDERER_YELLOW.
+```
 
 The selected owner and phase are explicit state, not inferred from a routine
 name. The legal owner/phase combinations are the table in
@@ -36,13 +47,13 @@ below mean `RENDERER_YELLOW` and `RENDERER_FULL_COLOR_OVERWORLD`,
 respectively.
 
 ```text
-HARD BOOT / SOFT RESET
+HARD BOOT / RESET / SOFT RESET
     |
     | Yellow selected; Yellow destination initialized
     v
 YELLOW_ACTIVE <----> YELLOW-OWNED NESTED / ERROR LIFECYCLES
     |
-    | actual Yellow-to-overworld boundary only
+    | effective owner changes for ordinary Pallet Town / Route 1 only
     v
 HANDOFF_TO_OVERWORLD
     |
@@ -52,27 +63,34 @@ OVERWORLD_RECONSTRUCTING
     |
     | one complete presentation barrier
     v
-OVERWORLD_ACTIVE <----> OVERWORLD_OVERLAY
+OVERWORLD_ACTIVE (ordinary Pallet Town / Route 1 only)
     |
-    | standalone request
+    | overlay/dialogue/menu/battle/standalone/unsupported map,
+    | Yellow preference, reset, or soft reset
     v
 HANDOFF_TO_YELLOW
     |
-    | Yellow selected before destination initialization entry
+    | Yellow selected with fresh generation; destination resources unknown
+    v
+YELLOW_RECONSTRUCTING
+    |
+    | complete Yellow ledger; exactly one presentation barrier
     v
 YELLOW_ACTIVE
 ```
 
 There is no state in which both owners may write an owner-gated resource.
-Map-backed dialogue and transient overlays use the overworld owner; a
-standalone lifecycle reached from the map receives Yellow ownership before
-destination initialization. A Yellow-to-Yellow nested, reset, or error edge
-does not reconstruct the map, and a standalone lifecycle has no implied map
-edge. Scene classification remains authoritative in [scope.md](scope.md).
+`OVERWORLD_OVERLAY` is reserved and unreachable in production. Overlays,
+dialogue, menus, battles, standalone scenes, unsupported maps, boot/reset, and
+the Yellow preference are forced Yellow. Same-owner decisions retain owner and
+generation and perform no synthetic handoff. Scene classification remains
+authoritative in [scope.md](scope.md), subject to this bounded policy.
 
 ## Transition and request algorithm
 
-Every transition uses this ordering to realize
+The resolver is recomputed before the destination's first owner-gated write.
+An unchanged result retains owner and generation. A changed result executes
+exactly one transition using this ordering to realize
 [R2.1, R2.2, R2.3, R2.4, R2.6, R2.7, R2.8, and R2.9](requirements.md#r2-generation-handoff-reset-and-reconstruction):
 
 1. Enter the applicable handoff phase and close admission for the departing
@@ -82,17 +100,20 @@ Every transition uses this ordering to realize
    with the applicable stable reason.
 3. Establish a fresh, non-aliasing generation and invalidate all older work.
    No older job may write after this point.
-4. Select the destination owner, then enter its initialization. Yellow is
-   selected before entry to standalone destination initialization and therefore
-   before its first display write; full-color is selected before
-   reconstruction begins.
-5. Reopen admission only after destination initialization. An overworld arrival
-   enters `OVERWORLD_RECONSTRUCTING`; its normal admission opens only as
-   reconstruction establishes the current-generation scheduler state.
+4. Select the destination owner and reconstruct every destination authority
+   from fresh logical state. Each direction treats bank-0 tiles/tilemaps,
+   bank-1 attributes, palette sources/transforms/hardware, OAM, scroll/window,
+   buffers, flags, animations, jobs, banks, stack, and interrupt state as
+   unknown. Yellow is selected before forced-Yellow initialization; Color is
+   selected before eligible-map reconstruction.
+5. Cross exactly one presentation barrier, then reopen admission. Selecting
+   either owner without complete reconstruction and its barrier is insufficient.
 
-Soft reset takes the reset path in [R2.8](requirements.md#r2-generation-handoff-reset-and-reconstruction):
-close admission, cancel all work with `RESET`, invalidate every generation,
-restore machine state, select Yellow, and resume normal boot.
+Reset and soft reset are real Color-to-Yellow boundaries, and soft reset still
+re-enters normal boot after restoring machine state. They either keep the
+display provably hidden and admission closed through cancellation, generation,
+complete fresh Yellow reconstruction, and the barrier, or complete the
+ordinary handoff before any reset-owned video write.
 
 A request follows this exact realization of
 [R1.8, R1.9, R1.10, R1.11, R1.12, R1.13, R1.14, R1.15, R1.16, R1.17, R1.18, R1.19, R1.20, R1.21, R1.22, R1.23, R1.24, R1.25, R1.27, and R1.28](requirements.md#r1-renderer-ownership):
@@ -150,14 +171,13 @@ interruption. Only an inactive-destination or LCD-off commit may be interrupted
 mid-operation
 ([R7.1, R7.3, and R7.4](requirements.md#r7-paired-transfers-and-visible-commit-units)).
 
-## Full-color overworld pipeline
+## Bounded Color overworld pipeline
 
 ```text
-authoritative map, tileset, override, viewport, and object state
+authoritative ordinary Pallet Town / Route 1 map, tileset, override, viewport, and object state
         |
         +--> base BG/OBJ palettes --> transformed BG/OBJ payloads
         +--> desired tile IDs -----> 256-entry attribute lookup/overrides
-        +--> overlay request ------> clipped tile/attribute pairs
         `--> final object identity -> shadow-OAM palette mapping
                                       |
                          current-generation jobs
@@ -170,6 +190,9 @@ authoritative map, tileset, override, viewport, and object state
 Gameplay requests desired state; it does not directly schedule hardware writes.
 Wrapper functions dispatch through the selected owner and generation
 ([R5.6, R5.7, and R5.8](requirements.md#r5-palette-model)).
+Animated tiles and field replacements declare their tile-data dependency and
+atomically commit the bank-0 tile result with its bank-1 attribute result.
+Yellow's moving-BG writer is unreachable while Color owns.
 
 ## Semantic state lifetimes
 
@@ -220,11 +243,12 @@ MBC1 behavior is converted to Yellow's MBC5 `rROMB` and far-call conventions
 
 Yellow already uses the LCD interrupt for per-scanline `wLYOverrides`.
 Renderer preparation composes with that handler. Measured timing determines
-the exact safe start and ordering; VBlank routes work by current owner and
-generation, revalidates the job at every pre-visible boundary, and enters
+the exact safe start and ordering; VBlank selects the current effective owner
+once before its first visible writer, runs exactly one route, revalidates the
+job at every pre-visible boundary, and enters
 `COMMITTING` only after reserving the worst-case completion budget. Every exit
 restores temporary bank state
-([R10.1, R10.2, R10.3, R10.4, R10.5, R10.6, R10.7, R10.8, R10.9, and R10.10](requirements.md#r10-scheduling-and-timing-evidence)).
+([R10.1, R10.2, R10.3, R10.4, R10.5, R10.6, R10.7, R10.8, R10.9, R10.10, and R10.11](requirements.md#r10-scheduling-and-timing-evidence)).
 
 ## Tile and attribute transfers
 
@@ -243,7 +267,11 @@ and transient overlays. Each phase supplies closed mutation rows for the paths
 it touches; later rows are added atomically and reclosed before reachability under
 [replacement-inventory.md](replacement-inventory.md).
 
-## Overlay realization
+## Overlay oracle quarantine
+
+The overlay oracle below remains diagnostic/audit conformance machinery only.
+Production overlays, dialogue, and menus are Yellow-owned, never enter this
+pipeline, and cannot make `OVERWORLD_OVERLAY` reachable.
 
 An overlay request supplies the authoritative destination BG/window selector,
 destination map identity, tileset identity, destination rectangle,
@@ -273,7 +301,7 @@ the donor's static palette-map lifecycle.
 
 ## Reconstruction realization
 
-An overworld arrival treats old tilemaps, attributes, palettes, OAM, buffers,
+An arriving owner treats old tilemaps, attributes, palettes, OAM, buffers,
 flags, and jobs as unknown. Under one fresh full-color generation it derives
 from authoritative state and completes:
 
@@ -291,6 +319,11 @@ result and advance to `OVERWORLD_ACTIVE`. A preparation failure remains hidden
 in `OVERWORLD_RECONSTRUCTING`; captured VRAM, palette RAM, OAM, or screen
 buffers are never inputs or completion evidence. This realizes
 [R2.10, R2.11, R2.12, and R2.13](requirements.md#r2-generation-handoff-reset-and-reconstruction).
+Color-to-Yellow is normatively symmetric: `YELLOW_RECONSTRUCTING` treats the
+same complete resource set as unknown, rebuilds the same complete ledger from
+fresh Yellow logical authority, and crosses exactly one barrier before
+admission reopens or presentation begins. Captured renderer bytes satisfy
+neither direction.
 
 ## Palette realization
 
