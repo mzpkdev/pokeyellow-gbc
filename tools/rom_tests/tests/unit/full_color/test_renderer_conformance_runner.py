@@ -652,8 +652,11 @@ def test_cli_json_mode_is_one_document_and_keeps_two_runs(
 
 
 def test_cli_mutation_keeps_diff_while_failure_output_is_bounded(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
+    monkeypatch.delenv("CI", raising=False)
     assert main(
         [
             "--root",
