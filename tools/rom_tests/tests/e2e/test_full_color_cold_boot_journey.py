@@ -10,8 +10,9 @@ from typing import cast
 from PIL import Image
 
 from tools.rom_tests.emulator import Emulator
-from tools.rom_tests.scenarios.oaks_lab import complete_oaks_lab_intro
+from tools.rom_tests.scenarios.oaks_lab import PALLET_TOWN, complete_oaks_lab_intro
 from tools.rom_tests.scenarios.viridian_city import (
+    ROUTE_1,
     VIRIDIAN_CITY,
     reach_viridian_city,
     walk_from_oaks_lab_to_viridian,
@@ -42,6 +43,15 @@ COLOR_CHECKPOINTS = frozenset(
         "route1-north",
     }
 )
+REVERSE_CHECKPOINTS = (
+    "viridian-southbound",
+    "route1-reentry",
+    "route1-north-ledge",
+    "route1-central-ledge",
+    "route1-south-ledge",
+    "pallet-reentry",
+)
+REVERSE_COLOR_CHECKPOINTS = frozenset(REVERSE_CHECKPOINTS[1:])
 
 
 @dataclass(frozen=True)
@@ -316,6 +326,74 @@ def _run_journey(
         + "\n",
         encoding="utf-8",
     )
+    return observations
+
+
+def _run_reverse_route1_journey(
+    product: str,
+    results: Path,
+) -> dict[str, JourneyObservation]:
+    """Play naturally to Viridian, then return through Route 1's ledges."""
+    emulator = Emulator(
+        rom=REPOSITORY_ROOT / f"{product}.gbc",
+        symbols=REPOSITORY_ROOT / f"{product}.sym",
+        results=results,
+        cgb=True,
+    )
+    observations: dict[str, JourneyObservation] = {}
+
+    def checkpoint(name: str) -> None:
+        emulator.tick(60)
+        observations[name] = _observe(emulator, f"{product}-{name}.png")
+
+    try:
+        reach_viridian_city(emulator, use_debug_repel=True)
+
+        # Leave Viridian through its south connection. Repel is the only
+        # deterministic aid: all map travel, redraws, warps, and jumps run
+        # through Yellow's normal input and VBlank paths.
+        walk_to_value(emulator, "wYCoord", 29, "up", "south Viridian path")
+        walk_to_value(emulator, "wXCoord", 19, "left", "Viridian main path")
+        checkpoint("viridian-southbound")
+        walk_to_value(emulator, "wXCoord", 20, "right", "Route 1 entrance")
+        walk_to_value(emulator, "wCurMap", ROUTE_1, "down", "Route 1 re-entry")
+        checkpoint("route1-reentry")
+
+        # Southbound movement deliberately takes each one-way ledge. These
+        # jumps advance multiple tiles through the stock movement engine and
+        # exercise row redraws on a route the northbound journey cannot cover.
+        walk_to_value(emulator, "wYCoord", 12, "down", "north Route 1 ledge")
+        checkpoint("route1-north-ledge")
+        walk_to_value(emulator, "wXCoord", 9, "left", "first ledge passage")
+        walk_to_value(emulator, "wYCoord", 22, "down", "central Route 1 ledge")
+        checkpoint("route1-central-ledge")
+        walk_to_value(emulator, "wXCoord", 12, "right", "second ledge passage")
+        walk_to_value(emulator, "wYCoord", 31, "down", "south Route 1 ledge")
+        checkpoint("route1-south-ledge")
+
+        walk_to_value(emulator, "wXCoord", 10, "left", "Pallet Town entrance")
+        walk_to_value(emulator, "wCurMap", PALLET_TOWN, "down", "Pallet Town")
+        checkpoint("pallet-reentry")
+    except BaseException:
+        emulator.save_screenshot(f"{product}-reverse-journey-failure.png")
+        failure_state = {
+            "frame": emulator.frame,
+            "pc": emulator.pyboy.register_file.PC,
+            "sp": emulator.pyboy.register_file.SP,
+            "map": emulator.read("wCurMap"),
+            "y": emulator.read("wYCoord"),
+            "x": emulator.read("wXCoord"),
+            "in_battle": emulator.read("wIsInBattle"),
+        }
+        (results / f"{product}-reverse-journey-failure.json").write_text(
+            json.dumps(failure_state, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        raise
+    finally:
+        emulator.close()
+
+    assert tuple(observations) == REVERSE_CHECKPOINTS
     return observations
 
 
@@ -730,6 +808,81 @@ def test_audit_cold_boot_changes_only_color_state_in_the_slice() -> None:
         _assert_oam_semantics(candidate, baseline, name)
 
     assert color_difference_seen, "audit ROM never exposed the guarded color slice"
+
+
+def test_reverse_route1_ledges_preserve_yellow_and_passive_color_state() -> None:
+    results = RESULTS_ROOT / "paired-reverse-route1"
+    _prepare_results(results)
+    vanilla = _run_reverse_route1_journey("pokeyellow_debug", results)
+    audit = _run_reverse_route1_journey("pokeyellow_phase2_audit", results)
+
+    expected_palettes = _linked_bytes(
+        "pokeyellow_phase2_audit", "FullColorOverworldBGPalettes", 64
+    )
+    expected_attributes = _linked_bytes(
+        "pokeyellow_phase2_audit", "FullColorOverworldTileAttributes", 256
+    )
+    diagnostics = {}
+
+    for name in REVERSE_CHECKPOINTS:
+        baseline = vanilla[name]
+        candidate = audit[name]
+        visible_mismatches = [
+            {
+                "visible_index": index,
+                "tile": tile,
+                "actual": attribute,
+                "expected": expected_attributes[tile],
+            }
+            for index, (tile, attribute) in enumerate(
+                _visible_attribute_pairs(candidate)
+            )
+            if attribute != expected_attributes[tile]
+        ]
+        diagnostics[name] = {
+            "frame": candidate.frame,
+            "baseline_frame": baseline.frame,
+            "logical_state": candidate.logical_state,
+            "passive_state": candidate.passive_state,
+            "renderer_state": candidate.renderer_state,
+            "bank0_tilemap_first_mismatch": _first_mismatch(
+                candidate.tilemap, baseline.tilemap
+            ),
+            "visible_attribute_mismatch_count": len(visible_mismatches),
+            "visible_attribute_first_mismatch": (
+                visible_mismatches[0] if visible_mismatches else None
+            ),
+            "palette_first_donor_mismatch": _first_mismatch(
+                candidate.bg_palettes, expected_palettes
+            ),
+        }
+
+        assert candidate.logical_state == baseline.logical_state, name
+        assert candidate.renderer_state == (0, 0), name
+        _assert_visible_bg_parity(candidate, baseline, name)
+        _assert_oam_semantics(candidate, baseline, name)
+
+        if name in REVERSE_COLOR_CHECKPOINTS:
+            assert candidate.passive_state == (
+                1,
+                0,
+                0,
+                candidate.renderer_generation[0],
+            ), name
+            assert candidate.bg_palettes == expected_palettes, name
+            assert not visible_mismatches, name
+        else:
+            assert candidate.logical_state[0] == VIRIDIAN_CITY, name
+            assert candidate.passive_state[:3] == (0, 0, 0), name
+            assert candidate.attributes == baseline.attributes, name
+            assert candidate.bg_palettes[:8] == baseline.bg_palettes[:8], name
+
+    assert audit["route1-reentry"].logical_state[:3] == (ROUTE_1, 0, 10)
+    assert audit["pallet-reentry"].logical_state[:3] == (PALLET_TOWN, 0, 10)
+    (results / "paired-reverse-diagnostics.json").write_text(
+        json.dumps(diagnostics, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> None:
