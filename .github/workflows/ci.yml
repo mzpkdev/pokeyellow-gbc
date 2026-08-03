@@ -162,9 +162,7 @@ jobs:
         run: make -j"$(nproc)" yellow_phase2_audit
 
       - name: Run unit tests
-        run: >-
-          python -m pytest tools/rom_tests/tests/unit
-          --ignore=tools/rom_tests/tests/unit/full_color/test_overworld_color_data_donor.py
+        run: python -m pytest tools/rom_tests/tests/unit --ignore=tools/rom_tests/tests/unit/full_color/test_overworld_color_data_donor.py
 
   gate-0-baseline-runs:
     name: Gate 0 Baseline Run ${{ matrix.run }}
