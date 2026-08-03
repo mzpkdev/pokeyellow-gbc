@@ -72,6 +72,13 @@ class BoundaryObservation:
     scheduler_state: tuple[object, ...]
 
 
+@dataclass(frozen=True)
+class WildBattleRoundTrip:
+    battle_menu: JourneyObservation
+    battle_state: tuple[int, ...]
+    restored_route: JourneyObservation
+
+
 class _PresetMenuState:
     def __init__(self, max_menu_item: int) -> None:
         self.values = {
@@ -83,6 +90,16 @@ class _PresetMenuState:
 
     def read(self, symbol: str) -> int:
         return self.values[symbol]
+
+
+def _prepare_results(results: Path) -> None:
+    """Remove only stale files from one cold-boot scenario result directory."""
+    if results.parent != RESULTS_ROOT:
+        raise AssertionError(f"refusing to clean non-scenario result path: {results}")
+    results.mkdir(parents=True, exist_ok=True)
+    for artifact in results.iterdir():
+        if artifact.is_file() or artifact.is_symlink():
+            artifact.unlink()
 
 
 def _observe(emulator: Emulator, filename: str) -> JourneyObservation:
@@ -302,6 +319,129 @@ def _run_journey(
     return observations
 
 
+def _run_route1_wild_battle_round_trip(
+    product: str,
+    results: Path,
+) -> WildBattleRoundTrip:
+    emulator = Emulator(
+        rom=REPOSITORY_ROOT / f"{product}.gbc",
+        symbols=REPOSITORY_ROOT / f"{product}.sym",
+        results=results,
+        cgb=True,
+    )
+
+    def press_until_value(
+        symbol: str,
+        value: int,
+        button: str,
+        description: str,
+        *,
+        max_presses: int = 160,
+    ) -> bool:
+        for _ in range(max_presses):
+            if emulator.is_in_battle():
+                return True
+            if emulator.read(symbol) == value:
+                return False
+            emulator.press(button)
+        raise AssertionError(f"Timed out walking to {description}")
+
+    try:
+        complete_oaks_lab_intro(emulator)
+
+        # Follow the real south-to-north route without suppressing encounters.
+        # Once at the first clearing, pace on traversable Route 1 tiles until
+        # Yellow's own random encounter machinery starts a battle.
+        for symbol, value, button, description in (
+            ("wXCoord", 8, "left", "west side of Oak's Lab"),
+            ("wYCoord", 2, "up", "north Pallet Town"),
+            ("wXCoord", 10, "right", "Route 1 entrance"),
+            ("wCurMap", 0x0C, "up", "Route 1"),
+            ("wYCoord", 30, "up", "south Route 1 clearing"),
+        ):
+            if press_until_value(symbol, value, button, description):
+                break
+
+        for _ in range(80):
+            if emulator.is_in_battle():
+                break
+            emulator.press("down" if emulator.read("wYCoord") <= 30 else "up")
+        assert emulator.is_in_battle(), "no natural wild encounter after 80 grass steps"
+
+        # Stop only at the actual battle command input loop, after the wild
+        # reveal and Pikachu entrance animations have completed naturally.
+        def is_battle_command_wait() -> bool:
+            return (
+                emulator.is_in_battle()
+                and emulator.read("wTopMenuItemY") == 14
+                and emulator.read("wTopMenuItemX") in {9, 15}
+                and emulator.read("wMaxMenuItem") == 1
+                and emulator.read("wMenuWatchedKeys") in {0x11, 0x21}
+            )
+
+        emulator.advance_until(
+            is_battle_command_wait,
+            button="a",
+            max_presses=30,
+            description="stable wild battle command screen",
+        )
+        emulator.tick(2)
+        battle_menu = _observe(emulator, f"{product}-wild-battle-menu.png")
+        battle_state = (
+            emulator.read("wBattleType"),
+            emulator.read("wEnemyMonSpecies"),
+            emulator.read("wEnemyMonLevel"),
+            emulator.read("wBattleMonSpecies"),
+            emulator.read("wCurrentMenuItem"),
+            emulator.read("wBattleAndStartSavedMenuItem"),
+        )
+
+        # The default cursor is FIGHT. Navigate to RUN and keep selecting it
+        # if Pikachu fails to escape on the first attempt.
+        emulator.press("down")
+        emulator.press("right")
+        emulator.press("a")
+        emulator.advance_until(
+            lambda: not emulator.is_in_battle(),
+            button="a",
+            max_presses=80,
+            description="natural escape from Route 1 battle",
+        )
+        route_direction = "down" if emulator.read("wYCoord") < 30 else "up"
+        walk_to_value(
+            emulator,
+            "wYCoord",
+            30,
+            route_direction,
+            "fixed post-battle Route 1 clearing",
+        )
+        emulator.tick(120)
+        restored_route = _observe(emulator, f"{product}-route1-restored.png")
+    except BaseException:
+        emulator.save_screenshot(f"{product}-wild-battle-failure.png")
+        state = {
+            "frame": emulator.frame,
+            "pc": emulator.pyboy.register_file.PC,
+            "sp": emulator.pyboy.register_file.SP,
+            "map": emulator.read("wCurMap"),
+            "y": emulator.read("wYCoord"),
+            "x": emulator.read("wXCoord"),
+            "in_battle": emulator.read("wIsInBattle"),
+            "battle_type": emulator.read("wBattleType"),
+            "enemy_species": emulator.read("wEnemyMonSpecies"),
+            "enemy_level": emulator.read("wEnemyMonLevel"),
+        }
+        (results / f"{product}-wild-battle-failure.json").write_text(
+            json.dumps(state, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        raise
+    finally:
+        emulator.close()
+
+    return WildBattleRoundTrip(battle_menu, battle_state, restored_route)
+
+
 def _linked_bytes(product: str, symbol: str, size: int) -> bytes:
     symbols = (
         (REPOSITORY_ROOT / f"{product}.sym").read_text(encoding="utf-8").splitlines()
@@ -410,7 +550,19 @@ def test_preset_name_menu_has_three_as_its_last_item() -> None:
     assert not Emulator.is_preset_name_menu(former_false_positive)
 
 
+def test_scenario_setup_removes_stale_failure_evidence() -> None:
+    results = RESULTS_ROOT / "cleanup-contract"
+    results.mkdir(parents=True, exist_ok=True)
+    (results / "stale-failure.json").write_text("{}\n", encoding="utf-8")
+    (results / "timeout-stale.png").write_bytes(b"stale")
+
+    _prepare_results(results)
+
+    assert not tuple(results.iterdir())
+
+
 def test_stock_debug_cold_boot_reaches_viridian_without_state_injection() -> None:
+    _prepare_results(RESULTS_ROOT / "stock-natural")
     observations = _run_journey(
         "pokeyellow_debug",
         RESULTS_ROOT / "stock-natural",
@@ -424,6 +576,7 @@ def test_stock_debug_cold_boot_reaches_viridian_without_state_injection() -> Non
 
 def test_audit_cold_boot_changes_only_color_state_in_the_slice() -> None:
     results = RESULTS_ROOT / "paired-audit"
+    _prepare_results(results)
     vanilla = _run_journey(
         "pokeyellow_debug",
         results,
@@ -581,6 +734,7 @@ def test_audit_cold_boot_changes_only_color_state_in_the_slice() -> None:
 
 def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> None:
     results = RESULTS_ROOT / "pallet-ui-boundary"
+    _prepare_results(results)
     vanilla = _run_pallet_ui_boundary("pokeyellow_debug", results)
     audit = _run_pallet_ui_boundary("pokeyellow_phase2_audit", results)
 
@@ -604,9 +758,7 @@ def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> 
     expected_attributes = _linked_bytes(
         "pokeyellow_phase2_audit", "FullColorOverworldTileAttributes", 256
     )
-    expected_free_descriptors = b"".join(
-        bytes((0xF0,)) + bytes(19) for _ in range(8)
-    )
+    expected_free_descriptors = b"".join(bytes((0xF0,)) + bytes(19) for _ in range(8))
     expected_dormant_scheduler: tuple[object, ...] = (
         0xFF,
         expected_free_descriptors,
@@ -689,3 +841,63 @@ def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> 
         20,
         1,
     )
+
+
+def test_route1_wild_battle_round_trip_restores_passive_color_slice() -> None:
+    results = RESULTS_ROOT / "route1-wild-battle"
+    _prepare_results(results)
+    vanilla = _run_route1_wild_battle_round_trip("pokeyellow_debug", results)
+    audit = _run_route1_wild_battle_round_trip("pokeyellow_phase2_audit", results)
+
+    expected_palettes = _linked_bytes(
+        "pokeyellow_phase2_audit", "FullColorOverworldBGPalettes", 64
+    )
+    expected_attributes = _linked_bytes(
+        "pokeyellow_phase2_audit", "FullColorOverworldTileAttributes", 256
+    )
+
+    battle = audit.battle_menu
+    baseline_battle = vanilla.battle_menu
+    assert audit.battle_state[0] == vanilla.battle_state[0] == 0
+    assert audit.battle_state[1] != 0 and vanilla.battle_state[1] != 0
+    assert audit.battle_state[2] != 0 and vanilla.battle_state[2] != 0
+    assert audit.battle_state[3:] == vanilla.battle_state[3:]
+    assert battle.logical_state[0] == baseline_battle.logical_state[0] == 0x0C
+    assert battle.logical_state[2:5] == baseline_battle.logical_state[2:5]
+    assert battle.logical_state[-1] == baseline_battle.logical_state[-1] == 1
+    # Battle setup owns the screen while the guarded Route 1 context remains
+    # active for the eventual return. No pending passive write may survive.
+    assert battle.passive_state[1:3] == (0, 0)
+    assert battle.renderer_state == (0, 0)
+    # Wild species and levels legitimately follow DIV cadence, so the enemy
+    # name and picture can differ. The stable player HUD and battle command UI
+    # must remain exact Yellow pixels, and no passive CGB color may leak in.
+    assert battle.screen.crop((0, 80, 160, 144)).tobytes() == (
+        baseline_battle.screen.crop((0, 80, 160, 144)).tobytes()
+    )
+    assert bytes(
+        battle.attributes[index] for index in _visible_indices(battle)
+    ) == bytes(
+        baseline_battle.attributes[index] for index in _visible_indices(baseline_battle)
+    )
+    assert battle.bg_palettes[:8] == baseline_battle.bg_palettes[:8]
+    assert battle.hardware_oam == baseline_battle.hardware_oam
+    assert battle.shadow_oam == baseline_battle.shadow_oam
+
+    restored = audit.restored_route
+    baseline_restored = vanilla.restored_route
+    assert restored.logical_state == baseline_restored.logical_state
+    assert restored.logical_state[0] == 0x0C
+    assert restored.logical_state[-1] == 0
+    assert restored.passive_state == (
+        1,
+        0,
+        0,
+        restored.renderer_generation[0],
+    )
+    assert restored.renderer_state == (0, 0)
+    _assert_visible_bg_parity(restored, baseline_restored, "post-wild-battle-route1")
+    _assert_oam_semantics(restored, baseline_restored, "post-wild-battle-route1")
+    assert restored.bg_palettes == expected_palettes
+    for tile, attribute in _visible_attribute_pairs(restored):
+        assert attribute == expected_attributes[tile]
