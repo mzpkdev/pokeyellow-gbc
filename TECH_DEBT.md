@@ -27,7 +27,7 @@ proof requires linked-ROM or natural-gameplay evidence.
 Current product truth: the only playable color path is the `PHASE2_AUDIT`
 product, and it colors only Pallet Town and Route 1. A production
 `COLOR/YELLOW` option has been approved and planned, but it is not implemented
-on merged `master`. The optional local operator plan is
+on merged `main`. The optional local operator plan is
 `.preemdeck/plan/introduce-production-color-mode-toggle.md`; this tracked
 register does not depend on that untracked file. The authoritative tracked
 direction remains the [migration plan](specs/full-colors/docs/migration-plan.md).
@@ -446,21 +446,21 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
 ### WF-001: Branch and release evidence hygiene
 
 - **Status / priority:** TRIGGERED / P1.
-- **What exists:** merged work can leave local `master`, product hashes,
+- **What exists:** merged work can leave local `main`, product hashes,
   retained artifacts, and operator plans behind the remote truth. The workflow
   requires exact-path staging, reviewed commits, feature branches, early draft
   PRs, and hosted checks, but those are human discipline rather than a single
   machine-enforced transaction.
 - **Why retained:** operator state and generated evidence cannot safely be
   swept into every commit; direct local iteration needs flexibility.
-- **Current risk:** branching from stale local `master`, pushing unrelated
+- **Current risk:** branching from stale local `main`, pushing unrelated
   `.preemdeck/` or `test-results/`, hand-editing evidence, or updating product
   hashes before final verified ROMs can make review and reproduction false.
 - **Dependencies:** repository instructions, protected remote branch policy,
   official evidence producers, and product identity gates.
 - **Right-time trigger:** reached for the production toggle because it changes
-  release/debug/VC identities and must begin from merged `origin/master`.
-- **Recommendation:** fetch `origin master`, branch from `origin/master`, open
+  release/debug/VC identities and must begin from merged `origin/main`.
+- **Recommendation:** fetch `origin main`, branch from `origin/main`, open
   a draft PR after the first reviewed green commit, stage exact owned paths,
   regenerate evidence only through its producer, and update release hashes only
   from final verified products. Never commit `.preemdeck/` plans.
@@ -545,7 +545,7 @@ donor import can waive Yellow's inventories or acceptance gates.
 - Never hand-edit generated evidence. Run the official producer, preserve
   schema versions and provenance, review the semantic diff, and keep failed
   attempts separate from accepted artifacts.
-- Branch from fetched `origin/master`, keep operator state untracked, stage
+- Branch from fetched `origin/main`, keep operator state untracked, stage
   exact paths, use a draft PR for visible review, and bind release claims to the
   pushed revision whose hosted checks completed.
 
