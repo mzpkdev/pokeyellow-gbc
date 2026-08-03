@@ -89,6 +89,13 @@ class WildBattleRoundTrip:
     restored_route: JourneyObservation
 
 
+@dataclass(frozen=True)
+class SaveContinueRoundTrip:
+    before_reset: JourneyObservation
+    restored: JourneyObservation
+    playable: JourneyObservation
+
+
 class _PresetMenuState:
     def __init__(self, max_menu_item: int) -> None:
         self.values = {
@@ -518,6 +525,113 @@ def _run_route1_wild_battle_round_trip(
         emulator.close()
 
     return WildBattleRoundTrip(battle_menu, battle_state, restored_route)
+
+
+def _run_pallet_save_continue_round_trip(
+    product: str,
+    results: Path,
+) -> SaveContinueRoundTrip:
+    """Save in Pallet, soft-reset, Continue, and resume natural movement."""
+    emulator = Emulator(
+        rom=REPOSITORY_ROOT / f"{product}.gbc",
+        symbols=REPOSITORY_ROOT / f"{product}.sym",
+        results=results,
+        cgb=True,
+    )
+
+    def save_ui(filename: str) -> None:
+        emulator.save_screenshot(f"{product}-{filename}.png")
+
+    try:
+        complete_oaks_lab_intro(emulator)
+        walk_to_value(emulator, "wXCoord", 8, "left", "west side of Oak's Lab")
+        walk_to_value(emulator, "wXCoord", 7, "left", "Pallet sign column")
+        walk_to_value(emulator, "wYCoord", 10, "up", "Pallet sign row")
+        emulator.tick(60)
+
+        # This fresh game has no Pokédex, so SAVE is the fourth start-menu
+        # item. Drive the real prompt, SRAM write, and dismissal path.
+        emulator.press("start")
+        for _ in range(3):
+            emulator.press("down")
+        emulator.press("a")
+        emulator.press("a")
+        save_ui("save-confirmation")
+        emulator.press("a")
+        assert emulator.read("wSaveFileStatus") == 2, "save did not become valid"
+        emulator.press("a")
+        save_ui("game-saved")
+        emulator.press("b")
+        emulator.tick(120)
+        before_reset = _observe(emulator, f"{product}-before-reset.png")
+
+        # Yellow's documented A+B+Start+Select soft-reset path keeps the SRAM
+        # created above while rebuilding all volatile renderer state.
+        for button in ("a", "b", "start", "select"):
+            emulator.pyboy.button_press(button)
+        emulator.tick(20)
+        for button in ("a", "b", "start", "select"):
+            emulator.pyboy.button_release(button)
+        emulator.tick(120)
+        save_ui("soft-reset")
+
+        def is_continue_menu() -> bool:
+            return (
+                emulator.read("wSaveFileStatus") == 2
+                and emulator.read("wTopMenuItemX") == 1
+                and emulator.read("wTopMenuItemY") == 2
+                and emulator.read("wMaxMenuItem") == 2
+                and emulator.read("wMenuWatchedKeys") == 0x0B
+            )
+
+        for _ in range(24):
+            if is_continue_menu():
+                break
+            emulator.press("start", wait_frames=30)
+        assert is_continue_menu(), "soft reset did not reach a valid Continue menu"
+        save_ui("continue-menu")
+
+        emulator.press("a")
+        save_ui("continue-info")
+        emulator.press("a")
+        for _ in range(30):
+            if (
+                emulator.read("wCurMap") == PALLET_TOWN
+                and emulator.read("wStatusFlags6") & 1
+            ):
+                break
+            emulator.tick(60)
+        assert emulator.read("wCurMap") == PALLET_TOWN
+        assert emulator.read("wStatusFlags6") & 1
+        emulator.tick(120)
+        restored = _observe(emulator, f"{product}-continued-pallet.png")
+
+        # A plausible restored frame isn't enough: make Yellow accept movement
+        # in both directions, then compare the same settled saved coordinate.
+        walk_to_value(emulator, "wXCoord", 8, "right", "continued east step")
+        walk_to_value(emulator, "wXCoord", 7, "left", "continued saved position")
+        emulator.tick(120)
+        playable = _observe(emulator, f"{product}-continued-playable.png")
+    except BaseException:
+        emulator.save_screenshot(f"{product}-save-continue-failure.png")
+        failure_state = {
+            "frame": emulator.frame,
+            "pc": emulator.pyboy.register_file.PC,
+            "sp": emulator.pyboy.register_file.SP,
+            "map": emulator.read("wCurMap"),
+            "y": emulator.read("wYCoord"),
+            "x": emulator.read("wXCoord"),
+            "save_status": emulator.read("wSaveFileStatus"),
+        }
+        (results / f"{product}-save-continue-failure.json").write_text(
+            json.dumps(failure_state, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        raise
+    finally:
+        emulator.close()
+
+    return SaveContinueRoundTrip(before_reset, restored, playable)
 
 
 def _linked_bytes(product: str, symbol: str, size: int) -> bytes:
@@ -1054,3 +1168,75 @@ def test_route1_wild_battle_round_trip_restores_passive_color_slice() -> None:
     assert restored.bg_palettes == expected_palettes
     for tile, attribute in _visible_attribute_pairs(restored):
         assert attribute == expected_attributes[tile]
+
+
+def test_pallet_save_reset_continue_restores_playable_color_slice() -> None:
+    results = RESULTS_ROOT / "pallet-save-continue"
+    _prepare_results(results)
+    vanilla = _run_pallet_save_continue_round_trip("pokeyellow_debug", results)
+    audit = _run_pallet_save_continue_round_trip("pokeyellow_phase2_audit", results)
+
+    expected_palettes = _linked_bytes(
+        "pokeyellow_phase2_audit", "FullColorOverworldBGPalettes", 64
+    )
+    expected_attributes = _linked_bytes(
+        "pokeyellow_phase2_audit", "FullColorOverworldTileAttributes", 256
+    )
+    diagnostics = {}
+
+    for name in ("before_reset", "restored", "playable"):
+        baseline = getattr(vanilla, name)
+        candidate = getattr(audit, name)
+        visible_mismatches = [
+            {
+                "visible_index": index,
+                "tile": tile,
+                "actual": attribute,
+                "expected": expected_attributes[tile],
+            }
+            for index, (tile, attribute) in enumerate(
+                _visible_attribute_pairs(candidate)
+            )
+            if attribute != expected_attributes[tile]
+        ]
+        diagnostics[name] = {
+            "frame": candidate.frame,
+            "baseline_frame": baseline.frame,
+            "logical_state": candidate.logical_state,
+            "renderer_generation": candidate.renderer_generation,
+            "passive_state": candidate.passive_state,
+            "renderer_state": candidate.renderer_state,
+            "bank0_tilemap_first_mismatch": _first_mismatch(
+                candidate.tilemap, baseline.tilemap
+            ),
+            "palette_first_donor_mismatch": _first_mismatch(
+                candidate.bg_palettes, expected_palettes
+            ),
+            "visible_attribute_mismatch_count": len(visible_mismatches),
+            "visible_attribute_first_mismatch": (
+                visible_mismatches[0] if visible_mismatches else None
+            ),
+        }
+
+        assert candidate.logical_state == baseline.logical_state, name
+        assert candidate.renderer_state == (0, 0), name
+        assert candidate.passive_state == (
+            1,
+            0,
+            0,
+            candidate.renderer_generation[0],
+        ), name
+        assert candidate.bg_palettes == expected_palettes, name
+        assert not visible_mismatches, name
+        _assert_visible_bg_parity(candidate, baseline, name)
+        _assert_oam_semantics(candidate, baseline, name)
+
+    assert audit.before_reset.logical_state == (PALLET_TOWN, 10, 7, 1, 22, 0)
+    assert audit.restored.logical_state == audit.before_reset.logical_state
+    assert audit.playable.logical_state == audit.before_reset.logical_state
+    assert audit.before_reset.renderer_generation != audit.restored.renderer_generation
+    assert audit.restored.renderer_generation == audit.playable.renderer_generation
+    (results / "paired-save-continue-diagnostics.json").write_text(
+        json.dumps(diagnostics, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
