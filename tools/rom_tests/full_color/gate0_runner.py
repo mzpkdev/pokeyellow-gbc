@@ -11,6 +11,13 @@ import subprocess
 import sys
 from typing import Any
 
+from .runner_output import (
+    NULL_REPORTER,
+    OutputMode,
+    RunnerReporter,
+    add_output_argument,
+)
+
 
 RUNNER_SCHEMA = "full-color-gate0-runner-v1"
 COMPONENTS = (
@@ -182,6 +189,7 @@ def _run_once(
     *,
     python: str,
     run_command: RunCommand,
+    reporter: RunnerReporter = NULL_REPORTER,
 ) -> dict[str, Any]:
     run_dir.mkdir(parents=True, exist_ok=True)
     if (run_dir / "run-summary.json").exists():
@@ -194,6 +202,8 @@ def _run_once(
     }
     _write_json(run_dir / "run-summary.json", summary)
     for name, command in zip(COMPONENTS, _commands(python, root, run_dir), strict=True):
+        label = f"{run_dir.name}/{name}"
+        started = reporter.running(label)
         diagnostics = run_dir / "diagnostics"
         stdout_path = diagnostics / f"{name}.stdout.txt"
         stderr_path = diagnostics / f"{name}.stderr.txt"
@@ -215,7 +225,10 @@ def _run_once(
             summary["status"] = "failed"
             summary["failed_component"] = name
             _write_json(run_dir / "run-summary.json", summary)
-            raise RuntimeError(f"{name} failed with exit status {returncode}")
+            error = RuntimeError(f"{name} failed with exit status {returncode}")
+            reporter.failed(label, error, stderr_path)
+            raise error
+        reporter.passed(label, started)
         _write_json(run_dir / "run-summary.json", summary)
     summary["status"] = "passed"
     _write_json(run_dir / "run-summary.json", summary)
@@ -228,13 +241,16 @@ def run_gate0_once(
     *,
     python: str = sys.executable,
     run_command: RunCommand = _default_run_command,
+    reporter: RunnerReporter = NULL_REPORTER,
 ) -> dict[str, Any]:
     """Execute one complete Gate 0 run for later independent comparison."""
+    reporter.attempt(run_dir.resolve())
     return _run_once(
         root.resolve(),
         run_dir.resolve(),
         python=python,
         run_command=run_command,
+        reporter=reporter,
     )
 
 
@@ -277,10 +293,12 @@ def run_gate0(
     *,
     python: str = sys.executable,
     run_command: RunCommand = _default_run_command,
+    reporter: RunnerReporter = NULL_REPORTER,
 ) -> dict[str, Any]:
     root = root.resolve()
     results_root = results_root.resolve()
     attempt = _new_attempt(results_root)
+    reporter.attempt(attempt)
     summary: dict[str, Any] = {
         "schema": RUNNER_SCHEMA,
         "status": "running",
@@ -290,7 +308,13 @@ def run_gate0(
     _write_json(attempt / "summary.json", summary)
     try:
         for name in summary["runs"]:
-            _run_once(root, attempt / name, python=python, run_command=run_command)
+            _run_once(
+                root,
+                attempt / name,
+                python=python,
+                run_command=run_command,
+                reporter=reporter,
+            )
         comparison = compare_runs(attempt / "run-1", attempt / "run-2")
         summary["comparison"] = comparison
         if not comparison["byte_identical"]:
@@ -299,6 +323,7 @@ def run_gate0(
         summary["status"] = "failed"
         summary["error"] = str(exc)
         _write_json(attempt / "summary.json", summary)
+        reporter.failed("gate0", exc, attempt / "summary.json")
         raise
     summary["status"] = "passed"
     _write_json(attempt / "summary.json", summary)
@@ -321,23 +346,47 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar=("FIRST", "SECOND"),
         help="compare two complete run directories under the results root",
     )
+    add_output_argument(parser)
     args = parser.parse_args(argv)
+    reporter = RunnerReporter("gate0", args.output)
+    summary_path: Path | None = None
     try:
         if args.one_run:
-            summary = run_gate0_once(args.root, args.results / args.one_run)
+            run_path = args.results.resolve() / args.one_run
+            summary = run_gate0_once(args.root, run_path, reporter=reporter)
+            summary_path = run_path / "run-summary.json"
         elif args.compare_runs:
             first, second = args.compare_runs
+            summary_path = args.results.resolve() / "summary.json"
             summary = compare_gate0_runs(
                 args.results / first,
                 args.results / second,
-                args.results / "summary.json",
+                summary_path,
             )
         else:
-            summary = run_gate0(args.root, args.results)
+            summary = run_gate0(args.root, args.results, reporter=reporter)
+            summary_path = (
+                args.results.resolve() / str(summary["attempt"]) / "summary.json"
+            )
     except Exception as exc:
-        print(f"Gate 0 failed: {exc}", file=sys.stderr)
+        reporter.failed("gate0", exc, summary_path or args.results)
+        if reporter.mode is OutputMode.JSON:
+            if summary_path is None and reporter.attempt_path is not None:
+                summary_path = reporter.attempt_path / "summary.json"
+            failed_summary: dict[str, Any] = {
+                "status": "failed",
+                "error": str(exc),
+            }
+            if summary_path is not None and summary_path.is_file():
+                try:
+                    loaded = json.loads(summary_path.read_text(encoding="utf-8"))
+                    if isinstance(loaded, dict):
+                        failed_summary = loaded
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                    pass
+            reporter.finish(failed_summary, summary_path)
         return 1
-    print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
+    reporter.finish(summary, summary_path)
     return 0
 
 

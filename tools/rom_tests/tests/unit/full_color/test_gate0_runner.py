@@ -6,6 +6,8 @@ from typing import Sequence
 
 import pytest
 
+from tools.rom_tests.full_color import gate0_runner
+
 from tools.rom_tests.full_color.gate0_runner import (
     COMPONENTS,
     compare_gate0_runs,
@@ -58,6 +60,34 @@ def _fake_runner(*, fail: str | None = None):
     return calls, run
 
 
+def test_json_failure_uses_current_attempt_not_malformed_stale_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    results = tmp_path / "results"
+    stale = results / "attempt-9999"
+    stale.mkdir(parents=True)
+    (stale / "summary.json").write_text("{malformed", encoding="utf-8")
+
+    def fail_current(root: Path, results_root: Path, *, reporter, **kwargs):
+        del root, kwargs
+        attempt = gate0_runner._new_attempt(results_root.resolve())
+        reporter.attempt(attempt)
+        summary = {"attempt": attempt.name, "status": "failed", "error": "current"}
+        gate0_runner._write_json(attempt / "summary.json", summary)
+        raise RuntimeError("current")
+
+    monkeypatch.setattr(gate0_runner, "run_gate0", fail_current)
+    assert gate0_runner.main(
+        ["--results", str(results), "--output", "json"]
+    ) == 1
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["attempt"] == "attempt-0001"
+    assert captured.out.count("\n") == 1
+    assert captured.err == ""
+
+
 def test_runner_executes_every_real_component_twice_and_compares_bytes(
     tmp_path: Path,
 ) -> None:
@@ -102,6 +132,29 @@ def test_runner_executes_every_real_component_twice_and_compares_bytes(
     attempt = tmp_path / "results" / summary["attempt"]
     assert (attempt / "run-1/visual/linked.png").is_file()
     assert (attempt / "run-2/visual/linked.png").is_file()
+
+
+def test_cli_json_mode_emits_one_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def run(root: Path, results: Path, *, reporter):
+        del root
+        attempt = results / "attempt-0001"
+        attempt.mkdir(parents=True)
+        reporter.attempt(attempt)
+        return {"status": "passed", "attempt": attempt.name}
+
+    monkeypatch.setattr(gate0_runner, "run_gate0", run)
+    assert gate0_runner.main(
+        ["--results", str(tmp_path), "--output", "json"]
+    ) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {
+        "attempt": "attempt-0001",
+        "status": "passed",
+    }
+    assert captured.out.count("\n") == 1
+    assert captured.err == ""
 
 
 def test_independent_runs_execute_every_component_once_and_compare(tmp_path: Path) -> None:

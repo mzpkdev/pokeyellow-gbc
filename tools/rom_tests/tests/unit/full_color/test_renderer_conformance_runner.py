@@ -8,6 +8,7 @@ import shutil
 
 import pytest
 
+from tools.rom_tests.full_color import renderer_conformance_runner
 from tools.rom_tests.full_color.errors import RendererConformanceError
 from tools.rom_tests.full_color.renderer_conformance import EvidenceMode
 from tools.rom_tests.full_color.renderer_conformance_artifacts import (
@@ -18,6 +19,7 @@ from tools.rom_tests.full_color.renderer_conformance_artifacts import (
 )
 from tools.rom_tests.full_color.renderer_conformance_runner import (
     compare_stable_files,
+    main,
     run_renderer_conformance,
 )
 
@@ -26,6 +28,33 @@ ROOT = Path(__file__).resolve().parents[5]
 
 def _attempt(results: Path) -> Path:
     return next(results.glob("attempt-*"))
+
+
+def test_json_failure_uses_current_attempt_not_malformed_stale_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    stale = tmp_path / "attempt-9999"
+    stale.mkdir()
+    (stale / "summary.json").write_text("{malformed", encoding="utf-8")
+
+    def fail_current(root: Path, results: Path, *, reporter, **kwargs):
+        del root, kwargs
+        attempt = renderer_conformance_runner.new_attempt(results.resolve())
+        reporter.attempt(attempt)
+        summary = {"attempt": attempt.name, "status": "failed", "error": "current"}
+        renderer_conformance_runner.write_json(attempt / "summary.json", summary)
+        raise RendererConformanceError("current")
+
+    monkeypatch.setattr(
+        renderer_conformance_runner, "run_renderer_conformance", fail_current
+    )
+    assert main(["--results", str(tmp_path), "--output", "json"]) == 1
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["attempt"] == "attempt-0001"
+    assert captured.out.count("\n") == 1
+    assert captured.err == ""
 
 
 def _manifest_dict(results: Path) -> tuple[Path, dict[str, object]]:
@@ -606,3 +635,40 @@ def test_stable_comparison_reports_missing_files(tmp_path: Path) -> None:
     assert comparison["missing_from_run_2"] == [
         "cases/RC-TRANSFER-ROW/compact-summary.txt"
     ]
+
+
+def test_cli_json_mode_is_one_document_and_keeps_two_runs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(
+        ["--root", str(ROOT), "--results", str(tmp_path), "--output", "json"]
+    ) == 0
+    captured = capsys.readouterr()
+    summary = json.loads(captured.out)
+    assert summary["status"] == "passed"
+    assert summary["runs"] == ["run-1", "run-2"]
+    assert captured.out.count("\n") == 1
+    assert captured.err == ""
+
+
+def test_cli_mutation_keeps_diff_while_failure_output_is_bounded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv("CI", raising=False)
+    assert main(
+        [
+            "--root",
+            str(ROOT),
+            "--results",
+            str(tmp_path),
+            "--mutation-run-2",
+            "wrong-owner-writer",
+        ]
+    ) == 1
+    captured = capsys.readouterr()
+    assert len(captured.err.splitlines()) <= 5
+    assert "EVIDENCE" in captured.err
+    attempt = _attempt(tmp_path)
+    assert next(attempt.glob("run-2/cases/*/structured-diff.json")).is_file()

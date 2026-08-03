@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 from typing import cast
 
@@ -28,7 +29,16 @@ from tools.rom_tests.scenarios.viridian_city import (
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
-RESULTS_ROOT = REPOSITORY_ROOT / "test-results" / "full-color-cold-boot"
+DEFAULT_RESULTS_ROOT = REPOSITORY_ROOT / "test-results" / "full-color-cold-boot"
+
+
+def _configured_results_root(environment: Mapping[str, str] = os.environ) -> Path:
+    return Path(
+        environment.get("FULL_COLOR_COLD_BOOT_RESULTS", str(DEFAULT_RESULTS_ROOT))
+    ).resolve()
+
+
+RESULTS_ROOT = _configured_results_root()
 
 CHECKPOINTS = (
     "bedroom",

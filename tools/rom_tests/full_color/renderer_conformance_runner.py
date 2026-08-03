@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import sys
 from typing import Any, Mapping, Sequence
 
 from .errors import RendererConformanceError
@@ -25,6 +24,12 @@ from .renderer_conformance_fixtures import MUTATIONS
 from .renderer_oracle import (
     derive_expectation,
     load_corpus,
+)
+from .runner_output import (
+    NULL_REPORTER,
+    OutputMode,
+    RunnerReporter,
+    add_output_argument,
 )
 
 RUNNER_SCHEMA = "full-color-renderer-conformance-runner-v1"
@@ -182,9 +187,11 @@ def run_renderer_conformance(
     results_root: Path,
     *,
     mutation_by_run: Mapping[str, str] | None = None,
+    reporter: RunnerReporter = NULL_REPORTER,
 ) -> dict[str, object]:
     root = root.resolve()
     attempt = new_attempt(results_root.resolve())
+    reporter.attempt(attempt)
     runs = ("run-1", "run-2")
     summary: dict[str, object] = {
         "schema": RUNNER_SCHEMA,
@@ -196,15 +203,26 @@ def run_renderer_conformance(
     try:
         statuses: dict[str, bool] = {}
         for name in runs:
+            started = reporter.running(name)
             statuses[name] = run_corpus(
                 root, attempt / name, mutation=(mutation_by_run or {}).get(name)
             )
+            if statuses[name]:
+                reporter.passed(name, started)
+            else:
+                reporter.failed(
+                    name,
+                    RendererConformanceError("checker cases failed"),
+                    attempt / name / "run-summary.json",
+                )
+        comparison_started = reporter.running("comparison")
         comparison = compare_stable_files(attempt / "run-1", attempt / "run-2")
         summary["comparison"] = comparison
         if not comparison["byte_identical"]:
             raise RendererConformanceError(
                 "independent checker executions produced different evidence"
             )
+        reporter.passed("comparison", comparison_started)
         failed = [name for name, passed in statuses.items() if not passed]
         if failed:
             raise RendererConformanceError(
@@ -213,6 +231,7 @@ def run_renderer_conformance(
     except Exception as exc:
         summary.update(status="failed", error=str(exc))
         write_json(attempt / "summary.json", summary)
+        reporter.failed("renderer-conformance", exc, attempt / "summary.json")
         raise
     summary["status"] = "passed"
     write_json(attempt / "summary.json", summary)
@@ -224,12 +243,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--results", type=Path, required=True)
     parser.add_argument("--mutation-run-2", choices=sorted(MUTATIONS))
+    add_output_argument(parser)
     args = parser.parse_args(argv)
+    reporter = RunnerReporter("renderer-conformance", args.output)
     if args.mutation_run_2 is not None and "CI" in os.environ:
-        print(
-            "renderer conformance failed: test-only mutation is forbidden in CI",
-            file=sys.stderr,
+        error = RendererConformanceError("test-only mutation is forbidden in CI")
+        reporter.failed(
+            "renderer-conformance",
+            error,
+            args.results,
         )
+        if reporter.mode is OutputMode.JSON:
+            reporter.finish({"status": "failed", "error": str(error)}, None)
         return 2
     try:
         summary = run_renderer_conformance(
@@ -240,11 +265,33 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if args.mutation_run_2 is None
                 else {"run-2": args.mutation_run_2}
             ),
+            reporter=reporter,
         )
     except Exception as exc:
-        print(f"renderer conformance failed: {exc}", file=sys.stderr)
+        reporter.failed("renderer-conformance", exc, args.results)
+        if reporter.mode is OutputMode.JSON:
+            summary_path = (
+                reporter.attempt_path / "summary.json"
+                if reporter.attempt_path is not None
+                else None
+            )
+            failed_summary: Mapping[str, object] = {
+                "status": "failed",
+                "error": str(exc),
+            }
+            if summary_path is not None and summary_path.is_file():
+                try:
+                    loaded = json.loads(summary_path.read_text(encoding="utf-8"))
+                    if isinstance(loaded, dict):
+                        failed_summary = loaded
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                    pass
+            reporter.finish(failed_summary, summary_path)
         return 1
-    print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
+    reporter.finish(
+        summary,
+        args.results.resolve() / str(summary["attempt"]) / "summary.json",
+    )
     return 0
 
 

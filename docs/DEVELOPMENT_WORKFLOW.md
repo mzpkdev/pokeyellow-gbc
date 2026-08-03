@@ -184,6 +184,42 @@ The future renderer direction is governed by the
 collapse Phases 3–9 into a vague next phase, widen an allowlist as a substitute
 for map-aware content, or claim retained architecture is already active.
 
+## Hosted pull-request checks
+
+Full `CI` is commit-bearing: it runs when a pull request is opened, when a new
+commit synchronizes the pull request, and for pushes to `main`. A newer commit
+on the same pull request cancels obsolete in-flight certification, so the
+latest revision is the one consuming hosted capacity.
+
+Title/body edits, reopening, and draft-state changes run `PR Metadata` only;
+metadata edits cannot cancel or repeat full certification. `PR Metadata`
+validates the Conventional Commit title without checking out or building the
+repository. Ordinary metadata events report the `PR Title` context. A reopen
+reports the distinct `PR Reopen Certification` context after running the same
+title validation and querying check runs for the exact current head SHA; it
+fails closed unless that revision already has a successful `Test` check.
+Concurrency is scoped by pull request and event action, so a later edit or
+draft-state change cannot cancel the reopen check or replace its result with a
+same-named job. Repeated runs of the same action may cancel their obsolete
+predecessors. The existing certification is reused until a new commit is
+pushed; that commit starts a fresh full `CI` run.
+
+`Test` is the stable final status and aggregates Donor Provenance, Lint, Build,
+Gate 0 Baseline, Renderer Conformance Checker, and Phase 1 Runtime Ownership.
+It fails when any dependency fails, is skipped, or is cancelled. Each Gate 0
+matrix leg still performs the complete seven-component run independently:
+complete units, baseline discovery, inventory reconciliation, bank torture,
+runtime observability, traceability, and the visual pipeline. `Gate 0 Baseline`
+then applies the blocking Exact comparator to both evidence sets.
+
+`main` currently has no branch protection rule or ruleset. Until one is added,
+reviewers must explicitly verify `Test`, the latest `PR Title`, and—after a
+reopen—the durable `PR Reopen Certification` result before merge. `Test`
+represents all named certification dependencies, while `PR Title` remains
+independently responsive to metadata-only changes. An event-specific context
+such as `PR Reopen Certification` is absent on ordinary pull-request events, so
+it must not be configured as a universally required branch-protection context.
+
 ## Handoff, commit, and pull-request discipline
 
 Before committing or handing work to another session:

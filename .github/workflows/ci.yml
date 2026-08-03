@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize]
   push:
     branches: [main]
 
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -62,17 +62,6 @@ jobs:
       - name: Run actionlint
         uses: docker://rhysd/actionlint:1.7.12
 
-      - name: Lint pull request title
-        if: github.event_name == 'pull_request'
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9._/-]+\))?(!)?: .+'
-          if [[ ! "$PR_TITLE" =~ $pattern ]]; then
-            echo "::error::PR title must follow Conventional Commits, for example: feat(battle): add critical-hit test"
-            exit 1
-          fi
-
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -119,50 +108,33 @@ jobs:
 
   test:
     name: Test
-    needs: build
+    needs:
+      - donor-provenance
+      - lint
+      - build
+      - gate-0-baseline
+      - renderer-conformance-checker
+      - phase1-runtime-ownership
+    if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: tools/rom_tests/requirements.txt
-
-      - name: Set up pinned RGBDS
-        uses: ./.github/actions/setup-build
-
-      - name: Install ROM test dependencies
-        run: python -m pip install -r tools/rom_tests/requirements.txt
-
-      - name: Download debug build
-        uses: actions/download-artifact@v7
-        with:
-          name: pokeyellow-build
-          path: release
-
-      - name: Prepare linked ROM artifacts
+      - name: Require every certification gate
+        env:
+          DONOR: ${{ needs.donor-provenance.result }}
+          LINT: ${{ needs.lint.result }}
+          BUILD: ${{ needs.build.result }}
+          GATE0: ${{ needs.gate-0-baseline.result }}
+          CONFORMANCE: ${{ needs.renderer-conformance-checker.result }}
+          RUNTIME: ${{ needs.phase1-runtime-ownership.result }}
         run: |
-          cp release/pokeyellow.gbc       pokeyellow.gbc
-          cp release/pokeyellow.map       pokeyellow.map
-          cp release/pokeyellow.sym       pokeyellow.sym
-          cp release/pokeyellow-debug.gbc pokeyellow_debug.gbc
-          cp release/pokeyellow-debug.map pokeyellow_debug.map
-          cp release/pokeyellow-debug.sym pokeyellow_debug.sym
-          cp release/pokeyellow-vc.gbc    pokeyellow_vc.gbc
-          cp release/pokeyellow-vc.map    pokeyellow_vc.map
-          cp release/pokeyellow-vc.sym    pokeyellow_vc.sym
-
-      - name: Build Phase 2 audit ROM
-        run: make -j"$(nproc)" yellow_phase2_audit
-
-      - name: Run unit tests
-        run: python -m pytest tools/rom_tests/tests/unit --ignore=tools/rom_tests/tests/unit/full_color/test_overworld_color_data_donor.py
+          for result in "$DONOR" "$LINT" "$BUILD" "$GATE0" "$CONFORMANCE" "$RUNTIME"; do
+            if [ "$result" != success ]; then
+              echo "::error::certification dependency finished as $result"
+              exit 1
+            fi
+          done
 
   gate-0-baseline-runs:
     name: Gate 0 Baseline Run ${{ matrix.run }}
