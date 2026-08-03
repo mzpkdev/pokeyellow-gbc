@@ -42,6 +42,9 @@ REDRAW_COL = 1
 REDRAW_ROW = 2
 VBLANK_CYCLES = 10 * 456
 DOWNSTREAM_WRITERS = ("VBlankCopy", "VBlankCopyDouble", "UpdateMovingBgTiles")
+WATER_TILE = 0x9140
+FLOWER_TILE = 0x9030
+TILE_SIZE = 16
 
 
 @pytest.fixture(name="phase2_rom")
@@ -339,6 +342,123 @@ def _assert_natural_vblank_restores_real_banked_cpu_state(
     )
 
 
+def _run_animation_across_overloaded_and_idle_vblanks(
+    rom: Phase2Rom,
+    *,
+    counter: int,
+    tile_address: int,
+) -> tuple[
+    tuple[tuple[int, int], ...],
+    tuple[tuple[int, int, int], ...],
+    tuple[tuple[int, int, bytes], ...],
+]:
+    """Run, rather than intercept, moving-tile work across two VBlanks."""
+    emu = rom.emulator.pyboy
+    regs = emu.register_file
+    symbols = rom.emulator.symbols
+    initial_tile = bytes((0x81 + offset * 7) & 0xFF for offset in range(TILE_SIZE))
+    prior_vbk = emu.memory[RVBK]
+    emu.memory[RVBK] = 0
+    try:
+        for offset, value in enumerate(initial_tile):
+            emu.memory[tile_address + offset] = value
+    finally:
+        emu.memory[RVBK] = prior_vbk
+    emu.memory[symbols["hTileAnimations"]] = 1
+    emu.memory[symbols["hMovingBGTilesCounter1"]] = counter
+    _write_banked(rom, 1, symbols["wMovingBGTilesCounter2"], b"\x00")
+
+    _write_banked(
+        rom,
+        ENTRY_WRAM_BANK,
+        WRAM_PROGRAM,
+        bytes((0xFB, 0x76, 0xC3, RETURN_PROBE & 0xFF, RETURN_PROBE >> 8)),
+    )
+    emu.memory[BOOTROM_DISABLE] = 1
+    emu.memory[RLCDC] |= 0x80
+    emu.memory[0x2000] = ENTRY_ROM_BANK
+    emu.memory[0x3000] = 0
+    emu.memory[symbols["hLoadedROMBank"]] = ENTRY_ROM_BANK
+    emu.memory[RVBK] = 1
+    emu.memory[RSVBK] = ENTRY_WRAM_BANK
+    emu.memory[INTERRUPT_FLAGS] = 0
+    emu.memory[INTERRUPT_ENABLE] = VBLANK_INTERRUPT
+    regs.PC = WRAM_PROGRAM
+    regs.SP = 0xFFFC
+
+    frame = 0
+    entries: list[tuple[int, int]] = []
+    writes: list[tuple[int, int, int]] = []
+    returns: list[tuple[int, int, bytes]] = []
+
+    def mark_vblank(_: object) -> None:
+        nonlocal frame
+        frame += 1
+
+    def mark_animation_entry(_: object) -> None:
+        entries.append((frame, emu.memory[RLY]))
+
+    def mark_animation_write(_: object) -> None:
+        writes.append((frame, emu.memory[RLY], regs.PC))
+
+    def returned(_: object) -> None:
+        prior_vbk = emu.memory[RVBK]
+        prior_svbk = emu.memory[RSVBK]
+        emu.memory[RVBK] = 0
+        emu.memory[RSVBK] = 1
+        tile = bytes(emu.memory[tile_address + offset] for offset in range(TILE_SIZE))
+        moving_counter = emu.memory[symbols["wMovingBGTilesCounter2"]]
+        emu.memory[RSVBK] = prior_svbk
+        emu.memory[RVBK] = prior_vbk
+        returns.append(
+            (
+                emu.memory[symbols["hMovingBGTilesCounter1"]],
+                moving_counter,
+                tile,
+            )
+        )
+        if len(returns) == 1:
+            emu.memory[INTERRUPT_FLAGS] = 0
+            emu.memory[INTERRUPT_ENABLE] = VBLANK_INTERRUPT
+            regs.PC = WRAM_PROGRAM
+        else:
+            emu.memory[INTERRUPT_ENABLE] = 0
+            emu.memory[HARNESS_HALT] = 0x76
+            regs.PC = HARNESS_HALT
+
+    write_sites = (
+        symbols["UpdateMovingBgTiles.right"] + 2,
+        symbols["UpdateMovingBgTiles.left"] + 2,
+        symbols["UpdateMovingBgTiles.loop"] + 1,
+    )
+    emu.hook_register(0, symbols["VBlank"], mark_vblank, None)
+    emu.hook_register(
+        0,
+        symbols["UpdateMovingBgTiles"],
+        mark_animation_entry,
+        None,
+    )
+    emu.hook_register(0, RETURN_PROBE, returned, None)
+    for site in write_sites:
+        emu.hook_register(0, site, mark_animation_write, None)
+    try:
+        for _ in range(4):
+            emu.tick(1, render=False, sound=False)
+            if len(returns) == 2:
+                break
+    finally:
+        emu.hook_deregister(0, symbols["VBlank"])
+        emu.hook_deregister(0, symbols["UpdateMovingBgTiles"])
+        emu.hook_deregister(0, RETURN_PROBE)
+        for site in write_sites:
+            emu.hook_deregister(0, site)
+
+    assert len(returns) == 2
+    assert frame == 2
+    assert returns[0] == (counter, 0, initial_tile)
+    return tuple(entries), tuple(writes), tuple(returns)
+
+
 @pytest.mark.parametrize(
     ("case", "mode"),
     (("idle", 0), ("pending+row", REDRAW_ROW), ("pending+column", REDRAW_COL)),
@@ -367,6 +487,47 @@ def test_passive_paths_finish_before_natural_ly0(
     )
 
     _assert_passive_finishes_before_ly0(measurement)
+
+
+@pytest.mark.parametrize(
+    ("counter", "tile_address"),
+    ((19, WATER_TILE), (20, FLOWER_TILE)),
+)
+def test_audit_column_redraw_defers_tile_animation_until_idle_natural_vblank(
+    phase2_rom: Phase2Rom,
+    counter: int,
+    tile_address: int,
+) -> None:
+    _activate_passive_map(phase2_rom)
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.write_fixed(
+        symbols["wRedrawRowOrColumnSrcTiles"],
+        bytes(range(40)),
+    )
+    emu.memory[symbols["hRedrawRowOrColumnDest"]] = 0x20
+    emu.memory[symbols["hRedrawRowOrColumnDest"] + 1] = 0x98
+    phase2_rom.call("PassiveFullColorPrepareColumnAttributes")
+    emu.memory[symbols["hRedrawRowOrColumnMode"]] = REDRAW_COL
+    phase2_rom.call("PassiveFullColorHandleConnection")
+    phase2_rom.write_wram2("wPassiveFullColorPalettePending", 0)
+
+    entries, writes, returns = _run_animation_across_overloaded_and_idle_vblanks(
+        phase2_rom,
+        counter=counter,
+        tile_address=tile_address,
+    )
+
+    assert entries == ((1, 153), (2, 146))
+    assert len(writes) == TILE_SIZE
+    assert {frame for frame, _, _ in writes} == {2}
+    assert all(144 <= ly <= 153 for _, ly, _ in writes)
+    assert returns[0][0:2] == (counter, 0)
+    assert returns[1][2] != returns[0][2]
+    if counter == 19:
+        assert returns[1][0:2] == (0, 1)
+    else:
+        assert returns[1][0:2] == (0, 0)
 
 
 def test_exit_path_finishes_before_natural_ly0(phase2_rom: Phase2Rom) -> None:

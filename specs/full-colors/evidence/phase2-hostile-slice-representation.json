@@ -30,7 +30,7 @@
     },
     "pokeyellow_phase2_audit.gbc": {
       "path": "pokeyellow_phase2_audit.gbc",
-      "sha256": "f134bad304c7b43fa5bc76b42fc085b05f4d2fbabb1c0869bcb453a4a19bcb17"
+      "sha256": "40b0a702c94ebddeb3fd26202c10a60b6dd00b66a392da7ab9598d61c092dcd6"
     },
     "pokeyellow_phase2_audit.map": {
       "path": "pokeyellow_phase2_audit.map",
@@ -54,7 +54,7 @@
     },
     "specs/full-colors/definitions/phase1-audit-source-transition.json": {
       "path": "specs/full-colors/definitions/phase1-audit-source-transition.json",
-      "sha256": "cb63d1bfe6224c8592bb95f48be1b44903a74f2c389ce2f4b9471266d2a643e5"
+      "sha256": "dc168ced5628e2599a3ff96cc8df97f2c2d6ca50e6aa80ad866e3b83ec979872"
     },
     "specs/full-colors/definitions/phase2-hostile-slice-representation.json": {
       "path": "specs/full-colors/definitions/phase2-hostile-slice-representation.json",
@@ -62,23 +62,23 @@
     },
     "specs/full-colors/definitions/phase2-planned-subjects.json": {
       "path": "specs/full-colors/definitions/phase2-planned-subjects.json",
-      "sha256": "d90916a904426699ebf0882fa1d89d5909297fda6ac573b40971f6cbba981572"
+      "sha256": "dbf18ea17ade91d921fb66603bc8efef52a4d3b3b5d1511af62875aa5c28c0df"
     },
     "specs/full-colors/inventory/assignments.json": {
       "path": "specs/full-colors/inventory/assignments.json",
-      "sha256": "4e8d990e22ab1ddf37c978679f00fa1f258cf7052575c6af0b54222aca5ea08e"
+      "sha256": "5315da9b25bfaf62942fd40c49ba4bb89b67001502a283bfd81e95008a4d1337"
     },
     "specs/full-colors/inventory/mutations.json": {
       "path": "specs/full-colors/inventory/mutations.json",
-      "sha256": "a77cb21a6ab5551261ccd8ee014f2ae387fa0b97bba91fd024e213da431d3dcc"
+      "sha256": "5fde7361a31dc479a671ea09fd4f73f085abadb28b95427107057a62b8c31f96"
     },
     "specs/full-colors/inventory/scenes.json": {
       "path": "specs/full-colors/inventory/scenes.json",
-      "sha256": "1c55afb342d928617c3bcdcfff07f8d76f188ec475998a59b36f140f64938910"
+      "sha256": "c26c198b666cab2b29b33584c4251534f3e937cced3fc6f724839fc462ada45b"
     },
     "specs/full-colors/inventory/writers.json": {
       "path": "specs/full-colors/inventory/writers.json",
-      "sha256": "c9076f13c84ee5cf6c7d6396d2c802166b43f135a233ae922b7a1d2373d8100a"
+      "sha256": "f5fad490eaa5f85268779fb2e60a8032e5d7189de19505e9e018d982dd2c22b1"
     }
   },
   "inventory_audit": {

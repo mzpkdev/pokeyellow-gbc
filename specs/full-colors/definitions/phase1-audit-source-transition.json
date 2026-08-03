@@ -85,7 +85,7 @@
       "reviewed_sha256": "39c29d247841dbcc20d91394966f6567b5449b3d9e94fd2a4bf7bb203441d4e3"
     },
     "home/vcopy.asm": {
-      "audit_sha256": "e966730898989dbfb48e79729f1be3af4b4d0eba99c551d0f76c8203fec31a65",
+      "audit_sha256": "46b7e00e211a3ee32327bfdcea9d8f882d33d2226da0a5dfd136c129c4a8c4ae",
       "reviewed_sha256": "a09adc6fc1903b1944a60bcf732a1c5ca71edc02eed19725be47fb9333db77fa"
     },
     "main.asm": {
@@ -105,7 +105,7 @@
       "reviewed_sha256": "4d611450cde6c95ea60b9f9290032417d802a89e4b995a5a5dafc48d4f2171bf"
     }
   },
-  "audit_source_sha256": "f8a20d96fbbdad978483fe8ff3d34e56671596d9af83b3abc11b27d7fa2bcbaf",
+  "audit_source_sha256": "8b013bfb539ed3579524adf97e08989d917bdbfe6f8709e4d0ca72ae2798e8eb",
   "baseline_manifest_sha256": "75c058f0d0df07a25918c710dc8ddebf43d3e5b809a06faaf7391cf015a9d774",
   "reviewed_source_sha256": "9b12281f62023dbd80e64ed17d684aaae5754d787166163f213fe21e4ca2ff7f",
   "rom_subject_rebindings": {
