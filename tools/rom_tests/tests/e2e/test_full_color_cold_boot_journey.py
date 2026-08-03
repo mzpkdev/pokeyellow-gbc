@@ -100,6 +100,7 @@ class WildBattleRoundTrip:
     battle_menu: JourneyObservation
     battle_state: tuple[int, ...]
     restored_route: JourneyObservation
+    encounter_steps: tuple[int, int]
 
 
 @dataclass(frozen=True)
@@ -443,6 +444,13 @@ def _run_route1_wild_battle_round_trip(
         results=results,
         cgb=True,
     )
+    route_steps = 0
+    grass_pacing_steps = 0
+
+    def standing_terrain_tile() -> int:
+        # TryDoWildEncounter checks the lower-left tile of the half-block under
+        # the player, which is the visible tilemap cell at (8, 9).
+        return emulator.read_bytes("wTileMap", 20 * 18)[9 * 20 + 8]
 
     def press_until_value(
         symbol: str,
@@ -452,35 +460,79 @@ def _run_route1_wild_battle_round_trip(
         *,
         max_presses: int = 160,
     ) -> bool:
+        nonlocal route_steps
         for _ in range(max_presses):
             if emulator.is_in_battle():
                 return True
             if emulator.read(symbol) == value:
                 return False
+            before_map = emulator.read("wCurMap")
+            before_position = (
+                emulator.read("wXCoord"),
+                emulator.read("wYCoord"),
+            )
             emulator.press(button)
+            after_position = (
+                emulator.read("wXCoord"),
+                emulator.read("wYCoord"),
+            )
+            if after_position != before_position and (
+                before_map == ROUTE_1 or emulator.read("wCurMap") == ROUTE_1
+            ):
+                route_steps += 1
         raise AssertionError(f"Timed out walking to {description}")
 
     try:
         complete_oaks_lab_intro(emulator)
 
         # Follow the real south-to-north route without suppressing encounters.
-        # Once at the first clearing, pace on traversable Route 1 tiles until
-        # Yellow's own random encounter machinery starts a battle.
+        # Reach Route 1's first verified tall-grass corridor if an encounter
+        # has not already started naturally on the way there.
         for symbol, value, button, description in (
             ("wXCoord", 8, "left", "west side of Oak's Lab"),
             ("wYCoord", 2, "up", "north Pallet Town"),
             ("wXCoord", 10, "right", "Route 1 entrance"),
             ("wCurMap", 0x0C, "up", "Route 1"),
-            ("wYCoord", 30, "up", "south Route 1 clearing"),
+            ("wYCoord", 32, "up", "south Route 1 grass corridor"),
         ):
             if press_until_value(symbol, value, button, description):
                 break
 
-        for _ in range(80):
-            if emulator.is_in_battle():
-                break
-            emulator.press("down" if emulator.read("wYCoord") <= 30 else "up")
-        assert emulator.is_in_battle(), "no natural wild encounter after 80 grass steps"
+        # (10, 32) and (10, 33) are both encounter-capable Route 1 grass. Pace
+        # only between those two tiles. The generous 256-movement bound keeps
+        # the deterministic product runs finite while leaving ample headroom
+        # above their observed natural encounter cadence.
+        if not emulator.is_in_battle():
+            assert (
+                emulator.read("wXCoord"),
+                emulator.read("wYCoord"),
+                standing_terrain_tile(),
+            ) == (10, 32, emulator.read("wGrassTile"))
+            for _ in range(1024):
+                if grass_pacing_steps == 256:
+                    break
+                before_position = (
+                    emulator.read("wXCoord"),
+                    emulator.read("wYCoord"),
+                )
+                emulator.press("down" if before_position[1] == 32 else "up")
+                after_position = (
+                    emulator.read("wXCoord"),
+                    emulator.read("wYCoord"),
+                )
+                if after_position == before_position:
+                    continue
+                route_steps += 1
+                grass_pacing_steps += 1
+                if emulator.is_in_battle():
+                    break
+                assert standing_terrain_tile() == emulator.read("wGrassTile")
+        assert emulator.is_in_battle(), (
+            "no natural wild encounter during bounded verified Route 1 grass pacing "
+            f"(grass_pacing_steps={grass_pacing_steps}, "
+            f"route_steps={route_steps}, rng="
+            f"{emulator.read('hRandomAdd'):02x}/{emulator.read('hRandomSub'):02x})"
+        )
 
         # Stop only at the actual battle command input loop, after the wild
         # reveal and Pikachu entrance animations have completed naturally.
@@ -529,8 +581,27 @@ def _run_route1_wild_battle_round_trip(
             route_direction,
             "fixed post-battle Route 1 clearing",
         )
+        walk_to_value(
+            emulator,
+            "wXCoord",
+            10,
+            "right" if emulator.read("wXCoord") < 10 else "left",
+            "fixed post-battle Route 1 column",
+        )
         emulator.tick(120)
         restored_route = _observe(emulator, f"{product}-route1-restored.png")
+        (results / f"{product}-wild-battle-steps.json").write_text(
+            json.dumps(
+                {
+                    "grass_pacing_steps": grass_pacing_steps,
+                    "route_steps_to_encounter": route_steps,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
     except BaseException:
         emulator.save_screenshot(f"{product}-wild-battle-failure.png")
         state = {
@@ -544,6 +615,8 @@ def _run_route1_wild_battle_round_trip(
             "battle_type": emulator.read("wBattleType"),
             "enemy_species": emulator.read("wEnemyMonSpecies"),
             "enemy_level": emulator.read("wEnemyMonLevel"),
+            "grass_pacing_steps": grass_pacing_steps,
+            "route_steps_to_encounter": route_steps,
         }
         (results / f"{product}-wild-battle-failure.json").write_text(
             json.dumps(state, indent=2, sort_keys=True) + "\n",
@@ -553,7 +626,12 @@ def _run_route1_wild_battle_round_trip(
     finally:
         emulator.close()
 
-    return WildBattleRoundTrip(battle_menu, battle_state, restored_route)
+    return WildBattleRoundTrip(
+        battle_menu,
+        battle_state,
+        restored_route,
+        (route_steps, grass_pacing_steps),
+    )
 
 
 def _run_pallet_save_continue_round_trip(
@@ -1545,6 +1623,10 @@ def test_route1_wild_battle_round_trip_restores_passive_color_slice() -> None:
     _prepare_results(results)
     vanilla = _run_route1_wild_battle_round_trip("pokeyellow_debug", results)
     audit = _run_route1_wild_battle_round_trip("pokeyellow_phase2_audit", results)
+    for journey in (vanilla, audit):
+        route_steps, grass_pacing_steps = journey.encounter_steps
+        assert route_steps > 0
+        assert 0 <= grass_pacing_steps <= 256
 
     expected_palettes = _linked_bytes(
         "pokeyellow_phase2_audit", "FullColorOverworldBGPalettes", 64
@@ -1566,11 +1648,12 @@ def test_route1_wild_battle_round_trip_restores_passive_color_slice() -> None:
     # active for the eventual return. No pending passive write may survive.
     assert battle.passive_state[1:3] == (0, 0)
     assert battle.renderer_state == (0, 0)
-    # Wild species and levels legitimately follow DIV cadence, so the enemy
-    # name and picture can differ. The stable player HUD and battle command UI
-    # must remain exact Yellow pixels, and no passive CGB color may leak in.
-    assert battle.screen.crop((0, 80, 160, 144)).tobytes() == (
-        baseline_battle.screen.crop((0, 80, 160, 144)).tobytes()
+    # Wild species, levels, and Pikachu's naturally generated DVs legitimately
+    # follow DIV cadence, so combatants and HP digits can differ. The stable
+    # battle command UI must remain exact Yellow pixels, and no passive CGB
+    # color may leak in.
+    assert battle.screen.crop((64, 96, 160, 144)).tobytes() == (
+        baseline_battle.screen.crop((64, 96, 160, 144)).tobytes()
     )
     assert bytes(
         battle.attributes[index] for index in _visible_indices(battle)
