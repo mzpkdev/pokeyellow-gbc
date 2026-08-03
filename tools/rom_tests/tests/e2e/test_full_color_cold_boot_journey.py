@@ -96,6 +96,12 @@ class SaveContinueRoundTrip:
     playable: JourneyObservation
 
 
+@dataclass(frozen=True)
+class PalletHouseRoundTrip:
+    interior: JourneyObservation
+    restored_pallet: JourneyObservation
+
+
 class _PresetMenuState:
     def __init__(self, max_menu_item: int) -> None:
         self.values = {
@@ -634,6 +640,52 @@ def _run_pallet_save_continue_round_trip(
     return SaveContinueRoundTrip(before_reset, restored, playable)
 
 
+def _run_pallet_house_round_trip(
+    product: str,
+    results: Path,
+) -> PalletHouseRoundTrip:
+    """Enter Red's house from Pallet and return through its natural warp."""
+    emulator = Emulator(
+        rom=REPOSITORY_ROOT / f"{product}.gbc",
+        symbols=REPOSITORY_ROOT / f"{product}.sym",
+        results=results,
+        cgb=True,
+    )
+
+    try:
+        complete_oaks_lab_intro(emulator)
+        walk_to_value(emulator, "wXCoord", 8, "left", "west side of Oak's Lab")
+        walk_to_value(emulator, "wYCoord", 6, "up", "Red's house row")
+        walk_to_value(emulator, "wXCoord", 5, "left", "Red's house door")
+        walk_to_value(emulator, "wCurMap", 0x25, "up", "Red's house 1F")
+        emulator.tick(120)
+        interior = _observe(emulator, f"{product}-reds-house-1f.png")
+
+        walk_to_value(emulator, "wCurMap", PALLET_TOWN, "down", "Pallet Town")
+        emulator.tick(120)
+        restored_pallet = _observe(emulator, f"{product}-pallet-restored.png")
+    except BaseException:
+        emulator.save_screenshot(f"{product}-pallet-house-failure.png")
+        failure_state = {
+            "frame": emulator.frame,
+            "pc": emulator.pyboy.register_file.PC,
+            "sp": emulator.pyboy.register_file.SP,
+            "map": emulator.read("wCurMap"),
+            "y": emulator.read("wYCoord"),
+            "x": emulator.read("wXCoord"),
+            "in_battle": emulator.read("wIsInBattle"),
+        }
+        (results / f"{product}-pallet-house-failure.json").write_text(
+            json.dumps(failure_state, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        raise
+    finally:
+        emulator.close()
+
+    return PalletHouseRoundTrip(interior, restored_pallet)
+
+
 def _linked_bytes(product: str, symbol: str, size: int) -> bytes:
     symbols = (
         (REPOSITORY_ROOT / f"{product}.sym").read_text(encoding="utf-8").splitlines()
@@ -997,6 +1049,99 @@ def test_reverse_route1_ledges_preserve_yellow_and_passive_color_state() -> None
         json.dumps(diagnostics, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def test_pallet_house_round_trip_restores_passive_color_slice() -> None:
+    results = RESULTS_ROOT / "paired-pallet-house"
+    _prepare_results(results)
+    vanilla = _run_pallet_house_round_trip("pokeyellow_debug", results)
+    audit = _run_pallet_house_round_trip("pokeyellow_phase2_audit", results)
+
+    expected_palettes = _linked_bytes(
+        "pokeyellow_phase2_audit", "FullColorOverworldBGPalettes", 64
+    )
+    expected_attributes = _linked_bytes(
+        "pokeyellow_phase2_audit", "FullColorOverworldTileAttributes", 256
+    )
+
+    baseline_inside = vanilla.interior
+    candidate_inside = audit.interior
+    assert candidate_inside.logical_state == baseline_inside.logical_state
+    assert candidate_inside.logical_state == (0x25, 7, 2, 1, 22, 0)
+    assert candidate_inside.passive_state[:3] == (0, 0, 0)
+    assert candidate_inside.renderer_state == (0, 0)
+    _assert_visible_bg_parity(candidate_inside, baseline_inside, "reds-house-1f")
+    _assert_oam_semantics(candidate_inside, baseline_inside, "reds-house-1f")
+    assert candidate_inside.attributes == baseline_inside.attributes
+    assert candidate_inside.bg_palettes[:8] == baseline_inside.bg_palettes[:8]
+    assert candidate_inside.screen.tobytes() == baseline_inside.screen.tobytes()
+
+    baseline_outside = vanilla.restored_pallet
+    candidate_outside = audit.restored_pallet
+    visible_mismatches = [
+        {
+            "visible_index": index,
+            "tile": tile,
+            "actual": attribute,
+            "expected": expected_attributes[tile],
+        }
+        for index, (tile, attribute) in enumerate(
+            _visible_attribute_pairs(candidate_outside)
+        )
+        if attribute != expected_attributes[tile]
+    ]
+    diagnostics = {
+        "interior": {
+            "logical_state": candidate_inside.logical_state,
+            "passive_state": candidate_inside.passive_state,
+            "renderer_state": candidate_inside.renderer_state,
+            "bank0_tilemap_first_mismatch": _first_mismatch(
+                candidate_inside.tilemap, baseline_inside.tilemap
+            ),
+            "attribute_first_baseline_mismatch": _first_mismatch(
+                candidate_inside.attributes, baseline_inside.attributes
+            ),
+            "palette0_first_baseline_mismatch": _first_mismatch(
+                candidate_inside.bg_palettes[:8], baseline_inside.bg_palettes[:8]
+            ),
+            "screen_equal": (
+                candidate_inside.screen.tobytes() == baseline_inside.screen.tobytes()
+            ),
+        },
+        "restored_pallet": {
+            "logical_state": candidate_outside.logical_state,
+            "passive_state": candidate_outside.passive_state,
+            "renderer_state": candidate_outside.renderer_state,
+            "bank0_tilemap_first_mismatch": _first_mismatch(
+                candidate_outside.tilemap, baseline_outside.tilemap
+            ),
+            "palette_first_donor_mismatch": _first_mismatch(
+                candidate_outside.bg_palettes, expected_palettes
+            ),
+            "visible_attribute_mismatch_count": len(visible_mismatches),
+            "visible_attribute_first_mismatch": (
+                visible_mismatches[0] if visible_mismatches else None
+            ),
+        },
+    }
+    (results / "paired-pallet-house-diagnostics.json").write_text(
+        json.dumps(diagnostics, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    assert candidate_outside.logical_state == baseline_outside.logical_state
+    assert candidate_outside.logical_state == (PALLET_TOWN, 6, 5, 1, 22, 0)
+    assert candidate_outside.passive_state == (
+        1,
+        0,
+        0,
+        candidate_outside.renderer_generation[0],
+    )
+    assert candidate_outside.renderer_state == (0, 0)
+    _assert_visible_bg_parity(candidate_outside, baseline_outside, "restored-pallet")
+    _assert_oam_semantics(candidate_outside, baseline_outside, "restored-pallet")
+    assert candidate_outside.bg_palettes == expected_palettes
+    assert not visible_mismatches
 
 
 def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> None:
