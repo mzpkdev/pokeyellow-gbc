@@ -432,9 +432,10 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
   independent authoring/validation for all 25 Yellow tilesets and overrides.
 - **Right-time trigger:** adding any map whose exact tileset, roof, override,
   or animation identity differs from the accepted slice.
-- **Recommendation:** import donor material only as pinned candidate provenance;
-  validate every retained value against Yellow graphics and behavior. Keep
-  mechanisms separate from authored data.
+- **Recommendation:** keep the accepted frozen OVERWORLD payload pinned to its
+  five exact authorities. Treat every other donor value as candidate provenance
+  and validate it against Yellow graphics and behavior. Keep mechanisms separate
+  from authored data.
 - **Acceptance proof:** every Yellow tileset, roof, override, animation, and
   special case has inventory closure, atlas/table review, semantic full-byte
   attribute tests, and natural visual acceptance.
@@ -525,11 +526,14 @@ The conformance checker proves its modeled contract; callable ROM tests prove
 controlled entry points. Neither may claim natural reachability, playability,
 visual stability, or artistic quality.
 
-### IC-009: Donor content is candidate evidence
+### IC-009: Donor content outside the frozen OVERWORLD payload is candidate evidence
 
-Pokemon Celebrations can supply pinned organization and artistic candidates.
-Yellow-specific values still require independent authoring and validation; no
-donor import can waive Yellow's inventories or acceptance gates.
+The five pinned authorities accepted for the frozen OVERWORLD palette and
+corrected 96-byte attribute payload remain authoritative for that payload only.
+All other material from `git@github.com:dannye/pokered-gbc.git` can supply only
+organization and artistic candidates. Yellow-specific values outside that
+accepted payload still require independent authoring and validation; no donor
+import can waive Yellow's inventories or acceptance gates.
 
 ## ROMhack-wide recommendations
 

@@ -46,9 +46,10 @@ At an actual Yellow-to-full-color overworld boundary, reconstruction may not
 use bytes captured from the old map presentation: no 20×18 snapshot, partial
 attribute backup, palette restoration, or gameplay repair hook. Off-screen
 preparation is allowed only inside the current full-color generation when its
-source is authoritative map state. Celebrations commit
-`bf823bc15d75ba8335ce2c9418d2eb65897bb878` supplies mechanism evidence only;
-its palettes, mappings, roofs, OAM assignments, and content are
+source is authoritative map state. `git@github.com:dannye/pokered-gbc.git` commit
+`c1a3b6c5a7591472241036d0cf09c3817f841f93` supplies mechanism evidence plus
+the separately frozen OVERWORLD palette and corrected attribute payload. Its
+other palettes, mappings, roofs, OAM assignments, and content are
 non-authoritative candidates that must be independently authored and validated
 for Yellow, and its static palette-map mode is excluded.
 
