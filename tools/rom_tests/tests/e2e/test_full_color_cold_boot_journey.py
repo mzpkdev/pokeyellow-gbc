@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -10,7 +11,13 @@ from typing import cast
 from PIL import Image
 
 from tools.rom_tests.emulator import Emulator
-from tools.rom_tests.scenarios.oaks_lab import PALLET_TOWN, complete_oaks_lab_intro
+from tools.rom_tests.scenarios.new_game import reach_bedroom_overworld
+from tools.rom_tests.scenarios.oaks_lab import (
+    OAKS_LAB,
+    PALLET_TOWN,
+    complete_oaks_lab_intro,
+    walk_from_bedroom_to_oak,
+)
 from tools.rom_tests.scenarios.viridian_city import (
     ROUTE_1,
     VIRIDIAN_CITY,
@@ -52,6 +59,12 @@ REVERSE_CHECKPOINTS = (
     "pallet-reentry",
 )
 REVERSE_COLOR_CHECKPOINTS = frozenset(REVERSE_CHECKPOINTS[1:])
+SCRIPT_PALLETTOWN_PIKACHU_BATTLE = 4
+SCRIPT_PALLETTOWN_AFTER_PIKACHU_BATTLE = 5
+BATTLE_TYPE_PIKACHU = 4
+PIKACHU = 0x54
+POKE_BALL = 0x04
+CAPTURE_ANIMATION_IDS = frozenset({0xC1, 0xC2, 0xC3, 0xC8})
 
 
 @dataclass(frozen=True)
@@ -100,6 +113,16 @@ class SaveContinueRoundTrip:
 class PalletHouseRoundTrip:
     interior: JourneyObservation
     restored_pallet: JourneyObservation
+
+
+@dataclass(frozen=True)
+class OakCaptureSequence:
+    oak_dialogue: JourneyObservation
+    battle_presentation: JourneyObservation
+    ball_animation: JourneyObservation
+    post_capture: JourneyObservation
+    lab_transition: JourneyObservation
+    event_states: dict[str, tuple[int, ...]]
 
 
 class _PresetMenuState:
@@ -686,6 +709,158 @@ def _run_pallet_house_round_trip(
     return PalletHouseRoundTrip(interior, restored_pallet)
 
 
+def _run_oak_capture_sequence(
+    product: str,
+    results: Path,
+) -> OakCaptureSequence:
+    """Play Oak's scripted Pikachu capture and retain its visual milestones."""
+    emulator = Emulator(
+        rom=REPOSITORY_ROOT / f"{product}.gbc",
+        symbols=REPOSITORY_ROOT / f"{product}.sym",
+        results=results,
+        cgb=True,
+    )
+    observations: dict[str, JourneyObservation] = {}
+    event_states: dict[str, tuple[int, ...]] = {}
+
+    def event_state() -> tuple[int, ...]:
+        return (
+            emulator.read("wCurMap"),
+            emulator.read("wPalletTownCurScript"),
+            emulator.read("wBattleType"),
+            emulator.read("wIsInBattle"),
+            emulator.read("wCurOpponent"),
+            emulator.read("wCurEnemyLevel"),
+            emulator.read("wEnemyMonSpecies"),
+            emulator.read("wCapturedMonSpecies"),
+            emulator.read("wCurItem"),
+            emulator.read("wAnimationID"),
+            emulator.read("wPokeBallAnimData"),
+        )
+
+    def checkpoint(name: str) -> None:
+        observations[name] = _observe(emulator, f"{product}-{name}.png")
+        event_states[name] = event_state()
+
+    def advance_framewise(
+        predicate: Callable[[], bool],
+        description: str,
+        *,
+        max_presses: int,
+    ) -> None:
+        for _ in range(max_presses):
+            if predicate():
+                return
+            emulator.pyboy.button("a", delay=2)
+            for _ in range(120):
+                emulator.tick()
+                if predicate():
+                    return
+        raise AssertionError(f"Timed out waiting for {description}")
+
+    try:
+        reach_bedroom_overworld(emulator)
+        walk_from_bedroom_to_oak(emulator)
+        checkpoint("oak-capture-oak-dialogue")
+        advance_framewise(
+            lambda: (
+                emulator.read("wPalletTownCurScript")
+                == SCRIPT_PALLETTOWN_PIKACHU_BATTLE
+            ),
+            "Oak facing the wild Pikachu",
+            max_presses=30,
+        )
+        event_states["oak-capture-script-ready"] = event_state()
+
+        advance_framewise(
+            lambda: (
+                emulator.read("wBattleType") == BATTLE_TYPE_PIKACHU
+                and emulator.is_in_battle()
+            ),
+            "Oak's Pikachu battle",
+            max_presses=8,
+        )
+
+        # The simulated ITEM selection and toss are transient. Poll every real
+        # frame while supplying ordinary A input so this exercises the exact
+        # animation path that previously left corrupt sprites on the overworld.
+        battle_presentation_seen = False
+        ball_animation_seen = False
+        post_capture_seen = False
+        for _ in range(60):
+            emulator.pyboy.button("a", delay=2)
+            for _ in range(120):
+                emulator.tick()
+                if (
+                    not battle_presentation_seen
+                    and emulator.read("wBattleType") == BATTLE_TYPE_PIKACHU
+                    and emulator.is_in_battle()
+                    and emulator.read("wCurItem") == POKE_BALL
+                    and emulator.read("wAnimationID") not in CAPTURE_ANIMATION_IDS
+                ):
+                    checkpoint("oak-capture-battle")
+                    battle_presentation_seen = True
+                if (
+                    not ball_animation_seen
+                    and emulator.read("wBattleType") == BATTLE_TYPE_PIKACHU
+                    and emulator.read("wAnimationID") in CAPTURE_ANIMATION_IDS
+                ):
+                    checkpoint("oak-capture-ball-animation")
+                    ball_animation_seen = True
+                if (
+                    ball_animation_seen
+                    and not emulator.is_in_battle()
+                    and emulator.read("wCurMap") == PALLET_TOWN
+                ):
+                    post_capture_seen = True
+                    break
+            if post_capture_seen:
+                break
+        assert battle_presentation_seen, (
+            "Oak's simulated ITEM selection was not observed"
+        )
+        assert ball_animation_seen, "Oak's Poké Ball animation was not observed"
+        assert post_capture_seen, "Oak's scripted capture battle did not clear"
+        # Dismiss the final battle acknowledgement so Pallet's post-capture
+        # script can render Oak's next real dialogue instead of a blank box.
+        emulator.press("a", wait_frames=60)
+        emulator.press("a", wait_frames=60)
+        checkpoint("oak-capture-post-battle")
+
+        emulator.advance_until(
+            lambda: emulator.read("wCurMap") == OAKS_LAB,
+            button="a",
+            max_presses=40,
+            description="following Oak into his lab after catching Pikachu",
+        )
+        emulator.tick(60)
+        checkpoint("oak-capture-lab-transition")
+    except BaseException:
+        emulator.save_screenshot(f"{product}-oak-capture-failure.png")
+        failure_state = {
+            "frame": emulator.frame,
+            "pc": emulator.pyboy.register_file.PC,
+            "sp": emulator.pyboy.register_file.SP,
+            "event_state": event_state(),
+        }
+        (results / f"{product}-oak-capture-failure.json").write_text(
+            json.dumps(failure_state, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        raise
+    finally:
+        emulator.close()
+
+    return OakCaptureSequence(
+        oak_dialogue=observations["oak-capture-oak-dialogue"],
+        battle_presentation=observations["oak-capture-battle"],
+        ball_animation=observations["oak-capture-ball-animation"],
+        post_capture=observations["oak-capture-post-battle"],
+        lab_transition=observations["oak-capture-lab-transition"],
+        event_states=event_states,
+    )
+
+
 def _linked_bytes(product: str, symbol: str, size: int) -> bytes:
     symbols = (
         (REPOSITORY_ROOT / f"{product}.sym").read_text(encoding="utf-8").splitlines()
@@ -1142,6 +1317,116 @@ def test_pallet_house_round_trip_restores_passive_color_slice() -> None:
     _assert_oam_semantics(candidate_outside, baseline_outside, "restored-pallet")
     assert candidate_outside.bg_palettes == expected_palettes
     assert not visible_mismatches
+
+
+def test_oak_scripted_pikachu_capture_preserves_yellow_visuals_and_completes() -> None:
+    """Cover the historic battle-over-overworld corruption from a cold boot."""
+    results = RESULTS_ROOT / "paired-oak-capture"
+    _prepare_results(results)
+    vanilla = _run_oak_capture_sequence("pokeyellow_debug", results)
+    audit = _run_oak_capture_sequence("pokeyellow_phase2_audit", results)
+
+    expected_palettes = _linked_bytes(
+        "pokeyellow_phase2_audit", "FullColorOverworldBGPalettes", 64
+    )
+    expected_attributes = _linked_bytes(
+        "pokeyellow_phase2_audit", "FullColorOverworldTileAttributes", 256
+    )
+    checkpoints = {
+        "oak_dialogue": (vanilla.oak_dialogue, audit.oak_dialogue),
+        "battle_presentation": (
+            vanilla.battle_presentation,
+            audit.battle_presentation,
+        ),
+        "ball_animation": (vanilla.ball_animation, audit.ball_animation),
+        "post_capture": (vanilla.post_capture, audit.post_capture),
+        "lab_transition": (vanilla.lab_transition, audit.lab_transition),
+    }
+    diagnostics = {}
+    for name, (baseline, candidate) in checkpoints.items():
+        assert candidate.logical_state == baseline.logical_state, name
+        assert candidate.renderer_state == (0, 0), name
+        _assert_visible_bg_parity(candidate, baseline, name)
+        _assert_oam_semantics(candidate, baseline, name)
+        diagnostics[name] = {
+            "frame": candidate.frame,
+            "baseline_frame": baseline.frame,
+            "event_state": audit.event_states[
+                {
+                    "oak_dialogue": "oak-capture-oak-dialogue",
+                    "battle_presentation": "oak-capture-battle",
+                    "ball_animation": "oak-capture-ball-animation",
+                    "post_capture": "oak-capture-post-battle",
+                    "lab_transition": "oak-capture-lab-transition",
+                }[name]
+            ],
+            "passive_state": candidate.passive_state,
+            "bank0_tilemap_first_mismatch": _first_mismatch(
+                candidate.tilemap, baseline.tilemap
+            ),
+            "hardware_oam_first_mismatch": _first_mismatch(
+                candidate.hardware_oam, baseline.hardware_oam
+            ),
+            "screen_equal": candidate.screen.tobytes() == baseline.screen.tobytes(),
+        }
+
+    assert audit.event_states == vanilla.event_states
+    assert audit.event_states["oak-capture-script-ready"][1:4] == (
+        SCRIPT_PALLETTOWN_PIKACHU_BATTLE,
+        0,
+        0,
+    )
+    for name in ("oak-capture-battle", "oak-capture-ball-animation"):
+        assert audit.event_states[name][2] == BATTLE_TYPE_PIKACHU, name
+        assert audit.event_states[name][3] != 0, name
+        assert audit.event_states[name][4:7] == (PIKACHU, 5, PIKACHU), name
+    assert audit.event_states["oak-capture-ball-animation"][9] in CAPTURE_ANIMATION_IDS
+    assert audit.event_states["oak-capture-post-battle"][0:4] == (
+        PALLET_TOWN,
+        SCRIPT_PALLETTOWN_AFTER_PIKACHU_BATTLE,
+        0,
+        0,
+    )
+    assert audit.event_states["oak-capture-lab-transition"][0] == OAKS_LAB
+
+    for name in ("oak_dialogue", "post_capture"):
+        baseline, candidate = checkpoints[name]
+        assert candidate.passive_state == (
+            1,
+            0,
+            0,
+            candidate.renderer_generation[0],
+        ), name
+        assert candidate.bg_palettes == expected_palettes, name
+        for tile, attribute in _visible_attribute_pairs(candidate):
+            assert attribute == expected_attributes[tile], name
+
+    # Battles and interiors remain wholly stock-owned. At these visual
+    # checkpoints the audit ROM must be pixel-identical, including the real
+    # transient Poké Ball toss that the old harness skipped completely.
+    for name in ("battle_presentation", "ball_animation", "lab_transition"):
+        baseline, candidate = checkpoints[name]
+        if name == "lab_transition":
+            assert candidate.passive_state[:3] == (0, 0, 0), name
+        else:
+            # The guarded Pallet context remains active for return, while the
+            # battle owns VRAM and no passive transaction remains pending.
+            assert candidate.passive_state[1:3] == (0, 0), name
+        assert bytes(
+            candidate.attributes[index] for index in _visible_indices(candidate)
+        ) == bytes(
+            baseline.attributes[index] for index in _visible_indices(baseline)
+        ), name
+        assert candidate.bg_palettes[:8] == baseline.bg_palettes[:8], name
+        if name != "lab_transition":
+            assert candidate.hardware_oam == baseline.hardware_oam, name
+            assert candidate.shadow_oam == baseline.shadow_oam, name
+            assert candidate.screen.tobytes() == baseline.screen.tobytes(), name
+
+    (results / "paired-oak-capture-diagnostics.json").write_text(
+        json.dumps(diagnostics, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> None:
