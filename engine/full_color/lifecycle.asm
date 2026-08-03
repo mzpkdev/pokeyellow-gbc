@@ -185,6 +185,70 @@ InitFullColorProductionLifecycleSelected::
 	ret
 ENDC
 
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+; The budget word is a one-shot test seam for the decoded path cost. Zero means
+; use the generated production cost. A nonzero exact-fit value is accepted;
+; threshold plus one returns carry before cancellation, generation, authority
+; snapshots, LCD concealment, or any destination write.
+CheckFullColorTransitionBudgetForCurrentContext:
+	select_renderer_state_e
+	ld a, [wFullColorProductionReturnContext]
+	cp RENDERER_CONTEXT_MENU
+	jr z, .menu
+	cp RENDERER_CONTEXT_DIALOGUE
+	jr z, .dialogue
+	cp RENDERER_CONTEXT_BATTLE
+	jr z, .battle
+	ld bc, FULL_COLOR_TRANSITION_MAP_BUDGET
+	jr CheckFullColorTransitionBudgetSelected
+.menu
+	ld bc, FULL_COLOR_TRANSITION_MENU_BUDGET
+	jr CheckFullColorTransitionBudgetSelected
+.dialogue
+	ld bc, FULL_COLOR_TRANSITION_DIALOGUE_BUDGET
+	jr CheckFullColorTransitionBudgetSelected
+.battle
+	ld bc, FULL_COLOR_TRANSITION_BATTLE_BUDGET
+	jr CheckFullColorTransitionBudgetSelected
+
+CheckFullColorColorMapTransitionBudget:
+	select_renderer_state_e
+	ld bc, FULL_COLOR_TRANSITION_COLOR_MAP_BUDGET
+	jr CheckFullColorTransitionBudgetSelected
+
+CheckFullColorResetTransitionBudget:
+	select_renderer_state_e
+	ldh a, [hSoftReset]
+	and a
+	ld bc, FULL_COLOR_TRANSITION_HARD_RESET_BUDGET
+	jr z, CheckFullColorTransitionBudgetSelected
+	ld bc, FULL_COLOR_TRANSITION_SOFT_RESET_BUDGET
+
+CheckFullColorTransitionBudgetSelected:
+	ld a, [wFullColorTransitionBudget]
+	ld d, a
+	ld a, [wFullColorTransitionBudget + 1]
+	ld h, a
+	or d
+	jr z, .accepted
+	ld a, h
+	cp b
+	jr c, .accepted
+	jr nz, .deferred
+	ld a, d
+	cp c
+	jr c, .accepted
+	jr z, .accepted
+.deferred
+	restore_renderer_state_e
+	scf
+	ret
+.accepted
+	restore_renderer_state_e
+	and a
+	ret
+ENDC
+
 ; Copy the evolving 20x18 fixed-WRAM tile authority into producer-owned WRAM2
 ; and derive a separate attribute plane from independent tile-class authority.
 ; Bank 2 must be selected. Clobbers AF, BC, DE, HL.
@@ -285,6 +349,8 @@ BeginFullColorMapEntry::
 	call GetRendererOwner
 	cp RENDERER_FULL_COLOR_OVERWORLD
 	jr z, .same_owner
+	call CheckFullColorColorMapTransitionBudget
+	ret c
 	select_renderer_state_e
 	xor a
 	ld [wFullColorProductionTransitionStatus], a
@@ -368,6 +434,8 @@ ActivateYellowRenderer::
 ; Production reset seam used by reset/soft-reset roots once activation wiring is
 ; enabled.  It never publishes the intermediate Yellow owner as active.
 ResetRendererOwnershipForReconstruction::
+	call CheckFullColorResetTransitionBudget
+	ret c
 	select_renderer_state_e
 	ld a, [wRendererJobState]
 	cp COMMITTING
@@ -422,6 +490,8 @@ BeginForcedYellowPresentation::
 	call GetRendererOwner
 	cp RENDERER_YELLOW
 	jr z, .same_owner
+	call CheckFullColorTransitionBudgetForCurrentContext
+	ret c
 	select_renderer_state_e
 	xor a
 	ld [wFullColorProductionTransitionStatus], a
@@ -679,9 +749,17 @@ ReconstructFullColorMapEntry::
 	ld [hli], a
 	ld a, HIGH(SCREEN_AREA)
 	ld [hli], a
+	IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+	ld a, LOW(FULL_COLOR_PRODUCTION_RECTANGLE_RESERVATION)
+	ELSE
 	ld a, LOW(SCREEN_AREA * 2)
+	ENDC
 	ld [hli], a
+	IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+	ld a, HIGH(FULL_COLOR_PRODUCTION_RECTANGLE_RESERVATION)
+	ELSE
 	ld a, HIGH(SCREEN_AREA * 2)
+	ENDC
 	ld [hli], a
 	xor a
 	ld [hli], a
@@ -1016,6 +1094,8 @@ BeginForcedYellowPresentationRoot::
 	; so palette/tile churn cannot leak through those closed timing frames.
 	ld a, c
 	call SetFullColorProductionReturnContext
+	call CheckFullColorTransitionBudgetForCurrentContext
+	jp c, FullColorProductionTransitionFailed
 	call ConcealForcedYellowPresentation
 	call BeginForcedYellowPresentation
 	jp c, FullColorProductionTransitionFailed
@@ -1064,7 +1144,7 @@ RecordAndCompleteYellowPresentationRoot::
 	call RecordYellowReconstructionComplete
 	jp c, FullColorProductionTransitionFailed
 	call CompleteYellowPresentation
-	jr c, FullColorProductionTransitionFailed
+	jp c, FullColorProductionTransitionFailed
 	; Only forced visible contexts own a saved concealment state. Map and title
 	; roots arrived LCD-off and retain their caller-owned reveal points.
 	select_renderer_state_e
@@ -1298,10 +1378,20 @@ CompleteConnectedMapPresentationRoot::
 ; before Home can re-enable LCD. The queue was cancelled before admission, so
 ; exactly this one complete destination unit must drain synchronously.
 CommitFullColorHiddenDestinationRoot:
+	select_renderer_state_e
+	ld a, LOW(FULL_COLOR_PRODUCTION_HIDDEN_COMMIT_BUDGET)
+	ld [wFullColorCommitBudget], a
+	ld a, HIGH(FULL_COLOR_PRODUCTION_HIDDEN_COMMIT_BUDGET)
+	ld [wFullColorCommitBudget + 1], a
+	restore_renderer_state_e
 	call RunFullColorOwnershipVBlank
 	select_renderer_state_e
 	ld a, [wFullColorRequestCount]
 	ld b, a
+	ld a, LOW(FULL_COLOR_PRODUCTION_VBLANK_COMMIT_BUDGET)
+	ld [wFullColorCommitBudget], a
+	ld a, HIGH(FULL_COLOR_PRODUCTION_VBLANK_COMMIT_BUDGET)
+	ld [wFullColorCommitBudget + 1], a
 	restore_renderer_state_e
 	ld a, b
 	and a
@@ -1379,7 +1469,6 @@ PrepareFullColorProductionOAMForOwnedVBlank::
 RunFullColorProductionVBlank::
 	call RetryFullColorProducer
 	call ProduceFullColorProductionVBlankWork
-	call PrepareFullColorProductionOAMForOwnedVBlank
 	call RunFullColorOwnershipVBlank
 	ldh a, [hSCX]
 	ldh [rSCX], a
@@ -1388,6 +1477,199 @@ RunFullColorProductionVBlank::
 	ldh a, [hWY]
 	ldh [rWY], a
 	ret
+
+; Production keeps a collision-free private copy of every field consumed after
+; PREPARED. Owner/generation are checked separately and source is excluded
+; because commits read only frozen scheduler scratch.
+StoreFullColorDescriptorAuthoritySelected:
+	push hl
+	call FindFullColorDescriptorAuthoritySelected
+	pop hl
+	ret c
+	ld a, [hl]
+	and FULL_COLOR_DESCRIPTOR_CLASS_MASK
+	ld [de], a
+	inc de
+	push hl
+	ld bc, FULL_COLOR_DESCRIPTOR_DESTINATION
+	add hl, bc
+	REPT 2
+		ld a, [hli]
+		ld [de], a
+		inc de
+	ENDR
+	pop hl
+	ld bc, FULL_COLOR_DESCRIPTOR_DESIRED_STATE
+	add hl, bc
+	REPT 9
+		ld a, [hli]
+		ld [de], a
+		inc de
+	ENDR
+	and a
+	ret
+
+ValidateFullColorDescriptorAuthoritySelected:
+	push hl
+	call FindFullColorDescriptorAuthoritySelected
+	pop hl
+	ret c
+	ld a, [de]
+	ld c, a
+	ld a, [hl]
+	and FULL_COLOR_DESCRIPTOR_CLASS_MASK
+	cp c
+	jr nz, .bad
+	inc de
+	push hl
+	ld bc, FULL_COLOR_DESCRIPTOR_DESTINATION
+	add hl, bc
+	ld b, 2
+	call CompareFullColorDescriptorAuthorityBytesSelected
+	pop hl
+	jr nz, .bad
+	ld bc, FULL_COLOR_DESCRIPTOR_DESIRED_STATE
+	add hl, bc
+	ld b, 9
+	call CompareFullColorDescriptorAuthorityBytesSelected
+	ret z
+.bad
+	scf
+	ret
+
+CompareFullColorDescriptorAuthorityBytesSelected:
+	ld a, [de]
+	cp [hl]
+	ret nz
+	inc hl
+	inc de
+	dec b
+	jr nz, CompareFullColorDescriptorAuthorityBytesSelected
+	ret
+
+FindFullColorDescriptorAuthoritySelected:
+	ld a, h
+	cp HIGH(wFullColorRequestDescriptors)
+	jr nz, .bad
+	ld a, l
+	sub LOW(wFullColorRequestDescriptors)
+	jr c, .bad
+	ld b, 0
+.index
+	and a
+	jr z, .found
+	sub FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+	jr c, .bad
+	inc b
+	ld c, a
+	ld a, b
+	cp FULL_COLOR_REQUEST_CAPACITY
+	jr nc, .bad
+	ld a, c
+	jr .index
+.found
+	ld de, wFullColorDescriptorAuthority
+	ld a, b
+	and a
+	jr z, .ok
+.advance
+	ld a, e
+	add 12
+	ld e, a
+	jr nc, .noCarry
+	inc d
+.noCarry
+	dec b
+	jr nz, .advance
+.ok
+	and a
+	ret
+.bad
+	scf
+	ret
+
+; Production commits specialize the two visible movement geometries so their
+; complete paired planes fit the hardware VBlank. Hidden rectangles retain the
+; general bounded writer in transfers.asm.
+CommitFullColorProductionMapPlaneSelected::
+	ld a, [wFullColorRequestStaging]
+	cp SCREEN_WIDTH
+	jr nz, .column
+	ld a, [wFullColorRequestStaging + 1]
+	cp 1
+	jp z, CommitFullColorProductionMapRowSelected
+	cp 2
+	jp z, CommitFullColorProductionMapRowPairSelected
+.column
+	ld a, [wFullColorRequestStaging]
+	cp 1
+	jr z, .columnHeight
+	cp 2
+	jp nz, CommitFullColorMapPlaneSelected
+.columnHeight
+	ld a, [wFullColorRequestStaging + 1]
+	cp SCREEN_HEIGHT
+	jp nz, CommitFullColorMapPlaneSelected
+	ld a, [wFullColorRequestStaging]
+	cp 1
+	jp z, CommitFullColorProductionMapColumnSelected
+	jp CommitFullColorProductionMapColumnPairSelected
+
+CommitFullColorProductionMapRowSelected:
+	REPT SCREEN_WIDTH
+		ld a, [de]
+		ld [hli], a
+		inc de
+	ENDR
+	ret
+
+CommitFullColorProductionMapRowPairSelected:
+	REPT SCREEN_WIDTH
+		ld a, [de]
+		ld [hli], a
+		inc de
+	ENDR
+	ld bc, TILEMAP_WIDTH - SCREEN_WIDTH
+	add hl, bc
+	REPT SCREEN_WIDTH
+		ld a, [de]
+		ld [hli], a
+		inc de
+	ENDR
+	ret
+
+CommitFullColorProductionMapColumnPairSelected:
+	ld bc, TILEMAP_WIDTH - 2
+	REPT SCREEN_HEIGHT - 1
+		REPT 2
+			ld a, [de]
+			ld [hli], a
+			inc de
+		ENDR
+		add hl, bc
+		res 2, h
+	ENDR
+	REPT 2
+		ld a, [de]
+		ld [hli], a
+		inc de
+	ENDR
+	ret
+
+CommitFullColorProductionMapColumnSelected:
+	ld bc, TILEMAP_WIDTH - 1
+	REPT SCREEN_HEIGHT - 1
+		ld a, [de]
+		ld [hli], a
+		inc de
+		add hl, bc
+		res 2, h
+	ENDR
+	ld a, [de]
+	ld [hl], a
+	inc de
+	ret
+CommitFullColorProductionMapColumnSelectedEnd:
 
 ENDC
 

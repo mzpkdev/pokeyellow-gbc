@@ -933,10 +933,15 @@ def test_production_callgraph_places_completion_at_real_barriers() -> None:
     assert color.index("set 7, [hl]") < color.index("ColorReconstructionBarrier")
 
 
-def test_production_color_vblank_builds_oam_before_scheduler_commit() -> None:
+def test_production_color_vblank_builds_next_oam_after_visible_commit() -> None:
     lifecycle = (REPOSITORY_ROOT / "engine/full_color/lifecycle.asm").read_text()
-    route = _routine(lifecycle, "RunFullColorProductionVBlank::", "; Banked map-load root")
-    assert route.index("PrepareFullColorProductionOAMForOwnedVBlank") < route.index("RunFullColorOwnershipVBlank")
+    route = lifecycle.split("RunFullColorProductionVBlank::", 1)[1].split("\n\tret\n", 1)[0]
+    assert "PrepareFullColorProductionOAMForOwnedVBlank" not in route
+    assert "RunFullColorOwnershipVBlank" in route
+    vblank = (REPOSITORY_ROOT / "home/vblank.asm").read_text()
+    assert vblank.index("FullColorProductionVBlankVisibleRouteComplete::") < vblank.index(
+        "PrepareFullColorProductionOAMForOwnedVBlank"
+    )
     adapter = _routine(
         lifecycle,
         "PrepareFullColorProductionOAMForOwnedVBlank::",

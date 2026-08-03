@@ -359,6 +359,7 @@ ELSE
 	scf
 	ret
 ENDC
+ProduceFullColorProductionVBlankWorkEnd:
 
 EXPORT CompleteFullColorProductionHiddenVisibleRootsSelected
 EXPORT ProduceFullColorProductionVBlankWork

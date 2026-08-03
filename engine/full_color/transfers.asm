@@ -51,7 +51,11 @@ PrepareFullColorPairedTransferSelected::
 	ld a, l
 	cp LOW(wFullColorAttributeRectangle)
 	jr nz, .attribute_source
+	IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+	ld hl, wFullColorPairedScratchTail
+	ELSE
 	ld hl, wFullColorShadowOAMBatch
+	ENDC
 .attribute_source
 	ld a, [de]
 	and $ef
@@ -126,16 +130,39 @@ CommitFullColorPairedTransferSelected::
 	ld [wFullColorTimingState + 1], a
 	xor a
 	ldh [rVBK], a
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+.firstPlane
+ENDC
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+	call CommitFullColorProductionMapPlaneSelected
+ELSE
 	call CommitFullColorMapPlaneSelected
+ENDC
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+.firstPlaneComplete
+ENDC
 	ld a, 1
 	ldh [rVBK], a
 	ld de, wFullColorBGPaletteBase
 	ld [wFullColorRequestStaging + 2], a
 	call LoadFullColorActiveMapDestinationSelected
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+.secondPlane
+ENDC
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+	call CommitFullColorProductionMapPlaneSelected
+ELSE
 	call CommitFullColorMapPlaneSelected
+ENDC
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+.secondPlaneComplete
+ENDC
 	ld a, [wFullColorTimingState + 1]
 	ldh [rVBK], a
 	call LoadFullColorActiveDescriptorSelected
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+.complete
+ENDC
 	ret
 
 ; DE packed source, HL first destination. Width/height are in staging.
@@ -163,7 +190,11 @@ CommitFullColorMapPlaneSelected:
 	ld a, e
 	cp LOW(wFullColorAttributeRectangle)
 	jr nz, .load
+	IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+	ld de, wFullColorPairedScratchTail
+	ELSE
 	ld de, wFullColorShadowOAMBatch
+	ENDC
 .load
 	ld a, [de]
 	ld [hl], a
@@ -263,7 +294,11 @@ CommitFullColorAnimationReplacementSelected::
 	ret
 
 ASSERT wFullColorBGPaletteBase + 256 == wFullColorAttributeRectangle
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+ASSERT wFullColorAttributeRectangle + SCREEN_AREA == wFullColorPairedScratchTail
+ELSE
 ASSERT wFullColorAttributeRectangle + SCREEN_AREA == wFullColorShadowOAMBatch
+ENDC
 ASSERT 256 + 104 == SCREEN_AREA
 
 IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)

@@ -29,6 +29,7 @@ IF FULL_COLOR_PRODUCTION_ACTIVATED
 	; its complete visible route in the banked dispatcher; closed states perform
 	; neither route and join only the owner-neutral tail below.
 	farcall RouteRendererOwnershipVBlank
+	push de
 	ld a, e
 	cp VBLANK_ROUTE_YELLOW
 	jr nz, .visibleRouteComplete
@@ -71,7 +72,21 @@ ENDC
 
 IF FULL_COLOR_PRODUCTION_ACTIVATED
 .visibleRouteComplete
+	pop de
 ENDC
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+FullColorProductionVBlankVisibleRouteComplete::
+ENDC
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	; Build and freeze the next Color OAM unit only after the hardware-visible
+	; route has crossed its deadline. This mirrors Yellow's next-frame OAM build:
+	; producer work may extend into the visible period, hardware writes may not.
+	ld a, e
+	cp VBLANK_ROUTE_COLOR
+	jr nz, .visiblePreparationComplete
+	farcall PrepareFullColorProductionOAMForOwnedVBlank
+.visiblePreparationComplete
+	ENDC
 :
 	; VBlank-sensitive operations end.
 	call TrackPlayTime ; keep track of time played

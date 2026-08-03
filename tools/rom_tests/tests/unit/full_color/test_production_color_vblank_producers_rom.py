@@ -267,12 +267,14 @@ def test_production_root_orders_complete_producers_before_commit() -> None:
     ordered = (
         "RetryFullColorProducer",
         "ProduceFullColorProductionVBlankWork",
-        "PrepareFullColorProductionOAMForOwnedVBlank",
         "RunFullColorOwnershipVBlank",
     )
     assert [route.index(symbol) for symbol in ordered] == sorted(
         route.index(symbol) for symbol in ordered
     )
+    vblank = (REPOSITORY_ROOT / "home/vblank.asm").read_text()
+    boundary = vblank.index("FullColorProductionVBlankVisibleRouteComplete::")
+    assert boundary < vblank.index("PrepareFullColorProductionOAMForOwnedVBlank")
 
     producer = (REPOSITORY_ROOT / "engine/full_color/palettes.asm").read_text()
     guard = producer.split("ProduceFullColorProductionVBlankWork::", 1)[1]

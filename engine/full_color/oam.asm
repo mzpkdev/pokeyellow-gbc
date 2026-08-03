@@ -165,6 +165,12 @@ RecordFullColorOAMFallbackSelected:
 
 CommitFullColorOAMBatchSelected:
 	push hl
+	IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+	ld a, HIGH(wFullColorShadowOAMBatch)
+	; Skip hDMARoutine's two-byte fixed-source load and enter its HRAM body
+	; with the page of the frozen production batch already selected.
+	call hDMARoutine + 2
+	ELSE
 	ld hl, wFullColorShadowOAMBatch
 	ld de, wShadowOAM
 	ld b, 160
@@ -175,6 +181,7 @@ CommitFullColorOAMBatchSelected:
 	dec b
 	jr nz, .copy
 	call hDMARoutine
+	ENDC
 	pop hl
 	ret
 

@@ -86,9 +86,19 @@ InitFullColorSchedulerSelected::
 	ld [wFullColorAvailableResources], a
 	xor a
 	ld [wFullColorAvailableResources + 1], a
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+	; This is a finite one-frame admission limit generated from linked paths.
+	; Hidden reconstruction roots select the larger finite hidden deadline only
+	; while the LCD is off, then restore this value before active presentation.
+	ld a, LOW(FULL_COLOR_PRODUCTION_VBLANK_COMMIT_BUDGET)
+	ld [wFullColorCommitBudget], a
+	ld a, HIGH(FULL_COLOR_PRODUCTION_VBLANK_COMMIT_BUDGET)
+	ld [wFullColorCommitBudget + 1], a
+ELSE
 	cpl
 	ld [wFullColorCommitBudget], a
 	ld [wFullColorCommitBudget + 1], a
+ENDC
 IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
 	jp InitFullColorProductionLifecycleSelected
 ELSE
@@ -158,6 +168,13 @@ AdmitFullColorRequest::
 	ld a, [hl]
 	and FULL_COLOR_DESCRIPTOR_CLASS_MASK
 	ld b, a
+	IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+	push bc
+	push hl
+	call StoreFullColorDescriptorAuthoritySelected
+	pop hl
+	pop bc
+	ENDC
 	ld a, PENDING << FULL_COLOR_DESCRIPTOR_STATE_SHIFT
 	or b
 	ld [hl], a
@@ -454,12 +471,26 @@ BuildAndPrepareFullColorPairedDescriptorSelected:
 	ld [hli], a
 	ld a, [wFullColorRequestStaging + 1]
 	ld [hli], a
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+	ld a, [wFullColorRequestStaging]
+	ld c, a
+	ld a, [wFullColorRequestStaging + 1]
+	ld b, a
+	push hl
+	call ComputeFullColorPairedReservationSelected
+	pop hl
+	ld a, c
+	ld [hli], a
+	ld a, b
+	ld [hli], a
+ELSE
 	ld a, [wFullColorRequestStaging]
 	add a
 	ld [hli], a
 	ld a, [wFullColorRequestStaging + 1]
 	rla
 	ld [hli], a
+ENDC
 	ld a, [wFullColorProducerFlags]
 	ld b, a
 	ld a, [wFullColorProducerClass]
@@ -577,6 +608,13 @@ AdmitPreparedFullColorSemanticSelected:
 	ld a, [hl]
 	and FULL_COLOR_DESCRIPTOR_CLASS_MASK
 	ld b, a
+	IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+	push bc
+	push hl
+	call StoreFullColorDescriptorAuthoritySelected
+	pop hl
+	pop bc
+	ENDC
 	ld a, PENDING << FULL_COLOR_DESCRIPTOR_STATE_SHIFT
 	or b
 	ld [hl], a
@@ -784,7 +822,14 @@ EnqueueFullColorOAMBatch::
 	ld a, PREPARED << FULL_COLOR_DESCRIPTOR_STATE_SHIFT | FULL_COLOR_REQUEST_OAM_BATCH_AND_DMA
 	ld [hl], a
 	; Snapshot before return so later sprite authority mutations are irrelevant.
+	IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+	push hl
 	call PrepareFullColorOAMBatchSelected
+	pop hl
+	call StoreFullColorDescriptorAuthoritySelected
+	ELSE
+	call PrepareFullColorOAMBatchSelected
+	ENDC
 	ld hl, wFullColorRequestCount
 	inc [hl]
 	ld a, PREPARED
@@ -970,6 +1015,20 @@ ValidateFullColorRequestResourcesSelected:
 	ld a, [hl]
 	cp b
 	jp nz, .invalid
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+	; Reservation is the generated complete linked path for every paired cell.
+	push de
+	call ComputeFullColorPairedReservationSelected
+	pop de
+	ld hl, FULL_COLOR_DESCRIPTOR_RESERVATION
+	add hl, de
+	ld a, [hli]
+	cp c
+	jp nz, .invalid
+	ld a, [hl]
+	cp b
+	jp nz, .invalid
+ELSE
 	; Minimum reservation is two writes per cell.
 	sla c
 	rl b
@@ -984,6 +1043,7 @@ ValidateFullColorRequestResourcesSelected:
 	ld a, e
 	cp c
 	jp nz, .invalid
+ENDC
 	jp .valid
 .map_destination_invalid
 	pop de
@@ -1013,8 +1073,16 @@ ValidateFullColorRequestResourcesSelected:
 	ld bc, FULL_COLOR_PALETTE_EXTENT
 	ld hl, FULL_COLOR_DESCRIPTOR_EXTENT
 	add hl, de
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+	call ValidateFullColorExactExtentSelected
+	jp c, .invalid
+	ld bc, FULL_COLOR_PALETTE_RESERVATION
+	call ValidateFullColorExactReservationSelected
+	jp c, .invalid
+ELSE
 	call ValidateFullColorExactExtentAndMinimumSelected
 	jr c, .invalid
+ENDC
 	jp .valid
 .oam
 	ld a, [hli]
@@ -1082,8 +1150,16 @@ ValidateFullColorRequestResourcesSelected:
 	ld bc, FULL_COLOR_ANIMATION_EXTENT
 	ld hl, FULL_COLOR_DESCRIPTOR_EXTENT
 	add hl, de
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+	call ValidateFullColorExactExtentSelected
+	jr c, .invalid
+	ld bc, FULL_COLOR_ANIMATION_RESERVATION
+	call ValidateFullColorExactReservationSelected
+	jr c, .invalid
+ELSE
 	call ValidateFullColorExactExtentAndMinimumSelected
 	jr c, .invalid
+ENDC
 .valid
 	pop de
 	and a
@@ -1093,6 +1169,74 @@ ValidateFullColorRequestResourcesSelected:
 	scf
 	ret
 
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+; HL extent, BC exact extent. Returns HL on extent high.
+ValidateFullColorExactExtentSelected:
+	ld a, [hli]
+	cp c
+	jr nz, .bad
+	ld a, [hl]
+	cp b
+	jr nz, .bad
+	and a
+	ret
+.bad
+	scf
+	ret
+
+; HL extent high, BC exact generated reservation.
+ValidateFullColorExactReservationSelected:
+	inc hl
+	ld a, [hli]
+	cp c
+	jr nz, .bad
+	ld a, [hl]
+	cp b
+	jr nz, .bad
+.ok
+	and a
+	ret
+.bad
+	scf
+	ret
+
+; BC=paired cells. Returns BC=the exact generated complete-unit reservation.
+; Every reachable geometry has a distinct extent, so validation and descriptor
+; construction share one constant-time class-exact lookup.
+ComputeFullColorPairedReservationSelected:
+	ld a, b
+	and a
+	jr nz, .rectangle
+	ld a, c
+	cp 18
+	jr z, .column
+	cp 20
+	jr z, .row
+	cp 36
+	jr z, .movementColumn
+	cp 40
+	jr z, .movementRow
+	cp 120
+	jr z, .third
+.rectangle
+	ld bc, FULL_COLOR_PRODUCTION_RECTANGLE_RESERVATION
+	ret
+.column
+	ld bc, FULL_COLOR_PRODUCTION_COLUMN_RESERVATION
+	ret
+.row
+	ld bc, FULL_COLOR_PRODUCTION_ROW_RESERVATION
+	ret
+.movementColumn
+	ld bc, FULL_COLOR_PRODUCTION_MOVEMENT_COLUMN_RESERVATION
+	ret
+.movementRow
+	ld bc, FULL_COLOR_PRODUCTION_MOVEMENT_ROW_RESERVATION
+	ret
+.third
+	ld bc, FULL_COLOR_PRODUCTION_THIRD_SCREEN_RESERVATION
+	ret
+ELSE
 ; HL extent, BC exact extent and reservation. Returns HL on extent high.
 ValidateFullColorExactExtentAndMinimumSelected:
 	ld a, [hli]
@@ -1114,6 +1258,7 @@ ValidateFullColorExactExtentAndMinimumSelected:
 .bad
 	scf
 	ret
+ENDC
 
 ; Input DE candidate. Output carry clear if equivalent resident request exists.
 FindEquivalentFullColorRequestSelected:
@@ -1357,12 +1502,19 @@ RunFullColorSchedulerSelected::
 	dec b
 	jr nz, .generation
 	pop hl
-	; Revalidate class extent, reservation, resources, geometry and destination
-	; from the resident descriptor immediately before the visible boundary.
+	; Production descriptors carry a seal computed only after the complete class,
+	; extent, reservation, resource, geometry and destination validator accepted
+	; them. Rechecking that seal at the visible edge proves the resident bytes are
+	; the exact validated unit without rerunning the slow geometry multiplication
+	; inside VBlank. The audit keeps its byte-exact full validator path.
 	push hl
+	IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
+	call ValidateFullColorDescriptorAuthoritySelected
+	ELSE
 	ld d, h
 	ld e, l
 	call ValidateFullColorRequestResourcesSelected
+	ENDC
 	pop hl
 	jr c, CancelFullColorDescriptorStaleSelected
 	; Required resources must be a subset of the currently available set.
