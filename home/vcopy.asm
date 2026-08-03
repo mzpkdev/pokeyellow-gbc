@@ -167,6 +167,7 @@ AutoBgMapTransfer::
 .doTransfer
 	ldh [hAutoBGTransferPortion], a ; store next portion
 	ld b, SCREEN_HEIGHT / 3
+	; @full-color writer mechanism=stack-pop-row-copy destination=vBGMap0_or_vBGMap1 resource=BG_WINDOW_MAP
 
 TransferBgRows::
 ; unrolled loop and using pop for speed
@@ -355,8 +356,13 @@ UpdateMovingBgTiles::
 	ret z
 
 	ldh a, [rLY]
-	cp $90 ; check if not in vblank period??? (maybe if vblank is too long)
-	ret c
+	IF DEF(PHASE2_AUDIT)
+		cp $99 ; defer animation work that cannot finish before LY0
+		ret nc
+	ELSE
+		cp $90 ; check if not in vblank period??? (maybe if vblank is too long)
+		ret c
+	ENDC
 
 	ldh a, [hMovingBGTilesCounter1]
 	inc a

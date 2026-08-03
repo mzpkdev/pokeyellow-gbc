@@ -124,3 +124,23 @@ wFullColorDebugStateEnd::
 ASSERT wFullColorDebugStateEnd <= $c000, \
 	"Gate 0 debug state must fit after saved boxes in SRAM bank 3"
 ENDC
+
+IF DEF(PHASE2_AUDIT)
+SECTION "Full Color Phase 2 Debug Carrier", SRAM[FULL_COLOR_PHASE2_SRAM_START], BANK[FULL_COLOR_PHASE2_SRAM_BANK]
+
+wFullColorPhase2DebugStart::
+wFullColorPhase2DebugMagic:: ds 4
+wFullColorPhase2DebugLayoutVersion:: db
+wFullColorPhase2DebugRequestCount:: db
+wFullColorPhase2DebugRetryCount:: db
+wFullColorPhase2DebugLastResult:: db
+wFullColorPhase2DebugFallbackKind:: db
+wFullColorPhase2DebugFallbackIdentity:: db
+wFullColorPhase2DebugTransitionCount:: db
+wFullColorPhase2DebugReserved:: ds 21
+wFullColorPhase2DebugRecords:: ds FULL_COLOR_REQUEST_CAPACITY * 32
+wFullColorPhase2DebugEnd::
+
+ASSERT @ == FULL_COLOR_PHASE2_SRAM_END
+ASSERT wFullColorPhase2DebugEnd - wFullColorPhase2DebugStart == 288
+ENDC

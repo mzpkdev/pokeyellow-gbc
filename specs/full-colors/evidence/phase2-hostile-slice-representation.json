@@ -1,0 +1,854 @@
+{
+  "activation": {
+    "audit_guard": "PHASE2_AUDIT",
+    "normal_rom_reachable": false
+  },
+  "inputs": {
+    "pokeyellow.gbc": {
+      "path": "pokeyellow.gbc",
+      "sha256": "309807366584107a724c9fd2eaa486a024f574d2016c709b8b7fd032ce894ebb"
+    },
+    "pokeyellow.map": {
+      "path": "pokeyellow.map",
+      "sha256": "7a739e6942572d396553fef82a3f73c1e50f02eec28e8f01a31ade5a37299e08"
+    },
+    "pokeyellow.sym": {
+      "path": "pokeyellow.sym",
+      "sha256": "96b66a2889c22870840f72c76804d6730f41adb835d18b7d335790223dd66c22"
+    },
+    "pokeyellow_debug.gbc": {
+      "path": "pokeyellow_debug.gbc",
+      "sha256": "5499c130d5439818db28797f176531f670a19c8c1b916d70b719e5e9d4845bb6"
+    },
+    "pokeyellow_debug.map": {
+      "path": "pokeyellow_debug.map",
+      "sha256": "cab75ade3a872a5f6effa74c17dbb20b0117e1a607faf49c7249a3faea822ea9"
+    },
+    "pokeyellow_debug.sym": {
+      "path": "pokeyellow_debug.sym",
+      "sha256": "642cc28ca55a2a7bbb1d329631b60e42cbc2e38d4994947be4b390af5c0003d8"
+    },
+    "pokeyellow_phase2_audit.gbc": {
+      "path": "pokeyellow_phase2_audit.gbc",
+      "sha256": "40b0a702c94ebddeb3fd26202c10a60b6dd00b66a392da7ab9598d61c092dcd6"
+    },
+    "pokeyellow_phase2_audit.map": {
+      "path": "pokeyellow_phase2_audit.map",
+      "sha256": "f6c9ca2f315bed0432e4e6964377262ccd0202f2674eeaf584cffdd387b53f25"
+    },
+    "pokeyellow_phase2_audit.sym": {
+      "path": "pokeyellow_phase2_audit.sym",
+      "sha256": "11c50853e72e28fdff47b721ac0cf6f5fe14396b311a59d9b993fc5ef2b619d3"
+    },
+    "pokeyellow_vc.gbc": {
+      "path": "pokeyellow_vc.gbc",
+      "sha256": "330fa9de2ded52b519305cd56dcf8dfa0df35a0c04af7eae0ae9e22b2fffc542"
+    },
+    "pokeyellow_vc.map": {
+      "path": "pokeyellow_vc.map",
+      "sha256": "8ba7132f8b455d0ba87e836e7d656e07af2be0083291a7d987f83936ca4687a9"
+    },
+    "pokeyellow_vc.sym": {
+      "path": "pokeyellow_vc.sym",
+      "sha256": "e81fd6b98689eb6bfe0a914e9fa1377b0829bc6eafac3b65fa2d1556a6b6abbf"
+    },
+    "specs/full-colors/definitions/phase1-audit-source-transition.json": {
+      "path": "specs/full-colors/definitions/phase1-audit-source-transition.json",
+      "sha256": "dc168ced5628e2599a3ff96cc8df97f2c2d6ca50e6aa80ad866e3b83ec979872"
+    },
+    "specs/full-colors/definitions/phase2-hostile-slice-representation.json": {
+      "path": "specs/full-colors/definitions/phase2-hostile-slice-representation.json",
+      "sha256": "718879bac533092fa9a6382bc25a37733b3b2d73c87cc8b431ff57a07b7118be"
+    },
+    "specs/full-colors/definitions/phase2-planned-subjects.json": {
+      "path": "specs/full-colors/definitions/phase2-planned-subjects.json",
+      "sha256": "dbf18ea17ade91d921fb66603bc8efef52a4d3b3b5d1511af62875aa5c28c0df"
+    },
+    "specs/full-colors/inventory/assignments.json": {
+      "path": "specs/full-colors/inventory/assignments.json",
+      "sha256": "5315da9b25bfaf62942fd40c49ba4bb89b67001502a283bfd81e95008a4d1337"
+    },
+    "specs/full-colors/inventory/mutations.json": {
+      "path": "specs/full-colors/inventory/mutations.json",
+      "sha256": "5fde7361a31dc479a671ea09fd4f73f085abadb28b95427107057a62b8c31f96"
+    },
+    "specs/full-colors/inventory/scenes.json": {
+      "path": "specs/full-colors/inventory/scenes.json",
+      "sha256": "c26c198b666cab2b29b33584c4251534f3e937cced3fc6f724839fc462ada45b"
+    },
+    "specs/full-colors/inventory/writers.json": {
+      "path": "specs/full-colors/inventory/writers.json",
+      "sha256": "f5fad490eaa5f85268779fb2e60a8032e5d7189de19505e9e018d982dd2c22b1"
+    }
+  },
+  "inventory_audit": {
+    "concrete_slice": [
+      "PalletTown_h",
+      "Route1_h",
+      "OVERWORLD",
+      "NORTH"
+    ],
+    "coverage": "SCOPED_DESCENDANT_CLOSURE",
+    "guard": "PHASE2_AUDIT",
+    "guarded_root_count": 32,
+    "inventory_state": "audit-closed",
+    "normal_rom_reachable": false,
+    "planned_assignment_count": 1379,
+    "planned_row_count": 0,
+    "rom_candidate_subject_count": 184,
+    "rom_subject_count": 948,
+    "rom_unlisted_subject_count": 0,
+    "rom_unresolved_disposition_count": 238,
+    "source_subject_count": 247,
+    "source_unlisted_subject_count": 0
+  },
+  "ownership_abi": {
+    "preserved_prefix_bytes": 13
+  },
+  "rejected_candidates": [
+    {
+      "candidate": "ROM bank $1c",
+      "reason": "RGB bank $1c extension is not assumed free in Yellow"
+    },
+    {
+      "candidate": "ROM bank $2c",
+      "reason": "Yellow Text 7 occupies RGB bank $2c"
+    },
+    {
+      "candidate": "ROM bank $31",
+      "reason": "Yellow Pikachu cries occupy RGB bank $31"
+    }
+  ],
+  "requests": {
+    "capacity": 8,
+    "classes": [
+      {
+        "capacity_equivalence_policy": "COALESCED_FINAL_STATE",
+        "fallback_observable": false,
+        "high_water_mark": 2,
+        "name": "ANIMATION_REPLACEMENT",
+        "required_work_policy": "DEFERRED_CALLER_RETRY",
+        "retry_observable": true
+      },
+      {
+        "capacity_equivalence_policy": "COALESCED_FINAL_STATE",
+        "fallback_observable": false,
+        "high_water_mark": 2,
+        "name": "BG_PALETTE_PAYLOAD",
+        "required_work_policy": "DEFERRED_CALLER_RETRY",
+        "retry_observable": true
+      },
+      {
+        "capacity_equivalence_policy": "COALESCED_FINAL_STATE",
+        "fallback_observable": false,
+        "high_water_mark": 8,
+        "name": "MAP_COLUMN_PAIRED",
+        "required_work_policy": "DEFERRED_CALLER_RETRY",
+        "retry_observable": true
+      },
+      {
+        "capacity_equivalence_policy": "COALESCED_FINAL_STATE",
+        "fallback_observable": false,
+        "high_water_mark": 4,
+        "name": "MAP_CONNECTION_PAIRED",
+        "required_work_policy": "DEFERRED_CALLER_RETRY",
+        "retry_observable": true
+      },
+      {
+        "capacity_equivalence_policy": "COALESCED_FINAL_STATE",
+        "fallback_observable": false,
+        "high_water_mark": 4,
+        "name": "MAP_OVERLAY_PAIRED",
+        "required_work_policy": "DEFERRED_CALLER_RETRY",
+        "retry_observable": true
+      },
+      {
+        "capacity_equivalence_policy": "COALESCED_FINAL_STATE",
+        "fallback_observable": false,
+        "high_water_mark": 4,
+        "name": "MAP_RECTANGLE_PAIRED",
+        "required_work_policy": "DEFERRED_CALLER_RETRY",
+        "retry_observable": true
+      },
+      {
+        "capacity_equivalence_policy": "COALESCED_FINAL_STATE",
+        "fallback_observable": false,
+        "high_water_mark": 8,
+        "name": "MAP_ROW_PAIRED",
+        "required_work_policy": "DEFERRED_CALLER_RETRY",
+        "retry_observable": true
+      },
+      {
+        "capacity_equivalence_policy": "DEFERRED_CALLER_RETRY",
+        "fallback_observable": true,
+        "high_water_mark": 2,
+        "name": "OAM_BATCH_AND_DMA",
+        "required_work_policy": "DEFERRED_CALLER_RETRY",
+        "retry_observable": true
+      },
+      {
+        "capacity_equivalence_policy": "COALESCED_FINAL_STATE",
+        "fallback_observable": false,
+        "high_water_mark": 2,
+        "name": "OBJ_PALETTE_PAYLOAD",
+        "required_work_policy": "DEFERRED_CALLER_RETRY",
+        "retry_observable": true
+      }
+    ],
+    "descriptor_bytes": 20,
+    "descriptor_layout": [
+      {
+        "bytes": 1,
+        "name": "state_and_class"
+      },
+      {
+        "bytes": 1,
+        "name": "owner"
+      },
+      {
+        "bytes": 4,
+        "name": "generation"
+      },
+      {
+        "bytes": 2,
+        "name": "destination"
+      },
+      {
+        "bytes": 2,
+        "name": "source"
+      },
+      {
+        "bytes": 2,
+        "name": "desired_state"
+      },
+      {
+        "bytes": 2,
+        "name": "resource_mask"
+      },
+      {
+        "bytes": 2,
+        "name": "extent"
+      },
+      {
+        "bytes": 2,
+        "name": "reservation"
+      },
+      {
+        "bytes": 1,
+        "name": "flags"
+      },
+      {
+        "bytes": 1,
+        "name": "retry_token"
+      }
+    ],
+    "pressure_measurement": {
+      "aggregate_high_water": 8,
+      "bounded": true,
+      "steps": [
+        {
+          "drain_before": false,
+          "enqueue": [
+            {
+              "class": "BG_PALETTE_PAYLOAD",
+              "desired_state": "pallet-base",
+              "destination": "bg-palette",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "HARDWARE_OAM",
+                "PALETTES",
+                "SHADOW_OAM"
+              ],
+              "visible_boundary": "PALLET_TOWN_ENTRY"
+            },
+            {
+              "class": "OBJ_PALETTE_PAYLOAD",
+              "desired_state": "pallet-base",
+              "destination": "obj-palette",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "HARDWARE_OAM",
+                "PALETTES",
+                "SHADOW_OAM"
+              ],
+              "visible_boundary": "PALLET_TOWN_ENTRY"
+            },
+            {
+              "class": "MAP_RECTANGLE_PAIRED",
+              "desired_state": "pallet-entry",
+              "destination": "viewport",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "HARDWARE_OAM",
+                "PALETTES",
+                "SHADOW_OAM"
+              ],
+              "visible_boundary": "PALLET_TOWN_ENTRY"
+            },
+            {
+              "class": "OAM_BATCH_AND_DMA",
+              "desired_state": "entry-objects",
+              "destination": "oam-frame",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "HARDWARE_OAM",
+                "PALETTES",
+                "SHADOW_OAM"
+              ],
+              "visible_boundary": "PALLET_TOWN_ENTRY"
+            }
+          ],
+          "name": "pallet-map-entry"
+        },
+        {
+          "drain_before": true,
+          "enqueue": [
+            {
+              "class": "MAP_COLUMN_PAIRED",
+              "desired_state": "east-0",
+              "destination": "column-0",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "PALLET_TOWN_HORIZONTAL_SCROLL"
+            },
+            {
+              "class": "MAP_COLUMN_PAIRED",
+              "desired_state": "east-1",
+              "destination": "column-1",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "PALLET_TOWN_HORIZONTAL_SCROLL"
+            },
+            {
+              "class": "MAP_COLUMN_PAIRED",
+              "desired_state": "east-2",
+              "destination": "column-2",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "PALLET_TOWN_HORIZONTAL_SCROLL"
+            },
+            {
+              "class": "MAP_COLUMN_PAIRED",
+              "desired_state": "east-3",
+              "destination": "column-3",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "PALLET_TOWN_HORIZONTAL_SCROLL"
+            },
+            {
+              "class": "MAP_COLUMN_PAIRED",
+              "desired_state": "west-4",
+              "destination": "column-4",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "PALLET_TOWN_HORIZONTAL_SCROLL"
+            },
+            {
+              "class": "MAP_COLUMN_PAIRED",
+              "desired_state": "west-5",
+              "destination": "column-5",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "PALLET_TOWN_HORIZONTAL_SCROLL"
+            },
+            {
+              "class": "MAP_COLUMN_PAIRED",
+              "desired_state": "west-6",
+              "destination": "column-6",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "PALLET_TOWN_HORIZONTAL_SCROLL"
+            },
+            {
+              "class": "MAP_COLUMN_PAIRED",
+              "desired_state": "west-7",
+              "destination": "column-7",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "PALLET_TOWN_HORIZONTAL_SCROLL"
+            }
+          ],
+          "name": "hostile-horizontal-pressure"
+        },
+        {
+          "drain_before": true,
+          "enqueue": [
+            {
+              "class": "MAP_ROW_PAIRED",
+              "desired_state": "north-0",
+              "destination": "row-0",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "PALLET_TOWN_VERTICAL_SCROLL"
+            },
+            {
+              "class": "MAP_ROW_PAIRED",
+              "desired_state": "north-1",
+              "destination": "row-1",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "PALLET_TOWN_VERTICAL_SCROLL"
+            },
+            {
+              "class": "MAP_ROW_PAIRED",
+              "desired_state": "north-2",
+              "destination": "row-2",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "PALLET_TOWN_VERTICAL_SCROLL"
+            },
+            {
+              "class": "MAP_ROW_PAIRED",
+              "desired_state": "north-3",
+              "destination": "row-3",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "PALLET_TOWN_VERTICAL_SCROLL"
+            },
+            {
+              "class": "MAP_ROW_PAIRED",
+              "desired_state": "south-4",
+              "destination": "row-4",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "PALLET_TOWN_VERTICAL_SCROLL"
+            },
+            {
+              "class": "MAP_ROW_PAIRED",
+              "desired_state": "south-5",
+              "destination": "row-5",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "PALLET_TOWN_VERTICAL_SCROLL"
+            },
+            {
+              "class": "MAP_ROW_PAIRED",
+              "desired_state": "south-6",
+              "destination": "row-6",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "PALLET_TOWN_VERTICAL_SCROLL"
+            },
+            {
+              "class": "MAP_ROW_PAIRED",
+              "desired_state": "south-7",
+              "destination": "row-7",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "PALLET_TOWN_VERTICAL_SCROLL"
+            }
+          ],
+          "name": "hostile-vertical-pressure"
+        },
+        {
+          "drain_before": true,
+          "enqueue": [
+            {
+              "class": "ANIMATION_REPLACEMENT",
+              "desired_state": "frame-a",
+              "destination": "water-frame",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "BG_TILES"
+              ],
+              "visible_boundary": "PALLET_TOWN_TO_ROUTE_1"
+            },
+            {
+              "class": "ANIMATION_REPLACEMENT",
+              "desired_state": "frame-b",
+              "destination": "flower-frame",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "BG_TILES"
+              ],
+              "visible_boundary": "PALLET_TOWN_TO_ROUTE_1"
+            },
+            {
+              "class": "MAP_CONNECTION_PAIRED",
+              "desired_state": "route1-0",
+              "destination": "north-band-0",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "BG_TILES"
+              ],
+              "visible_boundary": "PALLET_TOWN_TO_ROUTE_1"
+            },
+            {
+              "class": "MAP_CONNECTION_PAIRED",
+              "desired_state": "route1-1",
+              "destination": "north-band-1",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "BG_TILES"
+              ],
+              "visible_boundary": "PALLET_TOWN_TO_ROUTE_1"
+            },
+            {
+              "class": "MAP_CONNECTION_PAIRED",
+              "desired_state": "route1-2",
+              "destination": "north-band-2",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "BG_TILES"
+              ],
+              "visible_boundary": "PALLET_TOWN_TO_ROUTE_1"
+            },
+            {
+              "class": "MAP_CONNECTION_PAIRED",
+              "desired_state": "route1-3",
+              "destination": "north-band-3",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "BG_TILES"
+              ],
+              "visible_boundary": "PALLET_TOWN_TO_ROUTE_1"
+            }
+          ],
+          "name": "animation-and-route1"
+        },
+        {
+          "drain_before": true,
+          "enqueue": [
+            {
+              "class": "MAP_OVERLAY_PAIRED",
+              "desired_state": "open",
+              "destination": "dialogue-0",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "OVERLAY_VISIBLE"
+            },
+            {
+              "class": "MAP_OVERLAY_PAIRED",
+              "desired_state": "open",
+              "destination": "dialogue-1",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "OVERLAY_VISIBLE"
+            },
+            {
+              "class": "MAP_OVERLAY_PAIRED",
+              "desired_state": "open",
+              "destination": "start-menu-0",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "OVERLAY_VISIBLE"
+            },
+            {
+              "class": "MAP_OVERLAY_PAIRED",
+              "desired_state": "open",
+              "destination": "start-menu-1",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP"
+              ],
+              "visible_boundary": "OVERLAY_VISIBLE"
+            }
+          ],
+          "name": "dialogue-and-start-overlay"
+        },
+        {
+          "drain_before": true,
+          "enqueue": [
+            {
+              "class": "OAM_BATCH_AND_DMA",
+              "desired_state": "follower",
+              "destination": "oam-frame",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "HARDWARE_OAM",
+                "SHADOW_OAM"
+              ],
+              "visible_boundary": "OAM_FRAME_COMMIT"
+            },
+            {
+              "class": "OAM_BATCH_AND_DMA",
+              "desired_state": "npc",
+              "destination": "oam-frame",
+              "generation": "generation-1",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "HARDWARE_OAM",
+                "SHADOW_OAM"
+              ],
+              "visible_boundary": "OAM_FRAME_COMMIT"
+            }
+          ],
+          "name": "follower-and-npc"
+        },
+        {
+          "drain_before": true,
+          "enqueue": [
+            {
+              "class": "MAP_RECTANGLE_PAIRED",
+              "desired_state": "party-return-0",
+              "destination": "reconstruct-0",
+              "generation": "generation-2",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "PALETTES"
+              ],
+              "visible_boundary": "PARTY_RETURN_RECONSTRUCTION"
+            },
+            {
+              "class": "MAP_RECTANGLE_PAIRED",
+              "desired_state": "party-return-1",
+              "destination": "reconstruct-1",
+              "generation": "generation-2",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "PALETTES"
+              ],
+              "visible_boundary": "PARTY_RETURN_RECONSTRUCTION"
+            },
+            {
+              "class": "MAP_RECTANGLE_PAIRED",
+              "desired_state": "party-return-2",
+              "destination": "reconstruct-2",
+              "generation": "generation-2",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "PALETTES"
+              ],
+              "visible_boundary": "PARTY_RETURN_RECONSTRUCTION"
+            },
+            {
+              "class": "MAP_RECTANGLE_PAIRED",
+              "desired_state": "party-return-3",
+              "destination": "reconstruct-3",
+              "generation": "generation-2",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "PALETTES"
+              ],
+              "visible_boundary": "PARTY_RETURN_RECONSTRUCTION"
+            },
+            {
+              "class": "BG_PALETTE_PAYLOAD",
+              "desired_state": "party-return-base",
+              "destination": "bg-palette-base",
+              "generation": "generation-2",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "PALETTES"
+              ],
+              "visible_boundary": "PARTY_RETURN_RECONSTRUCTION"
+            },
+            {
+              "class": "BG_PALETTE_PAYLOAD",
+              "desired_state": "party-return-visible",
+              "destination": "bg-palette-visible",
+              "generation": "generation-2",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "PALETTES"
+              ],
+              "visible_boundary": "PARTY_RETURN_RECONSTRUCTION"
+            },
+            {
+              "class": "OBJ_PALETTE_PAYLOAD",
+              "desired_state": "party-return-base",
+              "destination": "obj-palette-base",
+              "generation": "generation-2",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "PALETTES"
+              ],
+              "visible_boundary": "PARTY_RETURN_RECONSTRUCTION"
+            },
+            {
+              "class": "OBJ_PALETTE_PAYLOAD",
+              "desired_state": "party-return-visible",
+              "destination": "obj-palette-visible",
+              "generation": "generation-2",
+              "owner": "RENDERER_FULL_COLOR_OVERWORLD",
+              "resources": [
+                "ATTRIBUTES",
+                "BG_MAP",
+                "PALETTES"
+              ],
+              "visible_boundary": "PARTY_RETURN_RECONSTRUCTION"
+            }
+          ],
+          "name": "party-return-reconstruction"
+        }
+      ]
+    }
+  },
+  "rom": {
+    "bank": 59,
+    "end": 21802,
+    "reserved_bytes": 4096,
+    "start": 17707
+  },
+  "schema": "full-color-phase2-hostile-slice-representation-v1",
+  "scratch": {
+    "bytes": 808,
+    "layout": [
+      {
+        "bytes": 64,
+        "name": "bg_palette_base"
+      },
+      {
+        "bytes": 64,
+        "name": "bg_palette_transformed"
+      },
+      {
+        "bytes": 64,
+        "name": "obj_palette_base"
+      },
+      {
+        "bytes": 64,
+        "name": "obj_palette_transformed"
+      },
+      {
+        "bytes": 360,
+        "name": "attribute_rectangle"
+      },
+      {
+        "bytes": 160,
+        "name": "shadow_oam_batch"
+      },
+      {
+        "bytes": 32,
+        "name": "reconstruction_ledger"
+      }
+    ]
+  },
+  "selection_rule": "common release/debug space; preserve the 13-byte ownership ABI; prefer measured adjacency to the ownership core, then largest ROM span, lowest ROM/WRAM address; required work defers with observable caller retry",
+  "sram_debug_carrier": {
+    "bank": 3,
+    "end": 49102,
+    "record_bytes": 32,
+    "record_capacity": 9,
+    "selected_records": 8,
+    "start": 48815
+  },
+  "wram": {
+    "bank": 2,
+    "end": 54228,
+    "start": 53261
+  }
+}

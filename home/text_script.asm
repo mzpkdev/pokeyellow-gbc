@@ -129,9 +129,17 @@ CloseTextDisplay::
 	bit BIT_FLY_WARP, a
 	call z, LoadPlayerSpriteGraphics
 	call LoadCurrentMapView
+IF DEF(PHASE2_AUDIT)
+	farcall PassiveFullColorRestoreAfterMenu
+ENDC
 	pop af
 	call BankswitchCommon
 	jp UpdateSprites
+
+IF DEF(PHASE2_AUDIT)
+PrintFullColorTextAndEnqueue:
+	jp PrintText_NoCreatingTextBox
+ENDC
 
 DisplayPokemartDialogue::
 	push hl

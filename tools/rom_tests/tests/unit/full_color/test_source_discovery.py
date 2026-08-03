@@ -119,7 +119,7 @@ SceneTarget:: ret
     scene_mechanisms = {
         finding.mechanism
         for finding in report.findings
-        if finding.symbol == "SceneEntry"
+        if finding.symbol == "SceneEntry" and finding.category == "scene_edge"
     }
     assert scene_mechanisms == {
         "call",
@@ -145,7 +145,9 @@ SceneTarget:: ret
     }
     assert all(finding.evidence_sha256 for finding in conditional)
     computed = next(
-        finding for finding in report.findings if finding.symbol == "Computed"
+        finding
+        for finding in report.findings
+        if finding.symbol == "Computed" and finding.mechanism == "jp"
     )
     assert not computed.resolved
     assert computed.resource == "COMPUTED_CONTROL_FLOW"
@@ -160,3 +162,21 @@ def test_missing_configured_lifecycle_symbol_is_an_error(tmp_path) -> None:
     assert report.errors == (
         "configured lifecycle/scene/mutation symbol 'Missing' was not discovered",
     )
+
+
+def test_unconfigured_local_label_always_terminates_parent_scope(tmp_path) -> None:
+    (tmp_path / "main.asm").write_text(
+        "Root::\n    ldh [rVBK], a\n.local:\n    ldh [rDMA], a\n",
+        encoding="utf-8",
+    )
+    report = discover_sources(tmp_path, ["main.asm"], lifecycle_roots={"Root"})
+    writers = [finding for finding in report.findings if finding.category == "writer"]
+    assert [(finding.symbol, finding.destination) for finding in writers] == [
+        ("Root", "ff4f"),
+        ("Root.local", "ff46"),
+    ]
+    assert [
+        finding.symbol
+        for finding in report.findings
+        if finding.mechanism == "configured-root"
+    ] == ["Root"]

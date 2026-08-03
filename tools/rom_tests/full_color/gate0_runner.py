@@ -182,7 +182,9 @@ def _run_once(
     python: str,
     run_command: RunCommand,
 ) -> dict[str, Any]:
-    run_dir.mkdir()
+    run_dir.mkdir(parents=True, exist_ok=True)
+    if (run_dir / "run-summary.json").exists():
+        raise RuntimeError(f"Gate 0 run directory already contains a run: {run_dir}")
     results: list[dict[str, Any]] = []
     summary: dict[str, Any] = {
         "schema": RUNNER_SCHEMA,
@@ -216,6 +218,55 @@ def _run_once(
         _write_json(run_dir / "run-summary.json", summary)
     summary["status"] = "passed"
     _write_json(run_dir / "run-summary.json", summary)
+    return summary
+
+
+def run_gate0_once(
+    root: Path,
+    run_dir: Path,
+    *,
+    python: str = sys.executable,
+    run_command: RunCommand = _default_run_command,
+) -> dict[str, Any]:
+    """Execute one complete Gate 0 run for later independent comparison."""
+    return _run_once(
+        root.resolve(),
+        run_dir.resolve(),
+        python=python,
+        run_command=run_command,
+    )
+
+
+def compare_gate0_runs(first: Path, second: Path, output: Path) -> dict[str, Any]:
+    """Validate and compare two complete, independently produced Gate 0 runs."""
+    first = first.resolve()
+    second = second.resolve()
+    output = output.resolve()
+    summary: dict[str, Any] = {
+        "schema": RUNNER_SCHEMA,
+        "status": "running",
+        "runs": [first.name, second.name],
+    }
+    _write_json(output, summary)
+    try:
+        for run in (first, second):
+            run_summary_path = run / "run-summary.json"
+            if not run_summary_path.is_file():
+                raise RuntimeError(f"Gate 0 run is missing its summary: {run}")
+            run_summary = json.loads(run_summary_path.read_text(encoding="utf-8"))
+            if run_summary.get("status") != "passed":
+                raise RuntimeError(f"Gate 0 run did not pass: {run}")
+        comparison = compare_runs(first, second)
+        summary["comparison"] = comparison
+        if not comparison["byte_identical"]:
+            raise RuntimeError("independent Gate 0 executions produced different evidence")
+    except Exception as exc:
+        summary["status"] = "failed"
+        summary["error"] = str(exc)
+        _write_json(output, summary)
+        raise
+    summary["status"] = "passed"
+    _write_json(output, summary)
     return summary
 
 
@@ -257,9 +308,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run and compare lean Gate 0 twice")
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--results", type=Path, required=True)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--one-run",
+        metavar="NAME",
+        help="execute one complete run under the results root",
+    )
+    mode.add_argument(
+        "--compare-runs",
+        nargs=2,
+        metavar=("FIRST", "SECOND"),
+        help="compare two complete run directories under the results root",
+    )
     args = parser.parse_args(argv)
     try:
-        summary = run_gate0(args.root, args.results)
+        if args.one_run:
+            summary = run_gate0_once(args.root, args.results / args.one_run)
+        elif args.compare_runs:
+            first, second = args.compare_runs
+            summary = compare_gate0_runs(
+                args.results / first,
+                args.results / second,
+                args.results / "summary.json",
+            )
+        else:
+            summary = run_gate0(args.root, args.results)
     except Exception as exc:
         print(f"Gate 0 failed: {exc}", file=sys.stderr)
         return 1

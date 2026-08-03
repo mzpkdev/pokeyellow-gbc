@@ -86,7 +86,7 @@ jobs:
     name: Test
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -98,6 +98,9 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: tools/rom_tests/requirements.txt
+
+      - name: Set up pinned RGBDS
+        uses: ./.github/actions/setup-build
 
       - name: Install ROM test dependencies
         run: python -m pip install -r tools/rom_tests/requirements.txt
@@ -120,14 +123,21 @@ jobs:
           cp release/pokeyellow-vc.map    pokeyellow_vc.map
           cp release/pokeyellow-vc.sym    pokeyellow_vc.sym
 
+      - name: Build Phase 2 audit ROM
+        run: make -j"$(nproc)" yellow_phase2_audit
+
       - name: Run unit tests
         run: python -m pytest tools/rom_tests/tests/unit
 
-  gate-0-baseline:
-    name: Gate 0 Baseline
+  gate-0-baseline-runs:
+    name: Gate 0 Baseline Run ${{ matrix.run }}
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2]
     env:
       FULL_COLOR_RESULTS: test-results/full-color-gate0
 
@@ -137,10 +147,11 @@ jobs:
 
       - name: Initialize Gate 0 evidence root
         run: |
-          mkdir -p "$FULL_COLOR_RESULTS"
-          printf 'run_id=%s\nrun_attempt=%s\ncommit=%s\n' \
+          mkdir -p "$FULL_COLOR_RESULTS/run-${{ matrix.run }}/diagnostics"
+          printf 'run_id=%s\nrun_attempt=%s\ncommit=%s\nmatrix_run=%s\n' \
             "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" \
-            > "$FULL_COLOR_RESULTS/ci-run.txt"
+            "${{ matrix.run }}" \
+            > "$FULL_COLOR_RESULTS/run-${{ matrix.run }}/diagnostics/ci-run.txt"
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -155,10 +166,50 @@ jobs:
       - name: Install pinned ROM test dependencies
         run: make test-full-color-setup
 
-      - name: Run lean Gate 0
-        run: make test-full-color-gate0
+      - name: Build Phase 2 audit ROM
+        run: make -j"$(nproc)" yellow_phase2_audit
 
-      - name: Upload Gate 0 evidence
+      - name: Run one complete lean Gate 0 execution
+        run: make test-full-color-gate0-ci-run FULL_COLOR_GATE0_RUN=${{ matrix.run }}
+
+      - name: Upload Gate 0 run evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gate-0-run-${{ matrix.run }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.FULL_COLOR_RESULTS }}/run-${{ matrix.run }}/
+          if-no-files-found: error
+          retention-days: 14
+
+  gate-0-baseline:
+    name: Gate 0 Baseline
+    needs: gate-0-baseline-runs
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      FULL_COLOR_RESULTS: test-results/full-color-gate0
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download Gate 0 run 1 evidence
+        uses: actions/download-artifact@v7
+        with:
+          name: gate-0-run-1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.FULL_COLOR_RESULTS }}/run-1
+
+      - name: Download Gate 0 run 2 evidence
+        uses: actions/download-artifact@v7
+        with:
+          name: gate-0-run-2-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.FULL_COLOR_RESULTS }}/run-2
+
+      - name: Compare independent Gate 0 evidence
+        run: make test-full-color-gate0-ci-compare
+
+      - name: Upload compared Gate 0 evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:

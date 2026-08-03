@@ -1,5 +1,10 @@
 IF DEF(_DEBUG)
 
+IF DEF(PHASE2_AUDIT)
+; The Phase 2 audit protocol lives with the added-only lifecycle roots. This
+; file retains only the pre-existing debug product's Phase 1 SRAM protocol.
+ELSE
+
 ; Poll one debug-only SRAM mailbox from the production VBlank route. Commands
 ; are accepted once, cleared before execution, and finish at a stable checkpoint.
 PollFullColorDebugCommand::
@@ -328,4 +333,5 @@ EXPORT FullColorDebugMutationWrite
 EXPORT FullColorDebugMutationCompletion
 EXPORT FullColorDebugMutationVideo
 
+ENDC
 ENDC

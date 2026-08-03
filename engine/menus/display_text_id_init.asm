@@ -67,6 +67,7 @@ DisplayTextIDInit::
 	add hl, de
 	dec c
 	jr nz, .spriteStandStillLoop
+
 	ld b, HIGH(vBGMap1)
 	call CopyScreenTileBufferToVRAM ; transfer background in WRAM to VRAM
 	xor a

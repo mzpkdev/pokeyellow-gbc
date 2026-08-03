@@ -345,7 +345,34 @@ INCLUDE "engine/overworld/npc_movement_2.asm"
 SECTION "Full Color Ownership Core", ROMX[$4000], BANK[PHASE1_OWNERSHIP_ROM_BANK]
 
 INCLUDE "engine/full_color/ownership.asm"
+
+
+IF DEF(PHASE2_AUDIT)
+SECTION "Full Color Phase 2 Pipelines", ROMX[FULL_COLOR_PHASE2_ROM_START], BANK[FULL_COLOR_PHASE2_ROM_BANK]
+
+INCLUDE "engine/full_color/scheduler.asm"
+INCLUDE "engine/full_color/palettes.asm"
+INCLUDE "engine/full_color/transfers.asm"
+INCLUDE "engine/full_color/oam.asm"
+INCLUDE "data/tilesets/full_color_overworld.asm"
+INCLUDE "engine/full_color/passive_overworld.asm"
+
+	ds FULL_COLOR_PHASE2_ROM_END - @
+ASSERT @ == FULL_COLOR_PHASE2_ROM_END
+ENDC
+
+
+SECTION "Full Color Debug Runtime", ROMX[FULL_COLOR_PHASE2_ROM_END], BANK[FULL_COLOR_PHASE2_ROM_BANK]
+
 INCLUDE "engine/full_color/debug_runtime.asm"
+
+IF DEF(PHASE2_AUDIT)
+INCLUDE "engine/full_color/lifecycle.asm"
+INCLUDE "engine/full_color/passive_palette_refresh.asm"
+ASSERT BANK(FullColorLifecycleROMStart) == FULL_COLOR_PHASE2_ROM_BANK
+ASSERT FullColorLifecycleROMStart >= FULL_COLOR_PHASE3_ROM_START
+ASSERT @ <= $8000
+ENDC
 
 
 SECTION "bank3C", ROMX
@@ -429,3 +456,5 @@ INCLUDE "engine/pikachu/pikachu_emotions.asm"
 INCLUDE "engine/pikachu/pikachu_movement.asm"
 INCLUDE "engine/pikachu/pikachu_pic_animation.asm"
 INCLUDE "engine/debug/debug_menu.asm"
+
+INCLUDE "engine/full_color/phase2_audit.asm"

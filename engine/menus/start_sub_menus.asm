@@ -6,6 +6,24 @@ StartMenu_Pokedex::
 	call UpdateSprites
 	jp RedisplayStartMenu
 
+IF DEF(PHASE2_AUDIT)
+; Carry clear means this is either outside the bounded slice or Yellow owns the
+; party screen. Only a full-color Pallet/Route 1 caller starts a handoff.
+EnsureFullColorPartyMenuYellow::
+	ld a, [wCurMap]
+	cp PALLET_TOWN
+	jr z, .in_slice
+	cp ROUTE_1
+	jr nz, .yellow_or_outside_slice
+.in_slice
+	; The banked helper makes the owner decision before Bankswitch restores A.
+	farcall EnsureFullColorPartyHandoff
+	ret
+.yellow_or_outside_slice
+	and a
+	ret
+ENDC
+
 StartMenu_Pokemon::
 	ld a, [wPartyCount]
 	and a
@@ -27,6 +45,10 @@ StartMenu_Pokemon::
 	call GBPalWhiteOutWithDelay3
 	call RestoreScreenTilesAndReloadTilePatterns
 	call LoadGBPal
+IF DEF(PHASE2_AUDIT)
+	; Yellow restored bank 0; schedule a bounded bank-1 donor reprojection.
+	farcall PassiveFullColorScheduleAttributeRestore
+ENDC
 	jp RedisplayStartMenu
 .chosePokemon
 	call SaveScreenTilesToBuffer1

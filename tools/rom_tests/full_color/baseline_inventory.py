@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+import hashlib
 import json
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any, Sequence
 
 from .baseline_discovery import discover_baseline_rom, discover_baseline_sources
-from .discovery_assignment import DiscoveryAssignmentAuthority
+from .discovery_assignment import (
+    DiscoveryAssignmentAuthority,
+    NORMAL_DEBUG_PRODUCT,
+    PHASE2_AUDIT_PRODUCT,
+    StaleDiscoveryAssignmentError,
+)
 from .discovery_review import rom_finding_subject, source_finding_subject
 from .inventory import (
     InventoryReconciliationError,
@@ -35,6 +42,420 @@ _OWNER_GATED_ROM_RESOURCES = frozenset(
         "WRAM_BANK",
     }
 )
+
+SOURCE_TRANSITION_PATH = Path(
+    "specs/full-colors/definitions/phase1-audit-source-transition.json"
+)
+
+PHASE2_PLANNED_ROW_IDS = frozenset(
+    {
+        "MU-P2-ANIMATED-TERRAIN",
+        "MU-P2-DIALOGUE-OVERLAY",
+        "MU-P2-MAP-CONNECTION-NORTH",
+        "MU-P2-MAP-RECONSTRUCTION",
+        "MU-P2-MOVEMENT-HORIZONTAL",
+        "MU-P2-MOVEMENT-VERTICAL",
+        "MU-P2-OAM-FOLLOWER-NPC",
+        "MU-P2-PALETTE-PAYLOADS",
+        "MU-P2-START-MENU-OVERLAY",
+        "SC-P2-PALLET-ROUTE1-NORTH",
+        "SC-P2-PARTY-ENTRY",
+        "SC-P2-PARTY-RETURN",
+        "WR-P2-YELLOW-ANIMATION-TILES",
+        "WR-P2-YELLOW-BG-PALETTE",
+        "WR-P2-YELLOW-MAP-STREAM",
+        "WR-P2-YELLOW-OAM-BUILD",
+        "WR-P2-YELLOW-OAM-DMA",
+        "WR-P2-YELLOW-OVERLAY-TRANSFER",
+    }
+)
+
+_PLANNED_ONLY_ROW_CONTRACTS = {
+    "WR-P2-YELLOW-BG-PALETTE": {
+        "commit_unit": "PALETTE",
+        "machine_sites": (
+            {
+                "bank": 0,
+                "address": 0x3E14,
+                "rom_offset": 0x3E14,
+                "bytes": "fa1acf",
+                "runtime_copy": None,
+            },
+        ),
+        "resources": (
+            {
+                "aliases": [],
+                "end": 0xFF69,
+                "resource": "CGB_PALETTE",
+                "start": 0xFF68,
+                "vram_bank": None,
+            },
+        ),
+        "root": "RunPaletteCommand",
+        "source_sites": (
+            {
+                "aliases": [],
+                "line": 47,
+                "object": None,
+                "path": "home/palettes.asm",
+                "symbol": "RunPaletteCommand",
+            },
+        ),
+    },
+}
+
+
+def _source_path_manifest(repository: Path, paths: Sequence[str]) -> dict[str, str]:
+    return {
+        relative: hashlib.sha256((repository / relative).read_bytes()).hexdigest()
+        for relative in sorted(paths)
+    }
+
+
+def _manifest_sha256(manifest: dict[str, str]) -> str:
+    encoded = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _strict_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _transition_path(value: object) -> str:
+    if not isinstance(value, str) or not value:
+        raise InventoryReconciliationError("malformed audit-only transition path")
+    path = PurePosixPath(value)
+    if path.is_absolute() or value != str(path) or "\\" in value or ".." in path.parts:
+        raise InventoryReconciliationError(
+            f"audit-only transition path is not normalized repository-relative: {value!r}"
+        )
+    return value
+
+
+def _sha256_text(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _reviewed_source_view(
+    assignments: DiscoveryAssignmentAuthority,
+    source_report: Any,
+    repository: Path,
+) -> tuple[Any, dict[str, Any] | None]:
+    """Verify and apply the explicit audit-only source-hash transition."""
+    assignments = assignments.for_product(NORMAL_DEBUG_PRODUCT)
+    reviewed_hashes = {row.evidence.source_sha256 for row in assignments.rows}
+    if len(reviewed_hashes) != 1:
+        raise StaleDiscoveryAssignmentError(
+            "assignment rows have stale baseline evidence: mixed source hashes"
+        )
+    reviewed_hash = next(iter(reviewed_hashes))
+    if source_report.source_sha256 == reviewed_hash:
+        return source_report, None
+    path = repository / SOURCE_TRANSITION_PATH
+    try:
+        transition = json.loads(
+            path.read_text(encoding="utf-8"), object_pairs_hook=_strict_json_object
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise InventoryReconciliationError(
+            "reviewed source hash changed without a valid audit-only transition"
+        ) from exc
+    expected_keys = {
+        "schema", "reviewed_source_sha256", "audit_source_sha256",
+        "baseline_manifest_sha256", "audit_only_paths", "subject_rebindings",
+        "rom_subject_rebindings",
+    }
+    if set(transition) != expected_keys or transition["schema"] != (
+        "full-color-phase1-audit-source-transition-v2"
+    ):
+        raise InventoryReconciliationError("malformed audit-only source transition")
+    if transition["reviewed_source_sha256"] != reviewed_hash:
+        raise InventoryReconciliationError("audit transition does not bind reviewed source hash")
+    if transition["audit_source_sha256"] != source_report.source_sha256:
+        raise InventoryReconciliationError("audit transition does not bind current source hash")
+    current_manifest = _source_path_manifest(
+        repository, (path for path, _ in source_report.include_graph)
+    )
+    baseline_manifest = dict(current_manifest)
+    for relative, binding in transition["audit_only_paths"].items():
+        relative = _transition_path(relative)
+        if set(binding) != {"reviewed_sha256", "audit_sha256"}:
+            raise InventoryReconciliationError(
+                f"malformed audit-only transition path binding: {relative}"
+            )
+        actual = current_manifest.get(relative)
+        audit = binding["audit_sha256"]
+        if not _sha256_text(audit):
+            raise InventoryReconciliationError(
+                f"malformed audit path hash: {relative}"
+            )
+        if actual != audit:
+            raise InventoryReconciliationError(
+                f"audit-only transition path changed: {relative}"
+            )
+        reviewed = binding["reviewed_sha256"]
+        if reviewed is None:
+            if not (repository / relative).is_file():
+                raise InventoryReconciliationError(
+                    f"audit-only transition contains phantom added path: {relative}"
+                )
+            baseline_manifest.pop(relative, None)
+        elif _sha256_text(reviewed):
+            if reviewed == audit:
+                raise InventoryReconciliationError(
+                    f"audit-only transition path has no actual delta: {relative}"
+                )
+            baseline_manifest[relative] = reviewed
+        else:
+            raise InventoryReconciliationError(
+                f"malformed reviewed path hash: {relative}"
+            )
+    if _manifest_sha256(baseline_manifest) != transition["baseline_manifest_sha256"]:
+        raise InventoryReconciliationError(
+            "current source changed outside the hash-bound audit-only change set"
+        )
+    source_rows = {
+        row.subject.sha256: row
+        for row in assignments.rows
+        if row.subject.kind.value == "SOURCE_FINDING"
+    }
+    current_by_subject = {
+        source_finding_subject(finding).sha256: finding
+        for finding in source_report.findings
+    }
+    if set(transition["subject_rebindings"]) != set(source_rows):
+        raise InventoryReconciliationError(
+            "audit-only transition does not enumerate reviewed semantic subjects"
+        )
+    translated: dict[str, Any] = {}
+    for old_sha, new_sha in transition["subject_rebindings"].items():
+        finding = current_by_subject.get(new_sha)
+        row = source_rows[old_sha]
+        if finding is None:
+            raise InventoryReconciliationError(
+                f"audit-only transition target subject is absent: {new_sha}"
+            )
+        rebound = replace(finding, symbol=row.subject.metadata["symbol"])
+        if source_finding_subject(rebound) != row.subject:
+            raise InventoryReconciliationError(
+                f"audit-only transition changes reviewed subject semantics: {old_sha}"
+            )
+        translated[new_sha] = rebound
+    findings = tuple(
+        translated.get(source_finding_subject(finding).sha256, finding)
+        for finding in source_report.findings
+    )
+    return replace(source_report, findings=findings, source_sha256=reviewed_hash), transition
+
+
+def _reviewed_rom_view(
+    assignments: DiscoveryAssignmentAuthority,
+    rom_report: Any,
+    transition: dict[str, Any] | None,
+) -> Any:
+    assignments = assignments.for_product(NORMAL_DEBUG_PRODUCT)
+    if transition is None:
+        return rom_report
+    rows = {
+        row.subject.sha256: row
+        for row in assignments.rows
+        if row.subject.kind.value == "ROM_FINDING"
+    }
+    current = {
+        rom_finding_subject(finding).sha256: finding for finding in rom_report.findings
+    }
+    bindings = transition["rom_subject_rebindings"]
+    if set(bindings) != set(rows):
+        raise InventoryReconciliationError(
+            "audit-only transition does not enumerate reviewed ROM subjects"
+        )
+    translated: dict[str, Any] = {}
+    for old_sha, new_sha in bindings.items():
+        finding = current.get(new_sha)
+        row = rows[old_sha]
+        if finding is None:
+            raise InventoryReconciliationError(
+                f"audit-only transition ROM target subject is absent: {new_sha}"
+            )
+        rebound = replace(
+            finding,
+            root=row.subject.metadata["root"],
+            call_path=tuple(row.subject.metadata["call_path"]),
+        )
+        if rom_finding_subject(rebound) != row.subject:
+            raise InventoryReconciliationError(
+                f"audit-only transition changes reviewed ROM semantics: {old_sha}"
+            )
+        translated[new_sha] = rebound
+    findings = tuple(
+        translated.get(rom_finding_subject(finding).sha256, finding)
+        for finding in rom_report.findings
+    )
+    return replace(rom_report, findings=findings)
+
+
+def _partition_authority(document: Any) -> tuple[Any, tuple[dict[str, Any], ...]]:
+    """Return a revalidated frozen tranche plus declared planned rows."""
+    reviewed = tuple(row for row in document.rows if not row["planned"])
+    planned = tuple(row for row in document.rows if row["planned"])
+    reviewed_document = type(document).from_dict(
+        {"schema": document.schema, "rows": list(reviewed)}
+    )
+    return reviewed_document, planned
+
+
+def _select_inventory_rows(document: Any, row_ids: set[str]) -> Any:
+    """Select only rows owned by one link-product assignment partition."""
+    return type(document).from_dict(
+        {
+            "schema": document.schema,
+            "rows": [row for row in document.rows if row["id"] in row_ids],
+        }
+    )
+
+
+def _phase2_transition_state(
+    *,
+    writers: WriterInventory,
+    scenes: SceneInventory,
+    mutations: MutationInventory,
+    assignments: DiscoveryAssignmentAuthority,
+) -> str:
+    """Require the hostile tranche to be wholly planned or wholly audit-closed."""
+    rows = {
+        row["id"]: row
+        for document in (writers, scenes, mutations)
+        for row in document.rows
+        if row["id"] in PHASE2_PLANNED_ROW_IDS
+    }
+    if set(rows) != PHASE2_PLANNED_ROW_IDS:
+        raise InventoryReconciliationError(
+            "planned Phase 2 row IDs must be the exact closed set; "
+            f"missing={sorted(PHASE2_PLANNED_ROW_IDS - set(rows))}"
+        )
+    audit = assignments.for_product(PHASE2_AUDIT_PRODUCT)
+    audit_targets = {row.row_id for row in audit.rows}
+    planned = {row_id for row_id, row in rows.items() if row["planned"]}
+    reviewed = {
+        row_id for row_id, row in rows.items() if row["evidence"]["reviewed"]
+    }
+    if planned == PHASE2_PLANNED_ROW_IDS and not reviewed and not audit.rows:
+        return "planned"
+    if planned == PHASE2_PLANNED_ROW_IDS and reviewed:
+        raise InventoryReconciliationError(
+            "planned row cannot claim reviewed evidence"
+        )
+    if planned == PHASE2_PLANNED_ROW_IDS and audit.rows:
+        raise InventoryReconciliationError(
+            "planned hostile rows consume closure assignments"
+        )
+    if (
+        not planned
+        and reviewed == PHASE2_PLANNED_ROW_IDS
+        and audit_targets == PHASE2_PLANNED_ROW_IDS
+    ):
+        return "audit-closed"
+    raise InventoryReconciliationError(
+        "Phase 2 closure must transition all 18 rows atomically from "
+        "planned/unreviewed/unassigned to reviewed audit assignments"
+    )
+
+
+def _validate_planned_rows(
+    *,
+    writers: WriterInventory,
+    scenes: SceneInventory,
+    mutations: MutationInventory,
+    assignments: DiscoveryAssignmentAuthority,
+    source_report: Any,
+    rom_report: Any,
+    rom: bytes,
+    repository: Path,
+) -> tuple[dict[str, Any], ...]:
+    """Validate declarations without promoting them into Gate 0 closure."""
+    all_rows = tuple(writers.rows) + tuple(scenes.rows) + tuple(mutations.rows)
+    planned = tuple(row for row in all_rows if row["planned"])
+    reviewed = tuple(row for row in all_rows if not row["planned"])
+    errors: list[str] = []
+    assigned_ids = {row.row_id for row in assignments.rows}
+    writer_ids = {row["id"] for row in writers.rows}
+    current_hashes = {
+        "source_sha256": source_report.source_sha256,
+        "rom_sha256": rom_report.rom_sha256,
+        "sym_sha256": rom_report.sym_sha256,
+        "map_sha256": rom_report.map_sha256,
+    }
+    planned_ids = {row["id"] for row in planned}
+    if planned_ids != PHASE2_PLANNED_ROW_IDS:
+        errors.append(
+            "planned Phase 2 row IDs must be the exact closed set; "
+            f"missing={sorted(PHASE2_PLANNED_ROW_IDS - planned_ids)}, "
+            f"unexpected={sorted(planned_ids - PHASE2_PLANNED_ROW_IDS)}"
+        )
+    for row in reviewed:
+        if not row["evidence"]["reviewed"]:
+            errors.append(f"{row['id']}: frozen reviewed row became unreviewed")
+    for row in planned:
+        if row["evidence"]["reviewed"]:
+            errors.append(f"{row['id']}: planned row cannot claim reviewed evidence")
+        if row["id"] in assigned_ids:
+            errors.append(f"{row['id']}: planned row cannot consume a closure assignment")
+        for name, expected in current_hashes.items():
+            if row["evidence"][name] != expected:
+                errors.append(f"{row['id']}: stale planned {name.removesuffix('_sha256')} hash")
+        declared_sources = (
+            (row["source"],)
+            if row["id"].startswith("SC-")
+            else tuple(row.get("source_sites", ()))
+        )
+        if not declared_sources:
+            errors.append(f"{row['id']}: planned row lacks required source evidence")
+        if not row.get("machine_sites"):
+            errors.append(f"{row['id']}: planned row lacks required machine evidence")
+        for site in row.get("machine_sites", ()):
+            expected = bytes.fromhex(site["bytes"])
+            start = site["rom_offset"]
+            if rom[start : start + len(expected)] != expected:
+                errors.append(
+                    f"{row['id']}: planned machine bytes do not match "
+                    f"{site['bank']:02x}:{site['address']:04x}"
+                )
+        contract = _PLANNED_ONLY_ROW_CONTRACTS.get(row["id"])
+        if contract is not None:
+            if tuple(row.get("machine_sites", ())) != contract["machine_sites"]:
+                errors.append(f"{row['id']}: planned-only machine-site contract changed")
+            if tuple(row.get("source_sites", ())) != contract["source_sites"]:
+                errors.append(f"{row['id']}: planned-only source-site contract changed")
+            if tuple(row.get("resources", ())) != contract["resources"]:
+                errors.append(f"{row['id']}: planned-only resource contract changed")
+            if row.get("commit_unit") != contract["commit_unit"]:
+                errors.append(f"{row['id']}: planned-only commit contract changed")
+            reachability = row.get("reachability", {})
+            if (
+                reachability.get("roots") != [contract["root"]]
+                or reachability.get("call_paths") != [[contract["root"]]]
+            ):
+                errors.append(f"{row['id']}: planned-only root contract changed")
+    for row in scenes.rows:
+        missing = sorted(set(row["first_display_writers"]) - writer_ids)
+        if missing:
+            errors.append(f"{row['id']}: unknown first-display writers {missing}")
+    for row in mutations.rows:
+        missing = sorted(set(row["writer_ids"]) - writer_ids)
+        if missing:
+            errors.append(f"{row['id']}: unknown mutation writers {missing}")
+    if errors:
+        raise InventoryReconciliationError("\n".join(sorted(errors)))
+    return planned
 
 
 def _assert_no_unlisted_slice_findings(
@@ -307,19 +728,48 @@ def build_progress(
     source_report: Any,
     rom_report: Any,
     rom: bytes,
+    repository: str | Path = ".",
 ) -> dict[str, Any]:
     """Project reviewed assignments once and report honest remaining work."""
-    _validate_assignment_targets(assignments, writers, scenes, mutations)
-    matcher = assignments.matcher(
-        source_sha256=source_report.source_sha256,
+    all_writers, all_scenes, all_mutations = writers, scenes, mutations
+    repository_path = Path(repository).resolve()
+    phase2_state = _phase2_transition_state(
+        writers=writers, scenes=scenes, mutations=mutations, assignments=assignments
+    )
+    normal_assignments = assignments.for_product(NORMAL_DEBUG_PRODUCT)
+    _validate_assignment_targets(normal_assignments, writers, scenes, mutations)
+    reviewed_source, source_transition = _reviewed_source_view(
+        normal_assignments, source_report, repository_path
+    )
+    reviewed_rom = _reviewed_rom_view(normal_assignments, rom_report, source_transition)
+    _assert_no_unlisted_slice_findings(normal_assignments, reviewed_source, reviewed_rom)
+    matcher = normal_assignments.matcher(
+        source_sha256=reviewed_source.source_sha256,
         rom_sha256=rom_report.rom_sha256,
         sym_sha256=rom_report.sym_sha256,
         map_sha256=rom_report.map_sha256,
+        product=NORMAL_DEBUG_PRODUCT,
     )
-    _assert_no_unlisted_slice_findings(assignments, source_report, rom_report)
     projected_source, projected_rom, source_rows, rom_rows = _project_assignments(
-        assignments, source_report, rom_report, matcher=matcher
+        normal_assignments, reviewed_source, reviewed_rom, matcher=matcher
     )
+    if phase2_state == "planned":
+        planned = _validate_planned_rows(
+            writers=writers,
+            scenes=scenes,
+            mutations=mutations,
+            assignments=normal_assignments,
+            source_report=source_report,
+            rom_report=rom_report,
+            rom=rom,
+            repository=repository_path,
+        )
+    else:
+        planned = ()
+    normal_row_ids = {row.row_id for row in normal_assignments.rows}
+    writers = _select_inventory_rows(writers, normal_row_ids)
+    scenes = _select_inventory_rows(scenes, normal_row_ids)
+    mutations = _select_inventory_rows(mutations, normal_row_ids)
     report = reconcile(
         writers,
         scenes,
@@ -376,12 +826,12 @@ def build_progress(
         "hashes": {
             "assignments_sha256": assignments.sha256,
             "map_sha256": projected_rom.map_sha256,
-            "mutations_sha256": mutations.sha256,
+            "mutations_sha256": all_mutations.sha256,
             "rom_sha256": projected_rom.rom_sha256,
-            "scenes_sha256": scenes.sha256,
+            "scenes_sha256": all_scenes.sha256,
             "source_sha256": projected_source.source_sha256,
             "sym_sha256": projected_rom.sym_sha256,
-            "writers_sha256": writers.sha256,
+            "writers_sha256": all_writers.sha256,
         },
         "matched": {
             "machine_count": len(report.matched_machine_sites),
@@ -402,6 +852,11 @@ def build_progress(
             "total_count": len(rows),
             "writer_count": len(writers.rows),
         },
+        "planned_rows": {
+            "row_ids": sorted(row["id"] for row in planned),
+            "total_count": len(planned),
+        },
+        "source_transition": source_transition,
         "schema": PROGRESS_SCHEMA,
     }
 
@@ -423,6 +878,7 @@ def baseline_inventory_progress(repository: str | Path = ".") -> dict[str, Any]:
         source_report=source_report,
         rom_report=rom_report,
         rom=(root / "pokeyellow_debug.gbc").read_bytes(),
+        repository=root,
     )
 
 

@@ -30,6 +30,9 @@ from .rom_discovery import RomFinding
 from .source_discovery import SourceFinding
 
 ASSIGNMENT_SCHEMA = "full-color-discovery-assignments-v1"
+NORMAL_DEBUG_PRODUCT = "pokeyellow_debug"
+PHASE2_AUDIT_PRODUCT = "pokeyellow_phase2_audit"
+ASSIGNMENT_PRODUCTS = frozenset({NORMAL_DEBUG_PRODUCT, PHASE2_AUDIT_PRODUCT})
 
 _ASSIGNMENT_ID = re.compile(r"AS-[A-Z0-9][A-Z0-9-]*\Z")
 _ROW_ID = {
@@ -290,6 +293,8 @@ class AssignmentRow:
     scene: SceneEnrichment | None
     mutation: MutationEnrichment | None
     evidence: AssignmentEvidence
+    product: str = NORMAL_DEBUG_PRODUCT
+    product_explicit: bool = False
 
     _FIELDS: ClassVar[set[str]] = {
         "id",
@@ -303,7 +308,13 @@ class AssignmentRow:
 
     @classmethod
     def from_dict(cls, value: object, path: str) -> AssignmentRow:
-        obj = _object(value, path, cls._FIELDS)
+        obj = _object(value, path, cls._FIELDS, {"product"})
+        product_explicit = "product" in obj
+        product = obj.get("product", NORMAL_DEBUG_PRODUCT)
+        if product not in ASSIGNMENT_PRODUCTS:
+            raise DiscoveryAssignmentValidationError(
+                f"{path}.product: unknown link product {product!r}"
+            )
         assignment_id = _string(obj["id"], f"{path}.id")
         if not _ASSIGNMENT_ID.fullmatch(assignment_id):
             raise DiscoveryAssignmentValidationError(
@@ -378,10 +389,12 @@ class AssignmentRow:
             scene,
             mutation,
             AssignmentEvidence.from_dict(obj["evidence"], f"{path}.evidence"),
+            product,
+            product_explicit,
         )
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        result = {
             "id": self.id,
             "category": self.category.value,
             "row_id": self.row_id,
@@ -390,6 +403,9 @@ class AssignmentRow:
             "mutation": None if self.mutation is None else self.mutation.to_dict(),
             "evidence": self.evidence.to_dict(),
         }
+        if self.product_explicit:
+            result["product"] = self.product
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -419,11 +435,17 @@ class DiscoveryAssignmentAuthority:
             raise DiscoveryAssignmentValidationError(
                 "assignments.rows: duplicate assignment IDs"
             )
-        fingerprints = [row.subject.sha256 for row in rows]
+        fingerprints = [(row.product, row.subject.sha256) for row in rows]
         if len(fingerprints) != len(set(fingerprints)):
             raise DiscoveryAssignmentValidationError(
-                "assignments.rows: duplicate subject fingerprints"
+                "assignments.rows: duplicate subject fingerprints within one product"
             )
+        for product in ASSIGNMENT_PRODUCTS:
+            hashes = {row.evidence.hashes for row in rows if row.product == product}
+            if len(hashes) > 1:
+                raise DiscoveryAssignmentValidationError(
+                    f"assignments.rows: mixed product hash tuple for {product}"
+                )
         return cls(rows)
 
     @classmethod
@@ -460,10 +482,23 @@ class DiscoveryAssignmentAuthority:
         rom_sha256: str,
         sym_sha256: str,
         map_sha256: str,
+        product: str = NORMAL_DEBUG_PRODUCT,
     ) -> AssignmentMatcher:
+        if product not in ASSIGNMENT_PRODUCTS:
+            raise StaleDiscoveryAssignmentError(f"unknown assignment product {product!r}")
         return AssignmentMatcher(
-            self, (source_sha256, rom_sha256, sym_sha256, map_sha256)
+            self,
+            (source_sha256, rom_sha256, sym_sha256, map_sha256),
+            product=product,
         )
+
+    def for_product(self, product: str = NORMAL_DEBUG_PRODUCT) -> DiscoveryAssignmentAuthority:
+        """Return one fail-closed link-product partition of the authority."""
+        if product not in ASSIGNMENT_PRODUCTS:
+            raise DiscoveryAssignmentValidationError(
+                f"assignments.product: unknown link product {product!r}"
+            )
+        return type(self)(tuple(row for row in self.rows if row.product == product))
 
 
 class AssignmentMatcher:
@@ -473,19 +508,22 @@ class AssignmentMatcher:
         self,
         authority: DiscoveryAssignmentAuthority,
         baseline_hashes: tuple[str, str, str, str],
+        *,
+        product: str = NORMAL_DEBUG_PRODUCT,
     ) -> None:
         if any(not _SHA256.fullmatch(value) for value in baseline_hashes):
             raise StaleDiscoveryAssignmentError(
                 "current baseline requires four lowercase SHA-256 hashes"
             )
-        stale = tuple(
-            row.id for row in authority.rows if row.evidence.hashes != baseline_hashes
-        )
+        if product not in ASSIGNMENT_PRODUCTS:
+            raise StaleDiscoveryAssignmentError(f"unknown assignment product {product!r}")
+        selected = tuple(row for row in authority.rows if row.product == product)
+        stale = tuple(row.id for row in selected if row.evidence.hashes != baseline_hashes)
         if stale:
             raise StaleDiscoveryAssignmentError(
                 "assignment rows have stale baseline evidence: " + ", ".join(stale)
             )
-        self._rows = {row.subject.sha256: row for row in authority.rows}
+        self._rows = {row.subject.sha256: row for row in selected}
         self._consumed: set[str] = set()
 
     def _consume(self, subject: RejectionSubject) -> AssignmentRow:

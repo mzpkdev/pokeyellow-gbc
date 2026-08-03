@@ -6,7 +6,12 @@ from typing import Sequence
 
 import pytest
 
-from tools.rom_tests.full_color.gate0_runner import COMPONENTS, run_gate0
+from tools.rom_tests.full_color.gate0_runner import (
+    COMPONENTS,
+    compare_gate0_runs,
+    run_gate0,
+    run_gate0_once,
+)
 
 
 def _fake_runner(*, fail: str | None = None):
@@ -82,6 +87,70 @@ def test_runner_executes_every_real_component_twice_and_compares_bytes(
     attempt = tmp_path / "results" / summary["attempt"]
     assert (attempt / "run-1/visual/linked.png").is_file()
     assert (attempt / "run-2/visual/linked.png").is_file()
+
+
+def test_independent_runs_execute_every_component_once_and_compare(tmp_path: Path) -> None:
+    calls, fake = _fake_runner()
+    root = tmp_path / "repo"
+    root.mkdir()
+    results = tmp_path / "results"
+
+    first = run_gate0_once(root, results / "run-1", run_command=fake)
+    second = run_gate0_once(root, results / "run-2", run_command=fake)
+    summary = compare_gate0_runs(
+        results / "run-1", results / "run-2", results / "summary.json"
+    )
+
+    assert first["status"] == second["status"] == "passed"
+    assert len(calls) == 2 * len(COMPONENTS)
+    assert summary["status"] == "passed"
+    assert summary["comparison"]["byte_identical"] is True
+    assert json.loads((results / "summary.json").read_text())["status"] == "passed"
+
+
+def test_independent_compare_rejects_failed_or_incomplete_run(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    results = tmp_path / "results"
+    _, passing = _fake_runner()
+    _, failing = _fake_runner(fail="bank-torture")
+    run_gate0_once(root, results / "run-1", run_command=passing)
+    with pytest.raises(RuntimeError, match="bank-torture failed"):
+        run_gate0_once(root, results / "run-2", run_command=failing)
+
+    with pytest.raises(RuntimeError, match="did not pass"):
+        compare_gate0_runs(
+            results / "run-1", results / "run-2", results / "summary.json"
+        )
+
+    summary = json.loads((results / "summary.json").read_text())
+    assert summary["status"] == "failed"
+    assert "run-2" in summary["error"]
+
+
+def test_independent_compare_rejects_missing_or_nonidentical_evidence(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    results = tmp_path / "results"
+    _, passing = _fake_runner()
+    run_gate0_once(root, results / "run-1", run_command=passing)
+
+    with pytest.raises(RuntimeError, match="missing its summary"):
+        compare_gate0_runs(
+            results / "run-1", results / "run-2", results / "summary.json"
+        )
+
+    run_gate0_once(root, results / "run-2", run_command=passing)
+    (results / "run-2/semantic-snapshot.json").write_bytes(b"different\n")
+    with pytest.raises(RuntimeError, match="produced different evidence"):
+        compare_gate0_runs(
+            results / "run-1", results / "run-2", results / "summary.json"
+        )
+
+    summary = json.loads((results / "summary.json").read_text())
+    assert summary["comparison"]["semantic_snapshot_byte_identical"] is False
 
 
 def test_failure_retains_logs_summary_and_previous_attempt(tmp_path: Path) -> None:

@@ -6,6 +6,8 @@ import pytest
 
 from tools.rom_tests.full_color.discovery_assignment import (
     ASSIGNMENT_SCHEMA,
+    NORMAL_DEBUG_PRODUCT,
+    PHASE2_AUDIT_PRODUCT,
     AssignmentMatcher,
     DiscoveryAssignmentAuthority,
     DiscoveryAssignmentValidationError,
@@ -171,6 +173,58 @@ def test_stale_baseline_hashes_fail_before_matching() -> None:
     authority = DiscoveryAssignmentAuthority.from_dict(raw_authority())
     with pytest.raises(StaleDiscoveryAssignmentError, match="AS-MUTATION.*AS-WRITER"):
         authority.matcher(**{**HASHES, "rom_sha256": "f" * 64})
+
+
+def test_product_scope_defaults_to_normal_and_selects_explicit_audit_rows() -> None:
+    raw = raw_authority()
+    audit = deepcopy(raw["rows"][0])
+    audit["id"] = "AS-PHASE2-AUDIT"
+    audit["product"] = PHASE2_AUDIT_PRODUCT
+    audit["subject"] = source_finding_subject(
+        SourceFinding(**{**source("MutateMap").to_dict(), "line": 31, "aliases": ()})
+    ).to_dict()
+    audit["evidence"].update(
+        source_sha256="a" * 64,
+        rom_sha256="b" * 64,
+        sym_sha256="c" * 64,
+        map_sha256="d" * 64,
+    )
+    raw["rows"].append(audit)
+    raw["rows"].sort(key=lambda item: item["id"])
+
+    authority = DiscoveryAssignmentAuthority.from_dict(raw)
+    assert len(authority.for_product().rows) == len(raw["rows"]) - 1
+    assert authority.for_product(PHASE2_AUDIT_PRODUCT).rows[0].product == (
+        PHASE2_AUDIT_PRODUCT
+    )
+    assert all(
+        row.product == NORMAL_DEBUG_PRODUCT
+        for row in authority.for_product(NORMAL_DEBUG_PRODUCT).rows
+    )
+    assert '"product":"pokeyellow_phase2_audit"' in authority.to_json()
+
+
+@pytest.mark.parametrize("mutation", ["unknown-product", "mixed-product-hashes"])
+def test_product_scope_schema_and_hash_tuple_fail_closed(mutation: str) -> None:
+    raw = raw_authority()
+    if mutation == "unknown-product":
+        raw["rows"][0]["product"] = "whatever-built-last"
+        message = "unknown link product"
+    else:
+        raw["rows"][0]["evidence"]["rom_sha256"] = "f" * 64
+        message = "mixed product hash tuple"
+    with pytest.raises(DiscoveryAssignmentValidationError, match=message):
+        DiscoveryAssignmentAuthority.from_dict(raw)
+
+
+def test_wrong_audit_product_identity_does_not_match_normal_partition() -> None:
+    raw = raw_authority()
+    for item in raw["rows"]:
+        item["product"] = PHASE2_AUDIT_PRODUCT
+    authority = DiscoveryAssignmentAuthority.from_dict(raw)
+    review = authority.matcher(**HASHES)
+    with pytest.raises(StaleDiscoveryAssignmentError, match="unreviewed discovery"):
+        review.project_source_finding(source("Writer"))
 
 
 def test_duplicate_consumption_and_unreviewed_subject_fail_closed() -> None:

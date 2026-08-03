@@ -154,6 +154,7 @@ FOR n, OAM_COUNT
 wShadowOAMSprite{02d:n}:: sprite_oam_struct wShadowOAMSprite{02d:n}
 ENDR
 wShadowOAMEnd::
+ASSERT wShadowOAM == FULL_COLOR_OAM_DESTINATION
 
 
 SECTION "Tilemap", WRAM0
@@ -2580,3 +2581,119 @@ ASSERT wRendererStateStart == $d000
 ASSERT wRendererStateEnd == $d000 + PHASE1_OWNERSHIP_STATE_BYTES
 ASSERT BANK(wRendererStateStart) == PHASE1_SELECTED_WRAM_BANK
 ASSERT BANK(wRendererStateStart) != BANK(wPartyDataStart)
+
+IF DEF(PHASE2_AUDIT)
+SECTION "Full Color Phase 2 State", WRAMX[FULL_COLOR_PHASE2_WRAM_START], BANK[FULL_COLOR_PHASE2_WRAM_BANK]
+
+wFullColorPhase2StateStart::
+wFullColorRequestDescriptors:: ds FULL_COLOR_REQUEST_CAPACITY * FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+wFullColorRequestDescriptorsEnd::
+
+; The scratch subdivisions and their sizes are measurement authority. Runtime
+; scheduler metadata occupies named bytes inside the reconstruction ledger.
+wFullColorBGPaletteBase:: ds 64
+wFullColorBGPaletteTransformed:: ds 64
+wFullColorOBJPaletteBase:: ds 64
+wFullColorOBJPaletteTransformed:: ds 64
+wFullColorAttributeRectangle:: ds SCREEN_AREA
+wFullColorShadowOAMBatch:: ds 160
+wFullColorReconstructionLedger::
+wFullColorRequestCount:: db
+wFullColorRequestCursor:: db
+wFullColorAvailableResources:: dw
+wFullColorCommitBudget:: dw
+wFullColorRetryCounter:: db
+wFullColorLastAdmissionResult:: db
+wFullColorTransitionCount:: db
+wFullColorTransitionLog:: ds 8
+wFullColorActiveDescriptor:: dw
+wFullColorTimingState::
+; The passive audit doesn't invoke the dormant scheduler. Its two persistent
+; state bytes safely alias that scheduler's timing scratch without growing WRAM.
+wPassiveFullColorActive:: db
+wPassiveFullColorPalettePending:: db
+wPassiveFullColorClearChunks:: db
+wPassiveFullColorGeneration:: db
+wFullColorReconstructionItems:: ds 4
+wFullColorRequestStaging:: ds 5
+wFullColorReconstructionLedgerEnd::
+wFullColorPhase2StateEnd::
+
+ASSERT wFullColorRequestDescriptorsEnd - wFullColorRequestDescriptors == 8 * 20
+ASSERT wFullColorReconstructionLedgerEnd - wFullColorReconstructionLedger == 32
+ASSERT wFullColorPhase2StateEnd - wFullColorRequestDescriptorsEnd == FULL_COLOR_REQUEST_SCRATCH_BYTES
+ASSERT wFullColorPhase2StateStart == FULL_COLOR_PHASE2_WRAM_START
+ASSERT wFullColorPhase2StateEnd == FULL_COLOR_PHASE2_WRAM_END
+ASSERT BANK(wFullColorPhase2StateStart) == FULL_COLOR_PHASE2_WRAM_BANK
+
+; Guarded lifecycle and runtime-observation state. Nothing here is present in a
+; normal product and no field aliases the Phase 1 SRAM mailbox.
+SECTION "Full Color Phase 2 Lifecycle State", WRAMX[FULL_COLOR_PHASE3_WRAM_START], BANK[FULL_COLOR_PHASE2_WRAM_BANK]
+wFullColorPhase2LifecycleStateStart::
+wFullColorAuthoritySnapshot::
+wFullColorAuthorityMap:: db
+wFullColorAuthorityTileset:: db
+wFullColorAuthorityY:: db
+wFullColorAuthorityX:: db
+wFullColorAuthorityBlockView:: dw
+wFullColorAuthorityVRAMView:: dw
+wFullColorAuthorityMapHeight:: db
+wFullColorAuthorityMapWidth:: db
+wFullColorAuthoritySpriteCount:: db
+wFullColorAuthorityPlayerPicture:: db
+wFullColorAuthorityPikachuPicture:: db
+wFullColorAuthorityReserved:: ds 3
+wFullColorAuthoritySnapshotEnd::
+
+; One private descriptor owned by scheduler helpers. Producers pass semantic
+; arguments and never borrow palette/attribute/OAM preparation scratch.
+wFullColorSchedulerEnqueueDescriptor:: ds FULL_COLOR_REQUEST_DESCRIPTOR_BYTES
+
+; Semantic producers freeze their complete visible unit here before the
+; scheduler descriptor becomes resident. The scheduler then freezes it into
+; its own singleton preparation scratch before the producer returns.
+wFullColorProducerTiles:: ds FULL_COLOR_PRODUCER_PLANE_BYTES
+wFullColorProducerAttributes:: ds FULL_COLOR_PRODUCER_PLANE_BYTES
+wFullColorProducerSource:: dw
+wFullColorProducerDestination:: dw
+wFullColorProducerWidth:: db
+wFullColorProducerHeight:: db
+wFullColorProducerClass:: db
+wFullColorPartyReturnPending:: db
+wFullColorProducerFlags:: db
+wFullColorProducerPending:: db
+
+wFullColorDebugCarrierStart::
+wFullColorDebugProtocolState:: db
+wFullColorDebugCommandPhase2:: db
+wFullColorDebugCheckpointPhase2:: db
+wFullColorDebugScenario:: db
+wFullColorDebugSequence:: dw
+wFullColorDebugEntrySVBK:: db
+wFullColorDebugExitSVBK:: db
+wFullColorDebugEntryIE:: db
+wFullColorDebugExitIE:: db
+wFullColorDebugEntrySP:: dw
+wFullColorDebugExitSP:: dw
+wFullColorDebugOwnerPhase:: ds 2
+wFullColorDebugGenerationPhase2:: ds 4
+wFullColorDebugRequestState:: ds 4
+wFullColorDebugWriterState:: ds 4
+wFullColorDebugCommonState:: ds 4
+wFullColorDebugFallbackState:: ds 4
+wFullColorDebugReconstructionState:: ds 8
+wFullColorDebugTraceCountPhase2:: db
+wFullColorDebugTraceWritePhase2:: db
+wFullColorDebugTracePhase2:: ds FULL_COLOR_DEBUG_TRACE_CAPACITY_PHASE2 * FULL_COLOR_DEBUG_TRACE_RECORD_BYTES
+wFullColorDebugCarrierReserved:: ds FULL_COLOR_DEBUG_CARRIER_BYTES - (@ - wFullColorDebugCarrierStart)
+wFullColorDebugCarrierEnd::
+wFullColorPhase2LifecycleStateEnd::
+
+ASSERT wFullColorAuthoritySnapshotEnd - wFullColorAuthoritySnapshot == FULL_COLOR_AUTHORITY_SNAPSHOT_BYTES
+ASSERT wFullColorProducerAttributes - wFullColorProducerTiles == SCREEN_AREA
+ASSERT wFullColorProducerSource - wFullColorProducerAttributes == SCREEN_AREA
+ASSERT wFullColorDebugCarrierEnd - wFullColorDebugCarrierStart == FULL_COLOR_DEBUG_CARRIER_BYTES
+ASSERT wFullColorPhase2LifecycleStateStart == FULL_COLOR_PHASE3_WRAM_START
+ASSERT wFullColorPhase2LifecycleStateEnd == FULL_COLOR_PHASE3_WRAM_END
+ASSERT BANK(wFullColorPhase2LifecycleStateStart) == FULL_COLOR_PHASE2_WRAM_BANK
+ENDC

@@ -19,6 +19,7 @@ rom_obj := \
 
 pokeyellow_obj       := $(rom_obj)
 pokeyellow_debug_obj := $(rom_obj:.o=_debug.o)
+pokeyellow_phase2_audit_obj := $(rom_obj:.o=_phase2_audit.o)
 pokeyellow_vc_obj    := $(rom_obj:.o=_vc.o)
 
 
@@ -53,6 +54,7 @@ RGBGFXFLAGS  ?= -Weverything
 	all \
 	yellow \
 	yellow_debug \
+	yellow_phase2_audit \
 	yellow_vc \
 	clean \
 	tidy \
@@ -60,7 +62,10 @@ RGBGFXFLAGS  ?= -Weverything
 	tools \
 	test-full-color-setup \
 	measure-full-color-phase1 \
+	verify-full-color-phase2-audit \
 	test-full-color-gate0 \
+	test-full-color-gate0-ci-run \
+	test-full-color-gate0-ci-compare \
 	test-full-color-renderer-conformance \
 	test-full-color-renderer-runtime \
 	test-full-color-smoke \
@@ -71,6 +76,7 @@ RGBGFXFLAGS  ?= -Weverything
 all: $(roms)
 yellow:       pokeyellow.gbc
 yellow_debug: pokeyellow_debug.gbc
+yellow_phase2_audit: pokeyellow_phase2_audit.gbc
 yellow_vc:    pokeyellow.patch
 
 clean: tidy
@@ -92,9 +98,13 @@ tidy:
 	      $(patches:.patch=_vc.sym) \
 	      $(patches:.patch=_vc.map) \
 	      $(patches:%.patch=vc/%.constants.sym) \
+	      pokeyellow_phase2_audit.gbc \
+	      pokeyellow_phase2_audit.sym \
+	      pokeyellow_phase2_audit.map \
 	      $(pokeyellow_obj) \
 	      $(pokeyellow_vc_obj) \
 	      $(pokeyellow_debug_obj) \
+	      $(pokeyellow_phase2_audit_obj) \
 	      rgbdscheck.o
 	$(MAKE) clean -C tools/
 
@@ -117,6 +127,15 @@ test-full-color-setup:
 
 test-full-color-gate0: pokeyellow.gbc pokeyellow_debug.gbc pokeyellow_vc.gbc
 	$(PYTHON) -m tools.rom_tests.full_color.gate0_runner --root . --results "$(FULL_COLOR_RESULTS)"
+
+test-full-color-gate0-ci-run: pokeyellow.gbc pokeyellow_debug.gbc pokeyellow_vc.gbc
+	$(PYTHON) -m tools.rom_tests.full_color.gate0_runner --root . --results "$(FULL_COLOR_RESULTS)" --one-run "run-$(FULL_COLOR_GATE0_RUN)"
+
+test-full-color-gate0-ci-compare:
+	$(PYTHON) -m tools.rom_tests.full_color.gate0_runner --root . --results "$(FULL_COLOR_RESULTS)" --compare-runs run-1 run-2
+
+verify-full-color-phase2-audit: pokeyellow.gbc pokeyellow_debug.gbc pokeyellow_vc.gbc pokeyellow_phase2_audit.gbc
+	$(PYTHON) -m tools.rom_tests.full_color.phase2_measurements --root . --output specs/full-colors/evidence/phase2-hostile-slice-representation.json --verify
 
 test-full-color-renderer-conformance:
 	$(PYTHON) -m tools.rom_tests.full_color.renderer_conformance_runner --root . --results "$(FULL_COLOR_CONFORMANCE_RESULTS)"
@@ -143,6 +162,7 @@ RGBASMFLAGS += -E
 endif
 
 $(pokeyellow_debug_obj): RGBASMFLAGS += -D _DEBUG
+$(pokeyellow_phase2_audit_obj): RGBASMFLAGS += -D _DEBUG -D PHASE2_AUDIT
 $(pokeyellow_vc_obj):    RGBASMFLAGS += -D _YELLOW_VC
 
 %.patch: %_vc.gbc %.gbc vc/%.patch.template
@@ -169,6 +189,7 @@ endef
 # Dependencies for objects
 $(foreach obj, $(pokeyellow_obj), $(eval $(call DEP,$(obj),$(obj:.o=.asm))))
 $(foreach obj, $(pokeyellow_debug_obj), $(eval $(call DEP,$(obj),$(obj:_debug.o=.asm))))
+$(foreach obj, $(pokeyellow_phase2_audit_obj), $(eval $(call DEP,$(obj),$(obj:_phase2_audit.o=.asm))))
 $(foreach obj, $(pokeyellow_vc_obj), $(eval $(call DEP,$(obj),$(obj:_vc.o=.asm))))
 
 endif
@@ -176,11 +197,13 @@ endif
 
 pokeyellow.gbc:       RGBLINKFLAGS += -p 0x00
 pokeyellow_debug.gbc: RGBLINKFLAGS += -p 0xff
+pokeyellow_phase2_audit.gbc: RGBLINKFLAGS += -p 0xff
 pokeyellow_vc.gbc:    RGBLINKFLAGS += -p 0x00
 
 RGBFIXFLAGS += -Cjsv -k 01 -l 0x33 -m MBC5+RAM+BATTERY -r 03 -t "POKEMON YELLOW"
 pokeyellow.gbc:       RGBFIXFLAGS += -p 0x00
 pokeyellow_debug.gbc: RGBFIXFLAGS += -p 0xff
+pokeyellow_phase2_audit.gbc: RGBFIXFLAGS += -p 0xff
 pokeyellow_vc.gbc:    RGBFIXFLAGS += -p 0x00
 
 %.gbc: $$(%_obj) layout.link

@@ -226,13 +226,21 @@ class Emulator:
             self.press(button)
         if not predicate():
             self.save_screenshot(f"timeout-{description}.png")
-            raise AssertionError(f"Timed out waiting for {description}")
+            registers = self.pyboy.register_file
+            current_map = (
+                self.read("wCurMap") if "wCurMap" in self.symbols else None
+            )
+            raise AssertionError(
+                f"Timed out waiting for {description}: PC={registers.PC:#06x}, "
+                f"SP={registers.SP:#06x}, LCDC={self.pyboy.memory[0xFF40]:#04x}, "
+                f"LY={self.pyboy.memory[0xFF44]}, map={current_map}"
+            )
 
     def is_preset_name_menu(self) -> bool:
         return (
             self.read("wTopMenuItemY") == 2
             and self.read("wTopMenuItemX") == 1
-            and self.read("wMaxMenuItem") == 4
+            and self.read("wMaxMenuItem") == 3
             and self.read("wMenuWatchedKeys") == 1
         )
 
