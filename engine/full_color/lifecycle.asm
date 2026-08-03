@@ -5,6 +5,7 @@ FullColorLifecycleROMStart::
 
 ; Audit products use an owned WRAM2 protocol. They never open or poll the
 ; Phase 1 SRAM mailbox, whose write-only MBC state cannot be restored safely.
+IF DEF(PHASE2_AUDIT)
 PollFullColorPhase2DebugCommand::
 	select_renderer_state_e
 	ldh a, [hRendererStateSavedSVBK]
@@ -155,13 +156,22 @@ SnapshotFullColorPhase2DebugSelected::
 	ld a, [wFullColorAuthorityX]
 	ld [wFullColorDebugReconstructionState + 4], a
 	ret
+ENDC
 
 ; Called with WRAM bank 2 selected during ownership initialization.
+IF DEF(PHASE2_AUDIT)
 InitFullColorPhase2LifecycleSelected::
 	ld hl, wFullColorPhase2LifecycleStateStart
 	ld bc, wFullColorPhase2LifecycleStateEnd - wFullColorPhase2LifecycleStateStart
 	xor a
 	jp FillMemory
+ELSE
+InitFullColorProductionLifecycleSelected::
+	ld hl, wFullColorProductionLifecycleStateStart
+	ld bc, wFullColorProductionLifecycleStateEnd - wFullColorProductionLifecycleStateStart
+	xor a
+	jp FillMemory
+ENDC
 
 ; Copy the evolving 20x18 fixed-WRAM tile authority into producer-owned WRAM2
 ; and derive a separate attribute plane from independent tile-class authority.
@@ -378,7 +388,11 @@ ReconstructFullColorMapEntry::
 	jr c, .restore_failed
 	call CommitFullColorPairedTransferSelected
 	; Exactly one reconstruction barrier is observable before activation.
+IF DEF(PHASE2_AUDIT)
 	ld hl, wFullColorDebugReconstructionState
+ELSE
+	ld hl, wFullColorProductionReconstructionBarrier
+ENDC
 	inc [hl]
 	restore_renderer_state_e
 	call ActivateFullColorOwnerForDiagnostic
@@ -626,6 +640,7 @@ EnqueueFullColorOAMBatchFar::
 ; Carry clear means the owner consumed the VBlank. Yellow-visible writers must
 ; be skipped. Carry set means Yellow remains the VBlank owner.
 FullColorVBlankOwnerConsumed::
+IF DEF(PHASE2_AUDIT)
 	call PollFullColorPhase2DebugCommand
 	call RetryFullColorProducer
 	call GetRendererOwner
@@ -649,6 +664,11 @@ FullColorVBlankOwnerConsumed::
 .yellow
 	scf
 	ret
+ELSE
+	; This audit integration route is deliberately inert in production Phase 1.
+	scf
+	ret
+ENDC
 
 EXPORT SnapshotFullColorMapAuthority, PoisonLegacyVideoRequests
 EXPORT BeginFullColorMapEntry, CompleteFullColorMapReconstruction
@@ -665,4 +685,8 @@ EXPORT EnqueueFullColorCurrentTileMapOverlayFar
 EXPORT EnqueueFullColorWindowTileMapOverlayFar
 EXPORT MapFullColorOAMAttributeFar, EnqueueFullColorOAMBatchFar
 EXPORT FullColorVBlankOwnerConsumed
+IF DEF(PHASE2_AUDIT)
 EXPORT InitFullColorPhase2LifecycleSelected
+ELSE
+EXPORT InitFullColorProductionLifecycleSelected
+ENDC

@@ -347,7 +347,7 @@ def validate_specification(spec_root: Path | str) -> TraceabilityReport:
         check_ids=definitions["check"],
         requirement_rows=requirement_rows,
         acceptance_rows=acceptance_rows,
-        enforce_bidirectional=False,
+        enforce_bidirectional=True,
     )
     return TraceabilityReport(
         requirements=report.requirements,

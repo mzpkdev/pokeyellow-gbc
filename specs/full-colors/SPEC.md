@@ -9,21 +9,23 @@ Mechanism reference: `git@github.com:dannye/pokered-gbc.git` commit
 
 ## Goal
 
-Replace Yellow's overworld renderer with an authoritative full-color renderer.
-It owns map palettes, BG/window attributes, map transfers, map-backed overlays,
-and overworld OAM—including follower Pikachu.
+Add a persistent `COLOR MODE: COLOR/YELLOW` preference. Color may become the
+authoritative renderer only for ordinary Pallet Town and Route 1 presentation,
+including their map palettes, paired tiles/attributes, animated tiles, field
+replacements, and overworld OAM—including follower Pikachu.
 
-Yellow keeps its existing renderer for battles and standalone screens. The two
-renderers exchange ownership at explicit scene boundaries and never write the
-same active scene concurrently.
+Yellow keeps its existing renderer for boot/reset, overlays, dialogue, menus,
+battles, standalone screens, unsupported maps, and all maps under Yellow
+preference. The preference is policy input only. The two renderers exchange
+exclusive ownership at explicit boundaries and never write concurrently.
 
 ## Product boundary
 
 Included:
 
-- all 25 overworld tilesets;
-- map entry, reload, scrolling, connections, and animated tiles;
-- dialogue and transient overlays that reveal the map when closed;
+- ordinary Pallet Town and Route 1 base-map presentation;
+- map entry, reload, scrolling, their connection, animated tiles, and field replacements;
+- complete Color-to-Yellow and Yellow-to-Color handoffs around forced-Yellow contexts;
 - player, follower Pikachu, NPCs, and overworld objects; and
 - deterministic handoff to and from Yellow-owned screens.
 
@@ -33,6 +35,9 @@ Excluded:
 - title, intro, credits, and Pokémon picture screens;
 - party, status, Pokédex, trade, slots, printer, and link presentation; and
 - Pikachu's Beach and Surfing Pikachu.
+
+All-25-map Color authoring and production Color overlays remain future work,
+not release gates for this bounded product.
 
 See [Scope and ownership boundary](docs/scope.md).
 
@@ -45,14 +50,18 @@ RENDERER_FULL_COLOR_OVERWORLD
 RENDERER_YELLOW
 ```
 
-Map-backed dialogue and transient menus remain part of the full-color scene.
-Standalone screens reached from the map receive Yellow ownership before entry
-to destination initialization. Only an actual Yellow-to-full-color overworld
-boundary rebuilds the overworld from authoritative map data; it never restores
-stale VRAM. Yellow-to-Yellow nested, boot, reset, and error transitions do not
-invent a map return.
+Production ownership is defined by the pure decision
+`effective_owner(preference, lifecycle, map)`: it returns Color if and only if
+preference is Color, lifecycle is ordinary map presentation, and map is Pallet
+Town or Route 1; otherwise it returns Yellow. `OVERWORLD_OVERLAY` is reserved
+and unreachable. Every real owner change closes admission, resolves departing
+work, advances generation once, selects the destination, reconstructs every
+destination authority from fresh logical state, crosses one barrier, and then
+reopens admission. Same-owner decisions preserve generation. Reset and soft
+reset from Color complete the same Color-to-Yellow safety contract.
 
-This makes the overworld a complete architecture swap, not a hybrid overlay.
+This makes each eligible base-map interval a complete exclusive-owner route,
+not a hybrid overlay or a second writer layered onto Yellow.
 The normative owner and return behavior is defined by
 [R1.1](docs/requirements.md#r1-renderer-ownership) and
 [R2.7, R2.10, R2.11, R2.12, and R2.13](docs/requirements.md#r2-generation-handoff-reset-and-reconstruction).
@@ -119,13 +128,13 @@ Details:
 
 The project is done when:
 
-1. The full-color architecture exclusively renders every overworld frame.
-2. Yellow exclusively renders every excluded scene.
+1. The exhaustive preference × lifecycle × map matrix selects exactly one owner per cell.
+2. Color exclusively renders ordinary Pallet Town/Route 1 only when preference is Color; Yellow exclusively renders every other cell.
 3. Map tiles and attributes use paired, serialized transfer paths.
-4. Overlays and scene handoffs pass deterministic semantic tests.
+4. Forced-Yellow overlays and complete bidirectional/reset handoffs pass deterministic semantic tests.
 5. All bank, ownership, timing, and writer gates pass.
 6. The three architecture stress cases pass before content expansion.
-7. Yellow's old overworld ownership path can be deleted.
+7. Required Yellow paths remain, while only obsolete competing ownership is deleted.
 
 See [Acceptance criteria](docs/acceptance-criteria.md).
 The authoritative aggregate outcome is

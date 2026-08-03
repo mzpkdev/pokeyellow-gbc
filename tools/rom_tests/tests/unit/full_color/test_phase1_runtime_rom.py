@@ -27,6 +27,7 @@ from tools.rom_tests.full_color.runtime_observability import (
     capture_phase1_runtime_observation,
     capture_yellow_baseline_snapshot,
     restore_phase1_to_yellow,
+    run_debug_command,
     wait_until_phase1_capture_ready,
 )
 
@@ -45,6 +46,59 @@ VISIBLE_FIELDS = (
 INTERRUPT_FLAGS = 0xFF0F
 INTERRUPT_ENABLE = 0xFFFF
 VBLANK_INTERRUPT = 1
+WRAM0_START = 0xC000
+WRAM0_SIZE = 0x1000
+HRAM_START = 0xFF80
+HRAM_SIZE = 0x7F
+
+
+def _assert_bytes_identical(label: str, expected: bytes, actual: bytes) -> None:
+    if expected == actual:
+        return
+    offset = next(
+        index
+        for index, pair in enumerate(zip(expected, actual, strict=True))
+        if pair[0] != pair[1]
+    )
+    raise AssertionError(
+        f"{label}[0x{offset:04x}]={expected[offset]:#04x}->{actual[offset]:#04x}"
+    )
+
+
+def _assert_later_vblanks_execute_healthy_dma(emulator: Emulator) -> None:
+    entries = 0
+    dma_calls = 0
+
+    def enter_vblank(_: object) -> None:
+        nonlocal entries
+        entries += 1
+
+    def enter_dma(_: object) -> None:
+        nonlocal dma_calls
+        dma_calls += 1
+
+    vblank = emulator.symbols["VBlank"]
+    dma = emulator.symbols["hDMARoutine"]
+    dma_call = bytes((0xCD, dma & 0xFF, dma >> 8))
+    vblank_body = emulator.rom.read_bytes()[vblank : vblank + 0x200]
+    dma_call_offset = vblank_body.find(dma_call)
+    assert dma_call_offset >= 0, "Yellow VBlank no longer calls hDMARoutine"
+    dma_callsite = vblank + dma_call_offset
+    dma_before = emulator.read_memory(dma, 0x15)
+    emulator.pyboy.hook_register(0, vblank, enter_vblank, None)
+    emulator.pyboy.hook_register(0, dma_callsite, enter_dma, None)
+    try:
+        emulator.tick(4)
+    finally:
+        emulator.pyboy.hook_deregister(0, vblank)
+        emulator.pyboy.hook_deregister(0, dma_callsite)
+    assert entries >= 3, f"expected at least 3 genuine later VBlanks; got {entries}"
+    assert dma_calls == entries, (
+        f"Yellow DMA ran {dma_calls} times across {entries} genuine later VBlanks"
+    )
+    _assert_bytes_identical(
+        "hDMARoutine", dma_before, emulator.read_memory(dma, len(dma_before))
+    )
 
 
 def _fresh_run(results: Path) -> dict[str, str]:
@@ -67,6 +121,8 @@ def _fresh_run(results: Path) -> dict[str, str]:
         )
         ie_before = emulator.read_memory(INTERRUPT_ENABLE, 1)[0]
         if_before = emulator.read_memory(INTERRUPT_FLAGS, 1)[0]
+        wram0_before = emulator.read_memory(WRAM0_START, WRAM0_SIZE)
+        hram_before = emulator.read_memory(HRAM_START, HRAM_SIZE)
         observation = capture_phase1_runtime_observation(
             emulator, case, settle_debug_ready=False
         )
@@ -144,7 +200,24 @@ def _fresh_run(results: Path) -> dict[str, str]:
                 raise AssertionError(f"{field}[0x{offset:04x}]")
             assert actual == expected, field
 
+        _assert_bytes_identical(
+            "WRAM0",
+            wram0_before,
+            emulator.read_memory(WRAM0_START, WRAM0_SIZE),
+        )
+        _assert_bytes_identical(
+            "HRAM", hram_before, emulator.read_memory(HRAM_START, HRAM_SIZE)
+        )
+
         after = restore_phase1_to_yellow(emulator)
+        _assert_bytes_identical(
+            "WRAM0",
+            wram0_before,
+            emulator.read_memory(WRAM0_START, WRAM0_SIZE),
+        )
+        _assert_bytes_identical(
+            "HRAM", hram_before, emulator.read_memory(HRAM_START, HRAM_SIZE)
+        )
         baseline_report = compare_phase1_baseline(before, after)
         assert baseline_report.passed, baseline_report.to_json()
         assert after.owner is Owner.RENDERER_YELLOW
@@ -152,6 +225,7 @@ def _fresh_run(results: Path) -> dict[str, str]:
         assert after.generation == 9
         assert after.job is None
         assert not after.queued_jobs
+        _assert_later_vblanks_execute_healthy_dma(emulator)
 
         return {
             "before": before.to_json(),
@@ -170,6 +244,66 @@ def test_phase1_runtime_rom_is_causal_deterministic_and_visually_inert(
     first = _fresh_run(tmp_path / "run-1")
     second = _fresh_run(tmp_path / "run-2")
     assert second == first
+
+
+def test_phase1_diagnostic_failure_restores_host_trampoline_state(
+    tmp_path: Path,
+) -> None:
+    emulator = Emulator(
+        ROOT / "pokeyellow_debug.gbc",
+        ROOT / "pokeyellow_debug.sym",
+        tmp_path / "failure-cleanup",
+        cgb=True,
+    )
+    try:
+        wait_until_phase1_capture_ready(emulator)
+        pyboy = emulator.pyboy
+        regs = pyboy.register_file
+        register_before = {
+            name: getattr(regs, name)
+            for name in ("A", "F", "B", "C", "D", "E", "HL", "SP", "PC")
+        }
+        stack_top = emulator.symbols["wStack"]
+        stack_before = emulator.read_memory(stack_top - 128, 128, bank=1)
+        hram_before = emulator.read_memory(HRAM_START, HRAM_SIZE)
+        machine_before = {
+            address: pyboy.memory[address]
+            for address in (
+                0xFF70,
+                INTERRUPT_FLAGS,
+                INTERRUPT_ENABLE,
+                emulator.symbols["hLoadedROMBank"],
+            )
+        }
+
+        class FailTickProxy:
+            def __getattr__(self, name: str) -> object:
+                return getattr(pyboy, name)
+
+            def tick(self, *_: object, **__: object) -> None:
+                raise RuntimeError("injected diagnostic tick failure")
+
+        emulator.pyboy = FailTickProxy()  # type: ignore[assignment]
+        with pytest.raises(RuntimeError, match="injected diagnostic tick failure"):
+            run_debug_command(emulator)
+        emulator.pyboy = pyboy
+
+        assert {
+            name: getattr(regs, name) for name in register_before
+        } == register_before
+        assert {
+            address: pyboy.memory[address] for address in machine_before
+        } == machine_before
+        _assert_bytes_identical(
+            "bank-1 diagnostic stack",
+            stack_before,
+            emulator.read_memory(stack_top - 128, 128, bank=1),
+        )
+        _assert_bytes_identical(
+            "HRAM", hram_before, emulator.read_memory(HRAM_START, HRAM_SIZE)
+        )
+    finally:
+        emulator.close()
 
 
 @pytest.mark.parametrize("path", ("hard-boot", "forced-entry-bank-vblank"))

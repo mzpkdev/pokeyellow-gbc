@@ -62,6 +62,9 @@ RGBGFXFLAGS  ?= -Weverything
 	tools \
 	test-full-color-setup \
 	measure-full-color-phase1 \
+	measure-full-color-source-transition \
+	measure-full-color-audit-evidence-identities \
+	measure-full-color-phase2-audit \
 	verify-full-color-phase2-audit \
 	test-full-color-gate0 \
 	test-full-color-gate0-ci-run \
@@ -121,6 +124,15 @@ FULL_COLOR_RUNTIME_RESULTS ?= test-results/full-color-renderer-runtime
 measure-full-color-phase1: yellow_debug
 	$(PYTHON) -m tools.rom_tests.full_color.phase1_measurements --root . --output specs/full-colors/evidence/phase1-ownership-placement.json
 
+measure-full-color-source-transition: yellow yellow_debug yellow_vc yellow_phase2_audit
+	$(PYTHON) -m tools.rom_tests.full_color.source_transition --root . --output specs/full-colors/definitions/phase1-audit-source-transition.json
+
+measure-full-color-audit-evidence-identities: measure-full-color-source-transition
+	$(PYTHON) -m tools.rom_tests.full_color.audit_evidence_identities --root .
+
+measure-full-color-phase2-audit: measure-full-color-audit-evidence-identities
+	$(PYTHON) -m tools.rom_tests.full_color.phase2_measurements --root . --output specs/full-colors/evidence/phase2-hostile-slice-representation.json
+
 test-full-color-setup:
 	python3 -m venv .venv
 	.venv/bin/python -m pip install -r tools/rom_tests/requirements.txt
@@ -164,6 +176,7 @@ endif
 $(pokeyellow_debug_obj): RGBASMFLAGS += -D _DEBUG
 $(pokeyellow_phase2_audit_obj): RGBASMFLAGS += -D _DEBUG -D PHASE2_AUDIT
 $(pokeyellow_vc_obj):    RGBASMFLAGS += -D _YELLOW_VC
+$(pokeyellow_obj) $(pokeyellow_debug_obj) $(pokeyellow_vc_obj): RGBASMFLAGS += -D FULL_COLOR_PRODUCTION_LINKAGE
 
 %.patch: %_vc.gbc %.gbc vc/%.patch.template
 	tools/make_patch $*_vc.sym $^ $@

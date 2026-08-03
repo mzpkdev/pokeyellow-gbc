@@ -9,7 +9,9 @@ part of the contract.
 | Kind | Symbolic values |
 |---|---|
 | owner | `RENDERER_YELLOW`, `RENDERER_FULL_COLOR_OVERWORLD` |
-| phase | `YELLOW_ACTIVE`, `HANDOFF_TO_OVERWORLD`, `OVERWORLD_RECONSTRUCTING`, `OVERWORLD_ACTIVE`, `OVERWORLD_OVERLAY`, `HANDOFF_TO_YELLOW` |
+| preference | `COLOR`, `YELLOW` |
+| lifecycle | ordinary map presentation, overlay, dialogue, menu, battle, standalone, boot/reset |
+| phase | `YELLOW_ACTIVE`, `HANDOFF_TO_OVERWORLD`, `OVERWORLD_RECONSTRUCTING`, `OVERWORLD_ACTIVE`, `OVERWORLD_OVERLAY`, `HANDOFF_TO_YELLOW`, `YELLOW_RECONSTRUCTING` |
 | request result | `ACCEPTED`, `COALESCED`, `DEFERRED`, `REJECTED_WRONG_OWNER`, `REJECTED_STALE_GENERATION`, `REJECTED_CAPACITY` |
 | job state | `PENDING`, `PREPARED`, `COMMITTING`, `COMPLETE`, `CANCELLED` |
 | cancellation reason | `HANDOFF`, `RESET`, `SUPERSEDED`, `STALE_GENERATION` |
@@ -17,7 +19,8 @@ part of the contract.
 
 A request is desired visible state. A job is schedulable work realizing one or
 more requests. A generation is an opaque equality token for one ownership
-epoch. Numeric enum values are not part of this contract.
+epoch. The saved preference is policy input only and never grants write
+authority. Numeric enum values are not part of this contract.
 
 | Phase | Permitted owner state | Requirement |
 |---|---|---|
@@ -25,8 +28,9 @@ epoch. Numeric enum values are not part of this contract.
 | `HANDOFF_TO_OVERWORLD` | Yellow selected until the ordered selection step, then full-color selected | R1.2 |
 | `OVERWORLD_RECONSTRUCTING` | full-color selected | R1.2 |
 | `OVERWORLD_ACTIVE` | full-color selected | R1.2 |
-| `OVERWORLD_OVERLAY` | full-color selected | R1.2 |
+| `OVERWORLD_OVERLAY` | reserved and unreachable in the bounded production product | R1.2, R6.13 |
 | `HANDOFF_TO_YELLOW` | full-color selected until the ordered selection step, then Yellow selected | R1.2 |
+| `YELLOW_RECONSTRUCTING` | Yellow selected; admission closed until complete reconstruction and the barrier | R1.2, R2.6, R2.8 |
 
 ## R1 Renderer ownership
 
@@ -61,24 +65,29 @@ epoch. Numeric enum values are not part of this contract.
 - **R1.26:** The phase that first implements each request class or storage allocation shall select its capacity, descriptor semantics, indices, scratch layout, WRAM placement, and pressure policy from measurements taken against that implementation; runtime tests shall exercise the selected policy while schema and reference-model tests cover every result branch.
 - **R1.27:** Owner, generation, or destination revalidation failure before visibility shall cancel the job with the applicable stable reason and perform no visible write.
 - **R1.28:** Numeric-budget failure before visibility shall leave the complete job prepared for a later commit attempt rather than returning an admission result.
+- **R1.29:** The saved `COLOR` or `YELLOW` preference shall be policy input only and shall never directly authorize an owner-gated hardware or shadow-state write.
+- **R1.30:** `effective_owner(preference, lifecycle, map)` shall return `RENDERER_FULL_COLOR_OVERWORLD` if and only if preference is `COLOR`, lifecycle is ordinary map presentation, and map is exactly Pallet Town or Route 1; every other input shall return `RENDERER_YELLOW`.
+- **R1.31:** The complete preference × lifecycle × map matrix shall select exactly one effective owner in every cell, and owner-gated dispatch shall use that effective owner rather than the saved preference.
+- **R1.32:** The effective owner shall be recomputed before the destination's first owner-gated write; an unchanged decision shall preserve owner and generation, while a changed decision shall execute exactly one complete handoff and advance generation exactly once.
+- **R1.33:** VBlank shall select the effective owner once before its first visible writer and shall run exactly one owner route for that frame.
 
 ## R2 Generation, handoff, reset, and reconstruction
 
 - **R2.1:** A handoff shall close admission for the departing owner before draining or cancelling its work.
 - **R2.2:** A handoff shall finish an already-visible complete unit or cancel its job before visibility.
 - **R2.3:** A handoff shall establish a fresh non-aliasing generation and invalidate all older work before the arriving owner can write.
-- **R2.4:** A handoff shall select and initialize the arriving owner before reopening admission.
-- **R2.5:** Entry to the overworld shall load tileset palette and attribute data and complete full reconstruction before presentation.
-- **R2.6:** Departure from the overworld shall select Yellow before entry to the destination-initialization routine or any destination display write.
-- **R2.7:** Every concrete Yellow-to-full-color overworld boundary shall run the complete overworld-entry protocol, while a Yellow-to-Yellow transition shall remain Yellow-owned and shall not reconstruct the overworld unless it later crosses such a boundary.
-- **R2.8:** Soft reset shall cancel all work, invalidate all generations, restore machine state, select Yellow, and re-enter normal boot.
+- **R2.4:** A handoff shall select and initialize the arriving owner, reconstruct every destination authority from fresh logical state, cross exactly one presentation barrier, and only then reopen admission.
+- **R2.5:** Entry to Color-owned ordinary Pallet Town or Route 1 presentation shall load tileset palette and attribute data and complete full reconstruction before presentation.
+- **R2.6:** Every Color-to-Yellow boundary, including overlay, dialogue, menu, battle, standalone, unsupported-map, preference, reset, and soft-reset boundaries, shall enter `YELLOW_RECONSTRUCTING`, treat the complete R2.10 resource set as unknown, rebuild the complete R2.11 ledger from fresh logical authority, cross exactly one R2.12 barrier, and only then reopen admission or permit the destination's first owner-gated display write.
+- **R2.7:** Every concrete Yellow-to-Color boundary for eligible ordinary Pallet Town or Route 1 presentation shall run the complete overworld-entry protocol; a same-owner decision shall preserve generation and perform no synthetic handoff or reconstruction.
+- **R2.8:** Soft reset shall cancel all work, invalidate all generations, restore machine state, select Yellow, and re-enter normal boot. Reset and soft reset from Color ownership shall additionally complete the R2.6 Color-to-Yellow contract before presentation: if the display stays provably hidden, admission shall remain closed through fresh Yellow reconstruction and its one barrier; otherwise the ordinary complete handoff shall finish before any reset-owned video write.
 - **R2.9:** A generation value shall not be reused while any work carrying that value can execute.
 
-### Complete overworld reconstruction
+### Complete destination reconstruction
 
-- **R2.10:** `OVERWORLD_RECONSTRUCTING` shall treat prior tilemaps, attributes, palettes, OAM, buffers, flags, and jobs as unknown.
+- **R2.10:** `OVERWORLD_RECONSTRUCTING` and `YELLOW_RECONSTRUCTING` shall treat prior tiles and tilemaps, attributes, palette sources, transformed palettes and palette hardware, shadow and hardware OAM, viewport, scroll, window and destination state, buffers, flags, animations and field replacements, jobs, banks, stack, and interrupt state as unknown.
 - **R2.11:** Before presentation, reconstruction shall complete map, tileset, and override identity; viewport, scroll, window, and destination state; required tiles and animation or field replacements; all presentable bank-0 tilemaps and freshly generated bank-1 attributes; base, transformed, and hardware palettes; player, follower, and object shadow OAM; current-generation scheduler state; and restored banks, stack, and interrupt state.
-- **R2.12:** One presentation barrier shall expose the reconstructed result before the phase changes from `OVERWORLD_RECONSTRUCTING` to `OVERWORLD_ACTIVE`.
+- **R2.12:** Exactly one presentation barrier shall expose the reconstructed result before the phase changes from `OVERWORLD_RECONSTRUCTING` to `OVERWORLD_ACTIVE` or from `YELLOW_RECONSTRUCTING` to `YELLOW_ACTIVE`; admission shall reopen only after that barrier.
 - **R2.13:** Captured VRAM, palette RAM, OAM, or screen-buffer bytes shall satisfy no reconstruction item.
 
 ## R3 CGB and bank foundation
@@ -126,6 +135,7 @@ epoch. Numeric enum values are not part of this contract.
 - **R6.10:** Overlay classification, tile identity, and attribute generation shall never sample either VRAM bank as oracle input.
 - **R6.11:** The same overlay oracle shall govern unclipped, partially clipped, edge, connection, alternate-BG, alternate-map-identity, and empty-after-clipping requests without consulting ambient active-map state.
 - **R6.12:** RGB's standalone-screen 20×18 palette-map mode shall not be imported for an overworld overlay.
+- **R6.13:** Production overlays, dialogue, text, and transient menus shall be Yellow-owned and shall not enter the Color pipeline; `OVERWORLD_OVERLAY` remains reserved and unreachable in this bounded product.
 
 ## R7 Paired transfers and visible commit units
 
@@ -138,9 +148,10 @@ epoch. Numeric enum values are not part of this contract.
 
 | Operation | Atomic visible unit | Requirement |
 |---|---|---|
-| load, reload, or actual Yellow-to-full-color overworld boundary | complete reconstruction before presentation | R2.11, R2.12 |
+| load, reload, or actual Yellow-to-Color eligible-map boundary | complete reconstruction before presentation | R2.11, R2.12 |
+| actual Color-to-Yellow boundary, including reset or soft reset from Color | complete fresh Yellow reconstruction and exactly one barrier before admission or presentation | R2.6, R2.10, R2.11, R2.12 |
 | horizontal or vertical streaming, all four connection directions, one-third window/tilemap transfer, explicit row, or rectangle transfer | all bank-0 IDs and matching bank-1 attributes | R7.1, R7.3 |
-| dialogue, text, transient-menu, or field-move overlay | every tile/attribute pair in its changed rectangle | R6.4, R7.3 |
+| dialogue, text, transient-menu, or field-move overlay | Yellow-owned declared baseline unit; Color pipeline unreachable | R6.13, R7.3 |
 | alternate BG map destination | every declared tile/attribute pair | R7.1, R7.3 |
 | animation or field replacement | tile ID, attribute, and declared tile-data dependency | R7.1, R7.3 |
 | palette change | complete requested 64-byte BG or OBJ payload | R5.8 |
@@ -162,6 +173,9 @@ R10.5, R10.6, R10.7, R10.8, R10.9, and R10.10 define its evidence and numeric
 timing boundary.
 
 ## R9 Overworld OAM
+
+R9 applies only while Color effectively owns ordinary Pallet Town or Route 1;
+all forced-Yellow contexts retain Yellow OAM ownership.
 
 - **R9.1:** Authoritative overworld OAM construction shall assign OBJ palette bits after final tile and Pikachu offset selection.
 - **R9.2:** OAM palette assignment shall replace bits 0–2 while preserving priority, flips, tile bank, and all control bits 3–7.
@@ -185,6 +199,7 @@ timing boundary.
 - **R10.8:** Every timing budget row shall record operation, mode, ROM, tool or device, samples, worst cycles, instrumentation cycles, start, deadline, guard, margin cycles, margin percent, and exact defer threshold.
 - **R10.9:** A timing budget shall pass only when `worst + instrumentation <= deadline - start - guard`.
 - **R10.10:** A forced workload of exact defer threshold plus one at every pre-visible preparation or revalidation boundary shall defer the whole visible unit before `COMMITTING`.
+- **R10.11:** Every timed operation made reachable by the production selector or either handoff direction shall have a named numeric cycle equation, natural budget or deadline, exact-fit commit evidence, and threshold-plus-one whole-unit defer evidence before activation; `$ffff` is not a production budget.
 
 ## R11 Diagnostic mode
 
@@ -197,13 +212,13 @@ timing boundary.
 
 ## R12 Isolation and removal
 
-- **R12.1:** Battles and every standalone screen in the scope contract shall retain Yellow rendering behavior.
+- **R12.1:** Boot/reset, overlays, dialogue, menus, battles, standalone screens, unsupported maps, and every supported map under `YELLOW` preference shall retain Yellow rendering behavior.
 - **R12.2:** Ownership shall transfer to Yellow before entry to destination initialization for a standalone lifecycle and therefore before its first display write.
 - **R12.3:** RGB battle, picture, animation, minigame, and static palette-map runtime modules shall not be imported.
-- **R12.4:** Yellow's old overworld tint and attribute ownership paths shall be unreachable and removed after replacement.
+- **R12.4:** Yellow paths required by the `YELLOW` preference and forced-Yellow contexts shall remain reachable; only obsolete competing ownership or repair paths may be removed.
 - **R12.5:** Yellow code still required by excluded scenes shall remain intact.
 - **R12.6:** Owner-gated hardware-writer checks shall run in CI.
-- **R12.7:** A selectable feature mode that permits both overworld renderers shall not exist.
+- **R12.7:** The selectable preference shall choose policy only; it shall never permit simultaneous renderer ownership, and exactly one effective owner shall control every visible resource at every instant.
 - **R12.8:** Phase 0 shall prove lifecycle discovery on a reviewed initial map-entry slice, and each implementation phase shall close stable reviewed `SC-…` rows for every lifecycle and directed transition it touches before the changed path becomes reachable.
 
 ## Owner-gated resources
@@ -214,14 +229,14 @@ R1.28, R7.1, R7.2, R7.3, and R7.4.
 
 | Resource | Full-color permission | Yellow permission | Visible commit unit |
 |---|---|---|---|
-| BG palette RAM (`rBGPI/rBGPD`) | map/overlay | standalone | complete requested BG payload |
-| OBJ palette RAM (`rOBPI/rOBPD`) | overworld lifecycle | standalone lifecycle | complete requested OBJ payload |
-| bank-0 BG/window tile IDs | map/overlay | standalone | declared rectangle paired with attributes |
-| bank-1 BG/window attributes | map/overlay | standalone | same rectangle as tile IDs |
-| LCDC/STAT/scroll/window presentation registers (`rLCDC` `$ff40`, `rSTAT` `$ff41`, `rSCY` `$ff42`, `rSCX` `$ff43`, `rLYC` `$ff45`, `rBGP` `$ff47`, `rOBP0` `$ff48`, `rOBP1` `$ff49`, `rWY` `$ff4a`, `rWX` `$ff4b`) | map/overlay lifecycle | standalone lifecycle | declared presentation barrier |
-| shadow OAM entries and lifecycle (allocate, clear, build, palette-map, sort/copy, invalidate) | full-color owner for map scenes; Yellow routines may be called as mechanics | Yellow owner for standalone scenes | complete declared shadow-OAM batch |
-| hardware OAM bytes and lifecycle (DMA destination, LCD-off initialization/clear, reset/handoff invalidation) | full-color owner for map scenes | Yellow owner for standalone scenes | complete hardware-OAM image |
-| OAM DMA source/control (`rDMA` `$ff46`) and DMA launch/wait wrappers | full-color owner/generation for map scenes; Yellow routines may be called as mechanics | Yellow owner for standalone scenes | one declared shadow-to-hardware OAM DMA |
+| BG palette RAM (`rBGPI/rBGPD`) | ordinary Pallet/Route 1 while effective Color | all forced-Yellow contexts | complete requested BG payload |
+| OBJ palette RAM (`rOBPI/rOBPD`) | ordinary Pallet/Route 1 while effective Color | all forced-Yellow contexts | complete requested OBJ payload |
+| bank-0 BG/window tile IDs | ordinary Pallet/Route 1 while effective Color | all forced-Yellow contexts | declared rectangle paired with attributes |
+| bank-1 BG/window attributes | ordinary Pallet/Route 1 while effective Color | all forced-Yellow contexts | same rectangle as tile IDs |
+| LCDC/STAT/scroll/window presentation registers (`rLCDC` `$ff40`, `rSTAT` `$ff41`, `rSCY` `$ff42`, `rSCX` `$ff43`, `rLYC` `$ff45`, `rBGP` `$ff47`, `rOBP0` `$ff48`, `rOBP1` `$ff49`, `rWY` `$ff4a`, `rWX` `$ff4b`) | ordinary Pallet/Route 1 while effective Color | all forced-Yellow contexts | declared presentation barrier |
+| shadow OAM entries and lifecycle (allocate, clear, build, palette-map, sort/copy, invalidate) | ordinary Pallet/Route 1 while effective Color; Yellow routines may be called as mechanics | all forced-Yellow contexts | complete declared shadow-OAM batch |
+| hardware OAM bytes and lifecycle (DMA destination, LCD-off initialization/clear, reset/handoff invalidation) | ordinary Pallet/Route 1 while effective Color | all forced-Yellow contexts | complete hardware-OAM image |
+| OAM DMA source/control (`rDMA` `$ff46`) and DMA launch/wait wrappers | ordinary Pallet/Route 1 effective Color owner/generation; Yellow routines may be called as mechanics | all forced-Yellow contexts | one declared shadow-to-hardware OAM DMA |
 | shade-remap and renderer dirty/job state | current full-color generation | independent Yellow state | generation boundary |
 | `rVBK`, `rSVBK`, ROM bank, stack, interrupts | temporary and restored | temporary and restored | call/interrupt boundary |
 | HDMA/GDMA for listed resources | current owner/generation | current owner/generation | declared DMA operation |

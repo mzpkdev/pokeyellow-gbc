@@ -24,6 +24,23 @@ record:
 Each implementation PR names its affected requirement and inventory IDs,
 commit units, owner transitions, timing-row keys, and concrete `CHK-…` checks.
 
+## Bounded production release scope
+
+The production release implemented by this plan exposes a persistent
+`COLOR/YELLOW` policy preference. Color is eligible only for ordinary Pallet
+Town and Route 1 presentation. Boot/reset, overlays, dialogue, menus, battles,
+standalone scenes, unsupported maps, and every map under Yellow preference use
+the retained Yellow renderer. Preference never grants write authority; the
+effective-owner resolver does, and every real owner change uses one complete
+generation-advancing handoff, fresh destination reconstruction, and one
+presentation barrier. Reset and soft reset from Color are complete
+Color-to-Yellow handoffs under the same rule.
+
+The diagnostic overlay oracle and all-25-tileset data remain valuable retained
+evidence and future authoring foundations, but production Color-overlay rollout
+and all-25-map coloring are not gates for this bounded release. Their prior
+phase descriptions are interpreted as quarantined diagnostic/future work.
+
 ## Phase 0: mandatory iteration foundation
 
 Implement [Gate 0](prerequisite-gates.md) using the existing
@@ -164,8 +181,9 @@ touches before the changed path becomes reachable.
 
 - Add the unmistakable eight-palette canary mode.
 - Add transformed buffers and shade remapping.
-- Pair initial, horizontal, vertical, connection, and overlay attributes for
-  one diagnostic tileset.
+- Pair initial, horizontal, vertical, connection, animation, and field-
+  replacement units for the diagnostic Pallet Town/Route 1 slice. Keep the
+  overlay oracle quarantined from production.
 - Route wrappers by owner.
 - Exercise follower Pikachu, several NPCs, and animated terrain.
 - Implement one real standalone-screen handoff and return.
@@ -224,11 +242,12 @@ touches before the changed path becomes reachable.
 - Generalize the tile attribute lookup.
 - Complete the overworld palette/shade pipeline for fades, flashes, white,
   black, and poison effects.
-- Cover every map load/reload path.
+- Cover Pallet Town and Route 1 load/reload paths for bounded production.
 - Cover all connections and transfer destinations.
-- Cover dialogue and transient overlays.
+- Prove dialogue and transient overlays remain Yellow baseline, with complete
+  Color-to-Yellow departure and Yellow-to-Color eligible-map return.
 - Cover animated and replaced tiles.
-- Make every overlay request authoritative for destination BG/window selector,
+- In the quarantined diagnostic oracle, keep every overlay request authoritative for destination BG/window selector,
   map identity, tileset identity, world-coordinate transform, override set,
   and preserved source/destination/world mapping.
 
@@ -251,8 +270,8 @@ and frame strips, paired-transfer matrix, overlay-oracle, forced-boundary,
 bank, ownership-trace, focused-soak, and numeric worst-case timing checks;
 execution records their concrete `CHK-…` IDs and timing-row keys. Transfer
 and override-precedence coverage in this phase is evidence toward
-`AC-OW-04`, but that criterion does not close until Phase 6 supplies its
-roof, override, animation, and replacement content. Transfer coverage in this
+`AC-OW-04`, but that criterion does not close until Phase 6 supplies bounded
+Pallet Town/Route 1 animation and field-replacement content. Transfer coverage in this
 phase does not close any globally quantified handoff or return criterion.
 
 **Exit gate:** Every cited paired-transfer and palette-effect `MU-…` and
@@ -339,43 +358,42 @@ poisoned-return case is stress progress toward `AC-STRESS-02` and
 deterministic artifacts, positive numeric margins, and threshold-plus-one
 whole-unit deferral for every timed path.
 
-Do not begin tileset content expansion until this gate is green.
+Do not begin bounded production content activation until this gate is green.
 
-## Phase 6: tileset content
+## Phase 6: bounded Pallet Town and Route 1 content
 
 Lean Gate 0 is green. This phase declares and closes every inventory row it
 touches before the changed path becomes reachable.
 
-- Independently author and validate all 25 Yellow palette sets and `$60`
-  assignment tables; donor content is candidate organizational or artistic
-  evidence only.
-- Add native Beach House data.
-- Add roofs and reviewed map overrides.
-- Verify animated tile compatibility.
-- Revalidate fades, flashes, white, black, and poison effects across all 25
-  completed Yellow palette sets.
+- Independently author and validate only palette/attribute data reached by
+  ordinary Pallet Town and Route 1; donor content remains candidate evidence.
+- Close their connection, map-specific overrides, every animated tile, and
+  every field replacement reached in those two maps.
+- Revalidate fades, flashes, white, black, and poison effects for the bounded
+  Pallet Town/Route 1 Color scene.
 
-**Requirements:** The execution record cites `R5.5`, `R6.1`, `R6.2`, `R6.3`,
-`R6.7`, `R6.9`, `R8.1`, `R8.2`, `R8.3`, `R8.4`, `R8.5`, and `R8.6`.
+**Requirements:** The execution record cites `R5.5`, `R6.1`, `R6.3`, `R6.7`,
+`R6.9`, `R7.1`, `R7.3`, `R8.2`, `R8.4`, `R8.5`, and `R8.6` only for data
+and operations reachable in ordinary Pallet Town and Route 1.
 
 **Inventory:** When executed, list and close every concrete closed-inventory
-tileset/content and palette-effect `MU-…` row and every `WR-…` row used to
-load or transform its palette or to apply its lookup, roof, override,
-animation, or native Beach House data.
+bounded tileset/content and palette-effect `MU-…` row and every `WR-…` row
+used to load or transform its palette or to apply its lookup, override,
+animation, or field replacement.
 
-**Acceptance:** The execution record closes `AC-OW-01`, `AC-OW-04`,
-`AC-OW-06`, `AC-TECH-05`, and `AC-TECH-10`. `AC-OW-04` closes here, after
-the Phase 3 transfer and precedence work is exercised with the completed roof,
-override, animation, and replacement content required by `R8.5` and `R8.6`.
+**Acceptance:** The execution record closes bounded `AC-OW-04`, `AC-OW-06`,
+`AC-TECH-05`, and `AC-TECH-10` obligations. Future `AC-OW-01` all-25 content
+does not close here and is not required for bounded-release completion.
 
-**Evidence:** Named 25-tileset atlas, exact table-length, Yellow-graphics
-audit, Beach House, roof/override, animation, semantic full-byte attribute,
+**Evidence:** Named Pallet Town/Route 1 table-length, Yellow-graphics,
+override, animation, field-replacement, semantic full-byte attribute,
 fade/flash/white/black/poison frame-strip, and visual-review checks; execution
-records their concrete `CHK-…` IDs.
+records their concrete `CHK-…` IDs and per-operation timing rows.
 
-**Exit gate:** Every cited tileset/content row is closed, and all 25 tilesets'
-atlas, table, semantic attribute, animation, palette-effect, and visual-review
-evidence passes.
+**Exit gate:** Every cited Pallet Town/Route 1 content row is closed, and its
+table, semantic attribute, animation, field-replacement, palette-effect, and
+visual-review evidence passes. Unsupported-map authoring is not part of this
+gate.
 
 ## Phase 7: complete handoff coverage
 
@@ -384,7 +402,9 @@ touches before the changed path becomes reachable.
 
 - Handoff before destination initialization on every concrete map-to-Yellow
   edge.
-- Reconstruct the map on every concrete Yellow-to-full-color overworld edge,
+- Reconstruct from fresh logical state on every concrete Yellow-to-Color
+  Pallet Town/Route 1 edge and reconstruct Yellow completely on every reverse
+  edge, including reset and soft reset from Color,
   and do not invent map returns for standalone lifecycles without that edge.
 - Stress rapid, repeated, interrupted, boot/reset, Yellow-to-Yellow nested and
   error, and actual ownership-boundary transitions.
@@ -409,8 +429,9 @@ close here, and not in an earlier representative slice, only after every
 concrete directed inventory edge has exhaustive evidence.
 
 **Evidence:** Named directed scene-graph and boundary handoff matrix,
-Yellow-before-destination-initialization, poison, complete-reconstruction only
-on actual Yellow-to-overworld edges, barrier, five-active-frame,
+Yellow-before-destination-initialization, complete destination-resource poison
+and fresh reconstruction on every real owner change in either direction,
+exactly one barrier, admission reopening only afterward, five-active-frame,
 stale-generation, boot/reset/nested/error-exit, and 100-cycle soak checks;
 execution records their concrete `CHK-…` IDs, including the `R2.6` and
 `R12.2` first-writer and initialization-entry evidence required by
@@ -420,12 +441,13 @@ execution records their concrete `CHK-…` IDs, including the `R2.6` and
 the full handoff matrix plus rapid, repeated, interrupted, nested, reset,
 return-reconstruction, and 100-cycle soak evidence passes.
 
-## Phase 8: delete old overworld ownership
+## Phase 8: remove only obsolete competing ownership
 
 Lean Gate 0 is green. This phase declares and closes every inventory row it
 touches before the changed path becomes reachable.
 
-- Remove Yellow's old overworld tint and attribute path.
+- Remove only obsolete competing or repair paths; retain every Yellow path
+  required by preference and forced-Yellow contexts.
 - Remove transitional overworld adapters.
 - Remove restoration behavior.
 - Enforce owner-gated hardware writers in CI.
@@ -469,9 +491,11 @@ touches before the changed path becomes reachable.
 `WR-…`, `SC-…`, and `MU-…` row reached by timing comparison, soak, release
 builds, and excluded-scene regressions.
 
-**Acceptance:** The execution record closes every acceptance criterion still
-open after Phases 0–8, including `AC-TIME-01`, `AC-TRACE-01`, `AC-TECH-01`,
-`AC-TECH-08`, `AC-TECH-10`, `AC-HO-02`, `AC-REMOVE-04`, and `AC-DONE-01`.
+**Acceptance:** The execution record closes every bounded-release acceptance
+criterion still open after Phases 0–8, including `AC-TIME-01`, `AC-TRACE-01`,
+`AC-TECH-01`, `AC-TECH-08`, `AC-TECH-10`, `AC-HO-02`, `AC-REMOVE-04`, and
+`AC-DONE-01`.
+Future/non-gating `AC-OW-01` is explicitly excluded.
 
 **Evidence:** Named timing-budget and baseline-comparison tables, exact
 threshold-plus-one deferrals, complete traceability report,
@@ -479,9 +503,20 @@ fade/flash/white/black/poison multi-frame regressions, multi-frame and soak
 suites, reproducible release/debug/VC builds, and excluded-scene regression
 checks; execution records their concrete `CHK-…` IDs and every timing-row key.
 
-**Exit gate:** All remaining acceptance, traceability, numeric timing
+**Exit gate:** All remaining bounded-release rows in the
+[acceptance criteria](acceptance-criteria.md), traceability, numeric timing
 comparison, threshold deferral, soak, build, and excluded-scene regression
-evidence passes, so all [acceptance criteria](acceptance-criteria.md) are green.
+evidence pass. Future all-25 content remains non-gating.
+
+## Future non-gating work: all-25-tileset authoring
+
+After the bounded release, a separate future effort may independently author
+and validate all 25 Yellow palette sets and `$60` assignment tables, native
+Beach House data, roofs and map overrides, all-map animations, and all-map
+palette-effect evidence. That effort targets `R8.1` through `R8.6` and
+`AC-OW-01`, but is outside this migration's ordered phases, completion
+criteria, and release gate. Its evidence cannot weaken or substitute for the
+exact Pallet Town/Route 1 production matrix.
 
 ## Iteration rule
 

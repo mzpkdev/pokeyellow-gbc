@@ -1,25 +1,37 @@
 # Scope and ownership boundary
 
-## Included
+This document defines the included production scenes. Mandatory owner,
+handoff, reconstruction, and write behavior remains defined in
+[requirements.md](requirements.md).
 
-The replacement owns the complete map scene:
+## Bounded production inclusion
 
-- eight CGB BG palettes;
-- eight CGB OBJ palettes used by overworld objects;
-- tile-ID-to-attribute data for every Yellow tileset;
-- initial map load and full reload;
-- horizontal and vertical scrolling;
-- all four connected-map directions;
-- animated and replaced map tiles;
-- dialogue and text boxes over the map;
-- transient start, list, yes/no, and field-move overlays;
+Color production scope is only ordinary base-map presentation in Pallet Town
+and Route 1 while the saved preference is `COLOR`. Within those intervals the
+full-color owner includes:
+
+- the two maps' CGB BG palettes and tile-ID-to-attribute data;
+- initial map entry and reload, horizontal and vertical scrolling, and the
+  Pallet Town/Route 1 connection;
+- animated tiles and field replacements, with paired tile/attribute commits;
 - player, follower Pikachu, NPC, and map-object OAM palette bits; and
-- actual ownership boundaries between the map and Yellow-owned screens.
+- complete ownership handoffs to and from Yellow-owned contexts.
 
-## Excluded
+The saved preference is policy input only. It never grants write authority.
+The effective owner is Color if and only if the preference is `COLOR`, the
+lifecycle is ordinary map presentation, and the map is Pallet Town or Route 1.
+Every other cell is Yellow-owned. Exactly one effective owner is selected at
+every instant.
+
+## Yellow-owned production scope
 
 Yellow's existing renderer continues to own:
 
+- every map, including Pallet Town and Route 1, under `YELLOW` preference;
+- every unsupported map under either preference;
+- boot, reset, soft reset, new-game, and continue presentation;
+- dialogue, text boxes, and transient start, list, yes/no, field-move, and
+  other menu or overlay presentation;
 - battle backgrounds, HUD, Pokémon, trainers, transitions, and animations;
 - title, splash, Oak speech, Yellow intro, and credits;
 - party, status, Pokédex, town map, trainer card, naming, and PC screens;
@@ -27,53 +39,66 @@ Yellow's existing renderer continues to own:
 - slots, printer, and link-room presentation;
 - Pikachu front-picture and emotion-picture screens;
 - Pikachu's Beach and Surfing Pikachu; and
-- any other standalone screen that replaces the map.
+- any other standalone or unlisted lifecycle.
 
-Follower Pikachu is included because it is an overworld object.
+Follower Pikachu is included in Color only as an overworld object during an
+eligible ordinary base-map interval. Its dialogue, emotion-picture, menu,
+battle, and standalone presentation remains Yellow-owned.
 
-## Classification rule
+## Classification and ownership rule
 
-These labels apply only to rows in the scene-lifecycle table.
-`MAP_BACKED` means dismissal resumes the same map simulation and viewport
-without map entry; it remains full-color-owned even when opaque.
-`STANDALONE` means an independent display lifecycle owned by Yellow.
-`SCENE_BOUNDARY` means a concrete directed transition that transfers ownership
-between a map lifecycle and a Yellow-owned lifecycle. Boot and reset entry,
-Yellow-to-Yellow nesting, failure recovery, and other Yellow-to-Yellow edges
-remain Yellow-owned and are not map boundaries. Yellow is selected before
-entry to destination initialization on a full-color-to-Yellow boundary. No
-scene may be “temporarily Yellow-owned while preserving the map.” A standalone
-lifecycle does not imply a map entry or return edge; only source and built-ROM
-reachability may establish those concrete directed edges. Every unlisted
-lifecycle or directed transition must receive a reviewed `SC-…` row in
-`replacement-inventory.md` before later implementation phases touch it, as
-required by
+`ORDINARY_BASE_MAP` means the ordinary Pallet Town or Route 1 simulation and
+viewport without dialogue, text, a menu, or any other overlay active.
+`FORCED_YELLOW` means any overlay, dialogue, menu, battle, standalone,
+boot/reset, unsupported-map, or `YELLOW`-preference lifecycle.
+`SCENE_BOUNDARY` means a concrete directed edge on which the effective owner
+changes. A real owner change completes the ordered handoff and destination
+reconstruction contract before the arriving owner's first display write.
+
+`OVERWORLD_OVERLAY` is reserved and unreachable in this bounded production
+product. An overlay never preserves Color ownership and never enters the Color
+pipeline: it causes a complete Color-to-Yellow handoff when departing an
+eligible Color interval. A later return to eligible ordinary presentation may
+cause a complete Yellow-to-Color handoff. Same-owner edges preserve generation
+and do not invent a handoff, reconstruction, or map return.
+
+Every unlisted lifecycle or directed transition must receive a reviewed
+`SC-...` row in [replacement-inventory.md](replacement-inventory.md) before an
+implementation phase makes it reachable, as required by
 [R12.8](requirements.md#r12-isolation-and-removal).
 
-Owner behavior is defined by
-[R1.1, R1.3, R1.4, R1.5, R1.6, and R1.7](requirements.md#r1-renderer-ownership).
+Owner selection is defined by
+[R1.1 and R1.29-R1.33](requirements.md#r1-renderer-ownership).
 Transition and reconstruction behavior is defined by
-[R2.1, R2.2, R2.3, R2.4, R2.5, R2.6, R2.7, R2.9, R2.10, R2.11, R2.12, and R2.13](requirements.md#r2-generation-handoff-reset-and-reconstruction).
+[R2.1-R2.13](requirements.md#r2-generation-handoff-reset-and-reconstruction).
 
 ## Scene-lifecycle table
 
-| Lifecycle or directed edge | Classification | Owner or transfer |
+| Lifecycle or directed edge | Classification | Effective owner or transfer |
 |---|---|---|
-| map entry, reload, scrolling, connections, animations, and field replacements | `MAP_BACKED` | full-color owner |
-| dialogue and text boxes over the map | `MAP_BACKED` | full-color owner |
-| transient start, list, yes/no, and field-move overlays | `MAP_BACKED` | full-color owner |
-| battle presentation and animation lifecycle | `STANDALONE` | Yellow |
-| title, splash, Oak speech, Yellow intro, and credits lifecycle | `STANDALONE` | Yellow |
-| party, status, Pokédex, town map, trainer card, naming, and PC lifecycle | `STANDALONE` | Yellow |
-| evolution, Hall of Fame, and trade presentation lifecycle | `STANDALONE` | Yellow |
-| slots, printer, and link-room presentation lifecycle | `STANDALONE` | Yellow |
-| Pikachu front-picture and emotion-picture lifecycle | `STANDALONE` | Yellow |
-| Pikachu's Beach and Surfing Pikachu lifecycle | `STANDALONE` | Yellow |
-| any other lifecycle that replaces the map | `STANDALONE` | Yellow |
-| hard boot, soft reset, new-game, and continue entry into a Yellow lifecycle | `STANDALONE` | Yellow to Yellow; no map reconstruction |
-| nested standalone entry/return and Yellow error or disconnect recovery | `STANDALONE` | Yellow to Yellow; no map reconstruction |
-| each source-and-ROM-proven map-to-standalone edge | `SCENE_BOUNDARY` | full-color to Yellow before destination initialization |
-| each source-and-ROM-proven standalone-to-map edge | `SCENE_BOUNDARY` | Yellow to full-color reconstruction |
+| ordinary Pallet Town or Route 1 presentation with `COLOR` preference | `ORDINARY_BASE_MAP` | Color |
+| ordinary Pallet Town or Route 1 presentation with `YELLOW` preference | `FORCED_YELLOW` | Yellow |
+| any unsupported map under either preference | `FORCED_YELLOW` | Yellow |
+| dialogue, text, menu, or transient overlay on any map | `FORCED_YELLOW` | Yellow; `OVERWORLD_OVERLAY` is unreachable |
+| battle or standalone presentation | `FORCED_YELLOW` | Yellow |
+| boot, reset, soft reset, new-game, or continue presentation | `FORCED_YELLOW` | Yellow |
+| Color-eligible base presentation to any forced-Yellow context | `SCENE_BOUNDARY` | complete Color-to-Yellow handoff |
+| Yellow-owned context to eligible ordinary base presentation with `COLOR` preference | `SCENE_BOUNDARY` | complete Yellow-to-Color handoff |
+| Pallet Town to Route 1 or Route 1 to Pallet Town while Color remains effective | `ORDINARY_BASE_MAP` | Color to Color; no handoff |
+| any edge whose effective owner remains Yellow | `FORCED_YELLOW` | Yellow to Yellow; no handoff |
+
+## Quarantined diagnostic and future material
+
+The all-25-tileset palette/attribute corpus, overlay request oracle, precedence
+and clipping matrices, and diagnostic `OVERWORLD_OVERLAY` model may remain as
+authoring, synthetic-conformance, or audit evidence only. They are explicitly
+non-production and non-gating for this bounded release. They cannot expand the
+two-map allowlist, make a production Color overlay reachable, select an owner,
+or authorize any production write.
+
+Production completion does not require Color authoring for maps beyond Pallet
+Town and Route 1 or Color rendering of dialogue, text, menus, or overlays.
+Those are future product work and require a separately reviewed scope change.
 
 ## Compatibility
 
@@ -82,21 +107,27 @@ Backward compatibility is not a goal. The project may:
 - become CGB-only;
 - reject DMG/SGB execution;
 - change ROM and renderer RAM layout;
-- remove old overworld APIs;
+- remove only obsolete competing overworld ownership or repair APIs;
 - discard the failed full-color-overworld runtime implementation; and
-- change save format if implementation has a concrete reason.
+- change save format if a later implementation has a concrete reviewed reason.
 
-Non-overworld behavior remains protected because it is outside the replacement,
-not because the old overworld renderer must remain compatible.
+Required Yellow paths remain because `YELLOW` preference and every
+forced-Yellow context depend on them. Non-Color behavior is protected by
+baseline and handoff regression gates.
 
 ## Forbidden scope growth
 
 Implementation work must not expand into:
 
+- Color ownership of dialogue, text, menus, or overlays;
 - recoloring battles or battle animations;
 - species/trainer picture palettes;
 - standalone menu redesign;
-- title/intro/minigame renderer replacement; or
-- keeping two selectable overworld renderers.
+- title/intro/minigame renderer replacement;
+- Color ownership outside ordinary Pallet Town and Route 1 presentation;
+- treating the preference as write authority; or
+- concurrent or overlapping ownership by the two renderers.
 
-Non-overworld tests are handoff and regression tests only.
+Yellow-owned tests are baseline, policy, handoff, return, and regression tests
+only. Diagnostic and future authoring evidence cannot satisfy or enlarge the
+bounded production acceptance gate.

@@ -1,19 +1,19 @@
 {
   "audit_only_paths": {
     "constants/full_color_constants.asm": {
-      "audit_sha256": "f04a7742cb706ca28f663753cf482b0d546d435817454b17f77b8be3d1fa3002",
+      "audit_sha256": "b0e8ed1418fdafd9ad5e5598e379162bb22b2ea2ef6672f12b54b2776c5b9d73",
       "reviewed_sha256": "da3032835057223116f29f463feaf21fb2f5b52ddc617a6de1f3a70b02b6ddb8"
     },
     "data/tilesets/full_color_overworld.asm": {
-      "audit_sha256": "e7ffcfd778c56eab02e9b307c214a0c76d3a847560511f0aeaa92f4cefbe1adc",
+      "audit_sha256": "7b31b78ecaa5328ad8c75fcdc80fe3d96fd82a6344961d5cd068af93f9458b79",
       "reviewed_sha256": null
     },
     "engine/full_color/debug_runtime.asm": {
-      "audit_sha256": "0ea43bcf8e64439e8eeb67ab2f45d51a073cca0f99b8dfbbb668b010cdab34aa",
+      "audit_sha256": "920e63ef4d039f6f437cae9eb899dded0693ac07b0b04906d941b57c15fa0a2e",
       "reviewed_sha256": "d5ed0b768270718269d8767776383935846953c3e564643486b239a356a99018"
     },
     "engine/full_color/lifecycle.asm": {
-      "audit_sha256": "2c97660945f9d996129fe9a7d8250a0d0025445ae3e64552cb164f70fed669af",
+      "audit_sha256": "b9a69ad6db5719125614773500164017290ea14b2f278319002f0631b092f329",
       "reviewed_sha256": null
     },
     "engine/full_color/oam.asm": {
@@ -21,7 +21,7 @@
       "reviewed_sha256": null
     },
     "engine/full_color/ownership.asm": {
-      "audit_sha256": "abebf4c2003de838f6d28ba3d083ba9300a1360fc1617ee234715866ad5851ee",
+      "audit_sha256": "312debbbe5dfb78a2fcb16b0dbf0220b56386bf5ed535ce1558959e2dcd6f4ea",
       "reviewed_sha256": "ded865bd6bc643941ebb7657988f9788ca4e286410c7d09c078d46fec74febed"
     },
     "engine/full_color/palettes.asm": {
@@ -41,7 +41,7 @@
       "reviewed_sha256": null
     },
     "engine/full_color/scheduler.asm": {
-      "audit_sha256": "4fa3270ecf8156373e6fdd9736ddbc0f9b0565bb70a118b8f381183fab8f1a3a",
+      "audit_sha256": "e72b2add077273f7b5b61e2e04249aa41bd05ed996a4ca5c1756de9d276ba8e3",
       "reviewed_sha256": null
     },
     "engine/full_color/transfers.asm": {
@@ -89,7 +89,7 @@
       "reviewed_sha256": "a09adc6fc1903b1944a60bcf732a1c5ca71edc02eed19725be47fb9333db77fa"
     },
     "main.asm": {
-      "audit_sha256": "d8d88f4692fa257a44dc2a856c4f9070276947640ef9f90c36fbd45bd35039d5",
+      "audit_sha256": "b1ede556a6097e98050196000ae1cf9da1ad8ee6926c78a20e0268fd69ed18e8",
       "reviewed_sha256": "4097614148ed9256427f73557d5a99948b5af3b069ee4ba4172aed85015b4164"
     },
     "ram/hram.asm": {
@@ -101,11 +101,11 @@
       "reviewed_sha256": "dcbeca2292520e120f7c516bbbb3daa37507d644a7d60f1d678e3c4fd57dd26e"
     },
     "ram/wram.asm": {
-      "audit_sha256": "417f7e3db645a07c96881179d95a3e5b9071ae4cfdf6af075baba2f29b0fd7a3",
+      "audit_sha256": "f6ebbb4add7a70a60b8a4f1a0b003287f8d251fe1055d925b4ce4a7b9a6900f7",
       "reviewed_sha256": "4d611450cde6c95ea60b9f9290032417d802a89e4b995a5a5dafc48d4f2171bf"
     }
   },
-  "audit_source_sha256": "727407af66db23f7166facb48c4b1b778ae9f866fd34b84cdc33c2452abc7442",
+  "audit_source_sha256": "dac0a562119587880e788fef2c82c34a8e63faa88f9d5ac178e1a5334015fbfc",
   "baseline_manifest_sha256": "75c058f0d0df07a25918c710dc8ddebf43d3e5b809a06faaf7391cf015a9d774",
   "reviewed_source_sha256": "9b12281f62023dbd80e64ed17d684aaae5754d787166163f213fe21e4ca2ff7f",
   "rom_subject_rebindings": {

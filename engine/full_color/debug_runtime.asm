@@ -5,35 +5,8 @@ IF DEF(PHASE2_AUDIT)
 ; file retains only the pre-existing debug product's Phase 1 SRAM protocol.
 ELSE
 
-; Poll one debug-only SRAM mailbox from the production VBlank route. Commands
-; are accepted once, cleared before execution, and finish at a stable checkpoint.
-PollFullColorDebugCommand::
-	ldh a, [hFullColorDebugCommandPending]
-	and a
-	ret z
-	xor a
-	ldh [hFullColorDebugCommandPending], a
-	ld a, RAMG_SRAM_ENABLE
-	ld [rRAMG], a
-	ld a, BANK(wFullColorDebugStateStart)
-	ld [rRAMB], a
-	ld a, [wFullColorDebugCommand]
-	ld b, a
-	xor a
-	ld [wFullColorDebugCommand], a
-	ld [rRAMB], a
-	ld [rRAMG], a
-	ld a, b
-	and a
-	ret z
-	cp FULL_COLOR_DEBUG_COMMAND_OWNERSHIP_REPLACEMENT
-	jp z, RunPhase1OwnershipReplacementScenario
-	cp FULL_COLOR_DEBUG_COMMAND_RESTORE_YELLOW
-	jp z, RestoreYellowAfterPhase1Diagnostic
-	ld a, FULL_COLOR_ASSERT_DEBUG_COMMAND
-	call RecordRendererAssertion
-	ret
-
+; These routines have no production caller. The retained real-ROM evidence
+; harness enters them directly through a host-controlled diagnostic seam.
 RunPhase1OwnershipReplacementScenario::
 ; Enter through the same ordered ownership handoff used by production callers.
 	ld a, HANDOFF_TO_OVERWORLD
@@ -48,7 +21,12 @@ RunPhase1OwnershipReplacementScenario::
 ; 8. Boot begins at 1 and the handoff established generation 2.
 	ld d, 5
 .advance_to_old_generation
+	; The production-linked scheduler cancellation helper uses DE while walking
+	; its descriptors. Keep this debug-only scenario's bounded loop counter
+	; outside that production ABI.
+	push de
 	call AdvanceRendererGeneration
+	pop de
 	ret c
 	dec d
 	jr nz, .advance_to_old_generation

@@ -28,6 +28,7 @@ from tools.rom_tests.full_color.discovery_assignment import (
     DiscoveryAssignmentAuthority,
     StaleDiscoveryAssignmentError,
 )
+from tools.rom_tests.full_color.discovery_review import source_finding_subject
 from tools.rom_tests.full_color.inventory import (
     InventoryReconciliationError,
     InventoryValidationError,
@@ -262,6 +263,38 @@ def test_real_progress_closes_slice_and_keeps_global_backlog(real_bundle) -> Non
     assert progress["matched"]["machine_count"] == 4
     assert progress["backlog"]["errors"] > 0
     assert progress["backlog"]["rom_candidates"] > 0
+
+
+def test_real_progress_applies_transition_after_evidence_identity_refresh(
+    real_bundle,
+) -> None:
+    writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
+    normal = assignments.for_product()
+    assert {row.evidence.source_sha256 for row in normal.rows} == {
+        source.source_sha256
+    }
+    raw_subjects = {
+        source_finding_subject(finding).sha256 for finding in source.findings
+    }
+    reviewed_subjects = {
+        row.subject.sha256
+        for row in normal.rows
+        if row.subject.kind.value == "SOURCE_FINDING"
+    }
+    assert not reviewed_subjects <= raw_subjects
+
+    progress = build_progress(
+        writers=writers,
+        scenes=scenes,
+        mutations=mutations,
+        assignments=assignments,
+        source_report=source,
+        rom_report=rom_report,
+        rom=rom,
+    )
+
+    assert progress["closed"] is True
+    assert progress["reviewed_slice"]["source_unlisted_count"] == 0
 
 
 def test_audit_transition_rejects_source_changes_outside_bound_manifest(
