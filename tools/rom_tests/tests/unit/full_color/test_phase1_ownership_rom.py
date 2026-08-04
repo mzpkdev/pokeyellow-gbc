@@ -360,9 +360,15 @@ class Phase1Rom:
 
 @pytest.fixture
 def phase1_rom(request: pytest.FixtureRequest) -> Phase1Rom:
-    rom_path = Path(os.environ.get("ROM_TEST_ROM", REPOSITORY_ROOT / "pokeyellow_debug.gbc"))
+    rom_path = Path(
+        os.environ.get(
+            "ROM_TEST_ROM", REPOSITORY_ROOT / "pokeyellow_phase1_debug.gbc"
+        )
+    )
     symbols_path = Path(
-        os.environ.get("ROM_TEST_SYMBOLS", REPOSITORY_ROOT / "pokeyellow_debug.sym")
+        os.environ.get(
+            "ROM_TEST_SYMBOLS", REPOSITORY_ROOT / "pokeyellow_phase1_debug.sym"
+        )
     )
     emulator = Emulator(
         rom=rom_path,

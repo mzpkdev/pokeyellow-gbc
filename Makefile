@@ -151,10 +151,10 @@ test-full-color-setup:
 	python3 -m venv .venv
 	.venv/bin/python -m pip install -r tools/rom_tests/requirements.txt
 
-test-full-color-gate0: pokeyellow.gbc pokeyellow_debug.gbc pokeyellow_vc.gbc
+test-full-color-gate0: pokeyellow.gbc pokeyellow_debug.gbc pokeyellow_phase1_debug.gbc pokeyellow_vc.gbc
 	$(PYTHON) -m tools.rom_tests.full_color.gate0_runner --root . --results "$(FULL_COLOR_RESULTS)"
 
-test-full-color-gate0-ci-run: pokeyellow.gbc pokeyellow_debug.gbc pokeyellow_vc.gbc
+test-full-color-gate0-ci-run: pokeyellow.gbc pokeyellow_debug.gbc pokeyellow_phase1_debug.gbc pokeyellow_vc.gbc
 	$(PYTHON) -m tools.rom_tests.full_color.gate0_runner --root . --results "$(FULL_COLOR_RESULTS)" --one-run "run-$(FULL_COLOR_GATE0_RUN)"
 
 test-full-color-gate0-ci-compare:

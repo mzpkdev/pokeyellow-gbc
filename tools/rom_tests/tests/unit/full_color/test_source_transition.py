@@ -84,6 +84,52 @@ def test_source_transition_rejects_non_unique_or_changed_subjects(mutation: str)
         )
 
 
+def test_source_transition_prefers_the_reviewed_source_root_before_proximity() -> None:
+    report = source_transition.baseline.discover_baseline_sources(REPOSITORY_ROOT)
+    assignments = DiscoveryAssignmentAuthority.load(
+        REPOSITORY_ROOT / source_transition.ASSIGNMENTS_PATH
+    ).for_product(NORMAL_DEBUG_PRODUCT)
+    row = next(
+        row
+        for row in assignments.rows
+        if row.subject.metadata.get("symbol") == "CopyMapViewToVRAM2"
+    )
+    semantic_matches = [
+        finding
+        for finding in report.findings
+        if source_finding_subject(
+            source_transition._reviewed_source_location(finding, row)
+        ).sha256
+        == row.subject.sha256
+    ]
+    expected = next(
+        finding
+        for finding in semantic_matches
+        if finding.symbol.startswith("CopyMapViewToVRAM2.")
+    )
+    closer_wrong_root = min(
+        (
+            finding
+            for finding in semantic_matches
+            if not finding.symbol.startswith("CopyMapViewToVRAM2.")
+        ),
+        key=lambda finding: abs(finding.line - row.subject.metadata["line"]),
+    )
+    assert abs(closer_wrong_root.line - row.subject.metadata["line"]) < abs(
+        expected.line - row.subject.metadata["line"]
+    )
+
+    rebound = source_transition._unique_rebindings(
+        (row,),
+        (closer_wrong_root, expected),
+        subject=source_finding_subject,
+        rebound=source_transition._reviewed_source_location,
+        kind="source",
+    )
+
+    assert rebound[row.subject.sha256] == source_finding_subject(expected).sha256
+
+
 def test_audit_identity_rebinding_changes_evidence_but_not_subjects(
     tmp_path, monkeypatch
 ) -> None:

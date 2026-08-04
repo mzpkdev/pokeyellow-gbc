@@ -52,6 +52,17 @@ def _unique_rebindings(
             for finding in current
             if subject(rebound(finding, row)).sha256 == row.subject.sha256
         ]
+        if len(matches) > 1 and kind == "source":
+            reviewed_symbol = row.subject.metadata.get("symbol")
+            if isinstance(reviewed_symbol, str):
+                reviewed_root = reviewed_symbol.split(".", 1)[0]
+                same_root = [
+                    finding
+                    for finding in matches
+                    if finding.symbol.split(".", 1)[0] == reviewed_root
+                ]
+                if same_root:
+                    matches = same_root
         if len(matches) > 1 and kind in {"source", "ROM"}:
             coordinate = "line" if kind == "source" else "address"
             reviewed_location = row.subject.metadata.get(coordinate)
