@@ -1,5 +1,21 @@
 # Migration plan
 
+## Status and authority
+
+This document is a future proposal and execution framework. It does not
+supersede the current renderer architecture or product truth in
+[FULL_COLOR_RENDERER.md](../../../docs/FULL_COLOR_RENDERER.md) and
+[ARCHITECTURE.md](../../../docs/ARCHITECTURE.md). Where this plan describes
+ownership transfer, scheduling, lifecycle control, a production color-mode
+toggle, or any other behavior beyond the passive audit renderer, that behavior
+remains proposed.
+
+Implementation MUST stop if this plan conflicts with the current approved
+manuals. An explicit operator decision and separately approved architecture
+change are required before proceeding. This plan MUST NOT activate retained or
+quarantined ownership, scheduler, lifecycle, palette, transfer, or OAM
+machinery by itself.
+
 ## Execution evidence rule
 
 This plan defines the execution record required at every migration gate.
@@ -24,9 +40,9 @@ record:
 Each implementation PR names its affected requirement and inventory IDs,
 commit units, owner transitions, timing-row keys, and concrete `CHK-…` checks.
 
-## Bounded production release scope
+## Proposed bounded production release scope
 
-The production release implemented by this plan exposes a persistent
+The future production release proposed by this plan would expose a persistent
 `COLOR/YELLOW` policy preference. Color is eligible only for ordinary Pallet
 Town and Route 1 presentation. Boot/reset, overlays, dialogue, menus, battles,
 standalone scenes, unsupported maps, and every map under Yellow preference use
@@ -39,7 +55,9 @@ Color-to-Yellow handoffs under the same rule.
 The diagnostic overlay oracle and all-25-tileset data remain valuable retained
 evidence and future authoring foundations, but production Color-overlay rollout
 and all-25-map coloring are not gates for this bounded release. Their prior
-phase descriptions are interpreted as quarantined diagnostic/future work.
+phase descriptions are interpreted as quarantined diagnostic/future work and
+MUST NOT be activated without the separately approved architecture change
+described above.
 
 ## Phase 0: mandatory iteration foundation
 

@@ -34,6 +34,9 @@ must agree.
 
 ## Manuals
 
+- [RFC_2119_KEYWORDS.md](RFC_2119_KEYWORDS.md) - the repository-wide BCP 14
+  convention for requirement levels in markdown read by people or LLMs. Read
+  it before interpreting or writing uppercase requirement keywords.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — ROM-wide build/link layout, directory
   responsibilities, banking and memory contracts, positional IDs, product
   variants, runtime ownership boundaries, and principles for future systems.
@@ -63,19 +66,30 @@ must agree.
 
 When two descriptions appear to disagree, resolve them in this order:
 
-1. `AGENTS.md` and the current approved task or pull-request plan define how
-   work must be performed and what the change is allowed to claim.
+1. Current approved architecture and product manuals define the architecture
+   and product truth that implementation must preserve. For renderer work,
+   [FULL_COLOR_RENDERER.md](FULL_COLOR_RENDERER.md) is the current normative
+   renderer contract, within the ROM-wide boundaries in
+   [ARCHITECTURE.md](ARCHITECTURE.md).
 2. Approved material under `specs/` defines initiative contracts, inventories,
-   provenance, phase boundaries, and exit gates. For color work, begin with the
-   [full-color migration plan](../specs/full-colors/docs/migration-plan.md).
-3. Assembly source, data, build flags, and generated `.map`/`.sym` products
+   provenance, proposed phase boundaries, and exit gates. A future plan does
+   not make its proposed architecture current.
+3. `AGENTS.md` and the current approved task or pull-request plan govern how
+   work is performed and bound its execution scope. They MUST NOT override
+   current approved architecture or product truth.
+4. Assembly source, data, build flags, and generated `.map`/`.sym` products
    define what is linked and reachable.
-4. Built-ROM probes, retained evidence, natural input-driven E2E, and manual
+5. Built-ROM probes, retained evidence, natural input-driven E2E, and manual
    playtesting establish what the machine actually does.
-5. These manuals explain those authorities and the intended contributor
+6. These manuals explain those authorities and the intended contributor
    workflow. Update them when the underlying contract changes.
-6. Chat history, screenshots without provenance, and leftover `test-results/`
+7. Chat history, screenshots without provenance, and leftover `test-results/`
    artifacts are context only. They are never authority by themselves.
+
+If a task or pull-request plan contradicts current approved architecture or
+product truth, implementation MUST stop. Record the conflict and obtain an
+explicit operator decision; do not choose one side implicitly, implement the
+plan, or edit the manuals afterward to make the change appear approved.
 
 Generated evidence must come from its official producer. A spec is not proof
 that proposed code is active, a successful build is not proof of playability,
