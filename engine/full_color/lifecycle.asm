@@ -656,6 +656,11 @@ CompleteYellowPresentation::
 	ld [wFullColorProductionTransitionStatus], a
 	ld [wFullColorProductionTransitionRoute], a
 	restore_renderer_state_e
+	; PoisonLegacyVideoRequests closed Yellow's sprite producer before the
+	; handoff. Reopen it only after the reconstruction barrier and Yellow owner
+	; activation, matching the Color destination's post-activation ordering.
+	ld a, 1
+	ld [wUpdateSpritesEnabled], a
 .same_owner
 	and a
 	ret

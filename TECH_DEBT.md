@@ -24,13 +24,13 @@ links, and proof when the underlying code changes. Do not close an entry from a
 source diff, build, screenshot, or synthetic test alone when its acceptance
 proof requires linked-ROM or natural-gameplay evidence.
 
-Current product truth: the only playable color path is the `PHASE2_AUDIT`
-product, and it colors only Pallet Town and Route 1. A production
-`COLOR/YELLOW` option has been approved and planned, but it is not implemented
-on merged `main`. The optional local operator plan is
-`.preemdeck/plan/introduce-production-color-mode-toggle.md`; this tracked
-register does not depend on that untracked file. The authoritative tracked
-direction remains the [migration plan](specs/full-colors/docs/migration-plan.md).
+Current product truth: normal, debug, and VC products expose
+`COLOR MODE: COLOR/YELLOW`. Color owns only ordinary Pallet Town and Route 1;
+Yellow owns every forced context, unsupported map, reset path, and every map
+under Yellow preference. Preference selects policy and never directly changes
+write authority. The independent `PHASE2_AUDIT` product remains retained as an
+evidence authority. Broader content and scene color remain deferred by the
+[migration plan](specs/full-colors/docs/migration-plan.md).
 
 ## Status and priority
 
@@ -53,17 +53,17 @@ Priorities:
 
 | ID | Status | Priority | Subject |
 | --- | --- | --- | --- |
-| [FC-001](#fc-001-audit-only-passive-runtime) | TRIGGERED | P0 | Audit-only passive runtime |
+| [FC-001](#fc-001-audit-only-passive-runtime) | CLOSED | P0 | Audit-only passive runtime |
 | [FC-002](#fc-002-hard-coded-map-gate) | PLANNED | P1 | Hard-coded map gate |
 | [FC-003](#fc-003-yellow-owned-scene-fallbacks) | PLANNED | P1 | Yellow-owned scene fallbacks |
-| [FC-004](#fc-004-palette-ownership-flashes) | TRIGGERED | P0 | Palette ownership flashes |
-| [FC-005](#fc-005-mode-handoff-is-not-a-product-contract) | TRIGGERED | P0 | Atomic mode handoff |
+| [FC-004](#fc-004-palette-ownership-flashes) | CLOSED | P0 | Palette ownership flashes |
+| [FC-005](#fc-005-mode-handoff-is-not-a-product-contract) | CLOSED | P0 | Atomic mode handoff |
 | [FC-006](#fc-006-passive-state-aliases-dormant-scheduler-storage) | CONSTRAINT | P1 | WRAM alias with dormant scheduler |
-| [FC-007](#fc-007-dormant-renderer-architecture) | PLANNED | P1 | Dormant scheduler and lifecycle |
-| [FC-008](#fc-008-phase-2-audit-mailboxes-and-observability-carriers) | TRIGGERED | P0 | Phase 2 audit mailboxes and carriers |
-| [FC-009](#fc-009-product-link-and-reachability-partition) | TRIGGERED | P0 | Product link partition |
+| [FC-007](#fc-007-dormant-renderer-architecture) | ACTIVE | P1 | Bounded scheduler and lifecycle |
+| [FC-008](#fc-008-phase-2-audit-mailboxes-and-observability-carriers) | CLOSED | P0 | Phase 2 audit mailboxes and carriers |
+| [FC-009](#fc-009-product-link-and-reachability-partition) | CLOSED | P0 | Product link partition |
 | [FC-010](#fc-010-object-color-path-is-only-scaffolding) | PLANNED | P1 | OAM color scaffolding |
-| [FC-011](#fc-011-evidence-contract-assumes-audit-only-color) | TRIGGERED | P0 | Stale product/evidence assumption |
+| [FC-011](#fc-011-evidence-contract-assumes-audit-only-color) | CLOSED | P0 | Stale product/evidence assumption |
 | [FC-012](#fc-012-generated-inventory-transition-cost) | ACTIVE | P1 | Generated inventory transitions |
 | [FC-013](#fc-013-natural-gameplay-is-not-hosted) | ACTIVE | P1 | Natural gameplay not hosted |
 | [FC-014](#fc-014-donor-content-is-incomplete-for-yellow) | BLOCKED | P1 | Incomplete Yellow color content |
@@ -90,10 +90,9 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
 
 ### FC-001: Audit-only passive runtime
 
-- **Status / priority:** TRIGGERED / P0.
-- **What exists:** `pokeyellow_phase2_audit.gbc` links the passive Pallet
-  Town/Route 1 renderer behind `_DEBUG` plus `PHASE2_AUDIT`; ordinary release,
-  debug, and VC products do not expose it.
+- **Status / priority:** CLOSED / P0.
+- **What exists:** production products activate the bounded ownership renderer;
+  `pokeyellow_phase2_audit.gbc` remains an isolated passive evidence product.
 - **Why retained:** isolation let the slice prove geometry, timing, fallback,
   and gameplay without changing stock product identities.
 - **Current risk:** promoting color with the audit flag would also promote
@@ -166,7 +165,7 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
 
 ### FC-004: Palette ownership flashes
 
-- **Status / priority:** TRIGGERED / P0.
+- **Status / priority:** CLOSED / P0 for the bounded production scope.
 - **What exists:** Yellow's `LoadGBPal`, fades, menus, dialogue, and battle
   transitions may replace global CGB BG palettes; the passive layer detects
   replacement and queues republication in a later VBlank.
@@ -190,7 +189,7 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
 
 ### FC-005: Mode handoff is not a product contract
 
-- **Status / priority:** TRIGGERED / P0.
+- **Status / priority:** CLOSED / P0.
 - **What exists:** the audit path activates on map load and restores attributes
   after selected overlays, but there is no saved player preference or general
   Color-to-Yellow/Yellow-to-Color reconstruction contract.
@@ -235,7 +234,7 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
 
 ### FC-007: Dormant renderer architecture
 
-- **Status / priority:** PLANNED / P1.
+- **Status / priority:** ACTIVE / P1.
 - **What exists:** ownership, scheduler, lifecycle, palette, transfer, and OAM
   modules preserve measured contracts and synthetic/callable test seams, but
   they do not drive the playable slice.
@@ -261,7 +260,7 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
 
 ### FC-008: Phase 2 audit mailboxes and observability carriers
 
-- **Status / priority:** TRIGGERED / P0.
+- **Status / priority:** CLOSED / P0.
 - **What exists:** the Phase 2 audit product adds its own SRAM/WRAM mailboxes,
   trace records, audit commands, provenance, and callable roots used by ROM
   probes. Separately, the ordinary `_DEBUG` product retains the legitimate
@@ -294,7 +293,7 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
 
 ### FC-009: Product link and reachability partition
 
-- **Status / priority:** TRIGGERED / P0.
+- **Status / priority:** CLOSED / P0.
 - **What exists:** one outer `PHASE2_AUDIT` partition currently groups the live
   passive slice, diagnostic payloads, and dormant future modules.
 - **Why retained:** a single experimental product boundary was correct while
@@ -341,7 +340,7 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
 
 ### FC-011: Evidence contract assumes audit-only color
 
-- **Status / priority:** TRIGGERED / P0.
+- **Status / priority:** CLOSED / P0.
 - **What exists:** Phase 2 verification proves that color belongs to an exact
   audit product and that ordinary products exclude its runtime; product hashes,
   compile-time provenance, and inventory rows encode that claim.

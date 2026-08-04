@@ -220,9 +220,13 @@ EnqueueFullColorMapOverlay::
 	ld a, FULL_COLOR_REQUEST_MAP_OVERLAY_PAIRED
 	; fallthrough
 EnqueueFullColorPairedSemantic:
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	select_renderer_state_preserve_a
+	ELSE
 	push af
 	select_renderer_state_e
 	pop af
+	ENDC
 	ld [wFullColorProducerClass], a
 	bit 7, a
 	ld a, 0

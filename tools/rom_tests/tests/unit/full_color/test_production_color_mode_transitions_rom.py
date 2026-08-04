@@ -227,6 +227,7 @@ def test_color_to_yellow_closes_reconstructs_and_reopens_once(
 ) -> None:
     rom = transition_rom
     rom.set_owner("RENDERER_FULL_COLOR_OVERWORLD", "OVERWORLD_ACTIVE")
+    rom.write1("wUpdateSpritesEnabled", 1)
     assert not rom.call("BeginForcedYellowPresentation") & 0x10
     assert rom.read2("wRendererOwner") == rom.constants["RENDERER_YELLOW"]
     assert rom.read2("wRendererPhase") == rom.constants["YELLOW_RECONSTRUCTING"]
@@ -235,6 +236,7 @@ def test_color_to_yellow_closes_reconstructs_and_reopens_once(
     assert rom.read2("wFullColorProductionTransitionStatus") == rom.constants["TRANSITION_REQUIRED"]
     assert rom.read2("wFullColorProductionTransitionRoute") == rom.constants["TRANSITION_ROUTE_YELLOW"]
     assert rom.read2("wFullColorProductionReconstructionLedger", 2) == 0
+    assert rom.read1("wUpdateSpritesEnabled") == 0
 
     assert not rom.call("CommitYellowPresentationTileMapForContext") & 0x10
     assert not rom.call("RecordYellowReconstructionComplete") & 0x10
@@ -244,6 +246,7 @@ def test_color_to_yellow_closes_reconstructs_and_reopens_once(
     assert rom.read2("wRendererGeneration", 4) == 8
     assert rom.read2("wFullColorProductionReconstructionLedger", 2) == rom.constants["FULL_COLOR_RECONSTRUCTION_LEDGER_COMPLETE"]
     assert rom.read2("wFullColorProductionYellowReconstructionBarrier") == 1
+    assert rom.read1("wUpdateSpritesEnabled") == 1
 
 
 def test_yellow_completion_rejects_a_missing_tilemap_commit(

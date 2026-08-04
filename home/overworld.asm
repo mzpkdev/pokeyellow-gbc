@@ -1799,7 +1799,11 @@ LoadPlayerSpriteGraphicsCommon::
 	push hl
 	push bc
 	ld c, $c
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	call CopyVideoDataAlternate
+	ELSE
 	call CopyVideoData
+	ENDC
 	pop bc
 	pop hl
 	pop de
@@ -1811,7 +1815,11 @@ LoadPlayerSpriteGraphicsCommon::
 .noCarry
 	set 3, h ; add $800 ($80 tiles) to hl (1 << 3 == $8)
 	ld c, $c
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	jp CopyVideoDataAlternate
+	ELSE
 	jp CopyVideoData
+	ENDC
 ; function to load data from the map header
 LoadMapHeader::
 	farcall MarkTownVisitedAndLoadToggleableObjects

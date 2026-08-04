@@ -22,6 +22,25 @@ MACRO restore_renderer_state_e
 	ldh [rIE], a
 ENDM
 
+; Preserve an A-valued ABI while selecting renderer WRAM. The ordinary macro
+; cannot use push/pop for this: Yellow's stack is in bank 1, so popping after
+; selecting bank 2 reads a different physical stack. Mask IE before publishing
+; the one-byte HRAM handoff so VBlank cannot race another producer through it.
+MACRO select_renderer_state_preserve_a
+	push af
+	ldh a, [rIE]
+	ldh [hRendererStateSavedIE], a
+	xor a
+	ldh [rIE], a
+	pop af
+	ldh [hFullColorProducerClassScratch], a
+	ldh a, [rSVBK]
+	ldh [hRendererStateSavedSVBK], a
+	ld a, PHASE1_SELECTED_WRAM_BANK
+	ldh [rSVBK], a
+	ldh a, [hFullColorProducerClassScratch]
+ENDM
+
 MACRO clear_renderer_job
 	ld a, RENDERER_JOB_NONE
 	ld [wRendererJobState], a

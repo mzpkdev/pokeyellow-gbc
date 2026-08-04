@@ -32,6 +32,7 @@ def production_rom(request: pytest.FixtureRequest) -> Phase2Rom:
             "ProduceFullColorProductionVBlankWork",
             "ProduceFullColorProductionAnimatedTileSelected",
             "EnqueueFullColorProductionPaletteSelected",
+            "EnqueueFullColorMapConnection",
             "CancelFullColorSchedulerSelected",
             "FullColorOverworldBGPalettes",
             "FullColorProductionOBJPalettes",
@@ -61,6 +62,33 @@ def _write_vram(rom: Phase2Rom, bank: int, address: int, payload: bytes) -> None
 def _prepare_visible_tile(rom: Phase2Rom, tile: int) -> None:
     rom.write_fixed(rom.emulator.symbols["wTileMap"], bytes([tile]) + bytes(359))
     rom.write_wram2("wFullColorAuthorityVRAMView", (0x9800).to_bytes(2, "little"))
+
+
+def test_connection_wrapper_preserves_class_across_real_yellow_stack_bank(
+    production_rom: Phase2Rom,
+) -> None:
+    rom = production_rom
+    source = bytes((index * 13 + 5) & 0xFF for index in range(40))
+    rom.write_fixed(0xC900, source)
+    # The real game stack lives in switchable WRAM1. The wrapper must preserve
+    # its class before selecting renderer WRAM2; push-after-switch mutations
+    # either lose the class or fail to return through this bank-1 frame.
+    rom.emulator.pyboy.memory[0xFF70] = 1
+    result, flags = rom.call(
+        "EnqueueFullColorMapConnection",
+        b=20,
+        c=2,
+        de=0x9800,
+        hl=0xC900,
+        stack=0xDFFC,
+    )
+
+    assert result == rom.constants["ACCEPTED"] and not flags & 0x10
+    assert rom.emulator.pyboy.memory[0xFF70] & 7 == 1
+    descriptor = rom.read_wram2("wFullColorRequestDescriptors", 20)
+    assert descriptor[0] & 0x0F == rom.constants[
+        "FULL_COLOR_REQUEST_MAP_CONNECTION_PAIRED"
+    ]
 
 
 def test_wrong_owner_animation_producer_fails_closed(
