@@ -14,12 +14,13 @@ ROMhack, including future features unrelated to color.
 
 - `pokeyellow.gbc` is the ordinary ROM. `pokeyellow_debug.gbc` is its debug
   product, and the VC target remains a separate compatibility product.
-- The only playable new color runtime is the experimental
+- The only playable new color runtime is the experimental demo/audit
   `pokeyellow_phase2_audit.gbc` product built with `_DEBUG` and
-  `PHASE2_AUDIT`.
-- That audit ROM passively colors Pallet Town and Route 1 backgrounds. Yellow
-  still owns gameplay, bank-0 tile graphics, sprites, animations, overlays,
-  menus, battles, cutscenes, fades, and scheduling.
+  `PHASE2_AUDIT`. Its Options menu has a saved `COLOR MODE` preference between
+  `COLOR` and `YELLOW`; fresh saves default to Color.
+- In Color mode that audit ROM passively colors only Pallet Town and Route 1
+  backgrounds. Yellow still owns gameplay, bank-0 tile graphics, sprites,
+  animations, overlays, menus, battles, cutscenes, fades, and scheduling.
 - Normal release, debug, and VC products do not expose the passive renderer.
   Retained full-color scheduler and ownership modules are migration seams and
   test surfaces, not proof that they drive the visible game.

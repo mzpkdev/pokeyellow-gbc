@@ -8,9 +8,12 @@ live in [TESTING.md](TESTING.md).
 
 ## Current scope
 
-The visible Phase 2 slice is an audit-only passive CGB color layer for Pallet
-Town and Route 1. It is not a release feature and it is not the retained
-full-color scheduler taking ownership of the game.
+The visible Phase 2 slice is a playable audit/demo-only passive CGB color layer
+for Pallet Town and Route 1. Its Options menu exposes a saved `COLOR MODE`
+preference between `COLOR` and `YELLOW`; fresh saves default to Color, Continue
+retains the saved choice, and New Game may reset it to Color. It is not a
+release feature and it is not the retained full-color scheduler taking
+ownership of the game.
 
 `passive_overworld` is the only active color presentation path. No plan,
 compiled module, callable symbol, retained test, or migration proposal changes
@@ -51,8 +54,9 @@ cutscenes. Do not widen this boundary as a shortcut for another colored map.
 
 [engine/full_color/passive_overworld.asm](../engine/full_color/passive_overworld.asm)
 is the live presentation path. Hooks in Yellow's normal map, redraw, menu,
-palette, and VBlank flows call its `PassiveFullColor*` routines. The hard-coded
-map gate accepts only `PALLET_TOWN` and `ROUTE_1`.
+palette, and VBlank flows call its `PassiveFullColor*` routines. The activation
+gate requires the saved Color preference and accepts only `PALLET_TOWN` and
+`ROUTE_1`.
 
 [engine/full_color/passive_palette_refresh.asm](../engine/full_color/passive_palette_refresh.asm)
 detects a legitimate Yellow palette replacement after a fade or restoration
@@ -103,7 +107,7 @@ finished Viridian color.
 lets Yellow complete normal map setup, tilemap copy, and `SET_PAL_OVERWORLD`.
 It then calls `PassiveFullColorApplyMap`.
 
-For an allowed map, the passive routine:
+For an allowed map while Color is selected, the passive routine:
 
 1. clears pending passive state;
 2. records active state for the current renderer generation;
@@ -114,8 +118,8 @@ For an allowed map, the passive routine:
 The LCD-off publication is atomic to the player. The routine restores `rVBK`
 to bank 0 before Yellow resumes.
 
-For every other map, it clears passive state and the active bit, then clears
-the complete bank-1 BG map. Yellow continues normally.
+For Yellow mode or every other map, it clears passive state and the active bit,
+then clears the complete bank-1 BG map. Yellow continues normally.
 
 ## Scrolling and VBlank
 
@@ -166,8 +170,11 @@ The passive renderer is an overworld layer, not global display ownership.
 - Interiors are outside the map gate and use Yellow palettes with cleared
   bank-1 attributes.
 - Menus and dialogue can overwrite the visible attribute window. On close,
-  Yellow rebuilds `wTileMap`, then `PassiveFullColorRestoreAfterMenu` translates
-  the final 20×18 window and restores it LCD-off.
+  Yellow rebuilds `wTileMap` and loads its palette, then
+  `PassiveFullColorRestoreAfterMenu` performs a complete LCD-hidden transition.
+  Color republishes all eight palettes and the full 32×32 attribute map;
+  Yellow mode reruns Yellow's authoritative overworld palette command, then
+  clears passive state and the full bank-1 map.
 - Battles and transitions remain Yellow behavior. Normal map restoration
   reapplies the passive attributes when returning to an allowed map.
 - Sprites, battle effects, moving tiles, and cutscene objects are never inferred
@@ -199,8 +206,8 @@ raw `SVBK`, and leaves `rVBK` as Yellow expects.
 ## Load-bearing invariants
 
 1. Only a `PHASE2_AUDIT` build reaches the passive slice.
-2. Only Pallet Town and Route 1 are active until the extension procedure proves
-   another map.
+2. Only the saved Color preference on Pallet Town and Route 1 is active until
+   the extension procedure proves another map.
 3. Yellow owns bank-0 tiles, sprites, mechanics, timing, fades, and overlays.
 4. Passive code writes only complete BG palettes and bank-1 BG attributes.
 5. Every attribute comes from the authored 256-byte table.

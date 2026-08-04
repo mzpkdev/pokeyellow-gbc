@@ -4,6 +4,9 @@
 ; mechanics. This code writes only BG palette RAM and VRAM bank 1 attributes.
 
 PassiveFullColorIsSliceMap:
+	ld a, [wUnusedObtainedBadges]
+	bit BIT_PHASE2_AUDIT_YELLOW_MODE, a
+	ret nz
 	ld a, [wCurMap]
 	cp PALLET_TOWN
 	ret z
@@ -163,77 +166,48 @@ PassiveFullColorScheduleAttributeRestore:
 	ld bc, $200
 	jp PassiveFullColorWriteState
 
-; Party close hook, called after Yellow's LoadCurrentMapView. Translate the
-; exact 20x18 window, disable the LCD, restore bank-1 attributes atomically at
-; Yellow's current VRAM origin, then return presentation ownership to Yellow.
+; Menu/dialogue close hook, called after Yellow's LoadCurrentMapView and
+; LoadGBPal. Perform the selected complete transition while hidden: Color
+; republishes all palettes and bank-1 attributes; Yellow clears the passive
+; state and the complete bank-1 map. Preserve the caller's LCD and bank state.
 PassiveFullColorRestoreAfterMenu:
-	call PassiveFullColorIsSliceMap
-	ret nz
-	call PassiveFullColorReadActive
-	cp 1
-	ret nz
-	; CloseTextDisplay reaches this hook only after Yellow has rebuilt the
-	; complete map view. Restore after ordinary dialogue as well as party and
-	; start-menu overlays; every one of them rewrites bank-1 attributes.
-	select_renderer_state_e
-	ld hl, wTileMap
-	ld de, wFullColorAttributeRectangle
-	ld bc, SCREEN_AREA
-.translate
-	ld a, [hli]
-	call PassiveFullColorAttributeForTile
-	ld [de], a
-	inc de
-	dec bc
-	ld a, b
-	or c
-	jr nz, .translate
-	restore_renderer_state_e
-	call DisableLCD
-	ld a, [wMapViewVRAMPointer]
-	ld e, a
-	ld a, [wMapViewVRAMPointer + 1]
-	ld d, a
-	select_renderer_state_e
-	ld a, 1
-	ldh [rVBK], a
-	ld hl, wFullColorAttributeRectangle
-	ld b, SCREEN_HEIGHT
-.row
-	push de
-	ld c, SCREEN_WIDTH
-.copy
-	ld a, [hli]
-	ld [de], a
-	ld a, e
-	inc a
-	and %11111
+	ldh a, [rLCDC]
 	push af
-	ld a, e
-	and %11100000
-	ld e, a
-	pop af
-	or e
-	ld e, a
-	dec c
-	jr nz, .copy
-	pop de
-	ld a, TILEMAP_WIDTH
-	add e
-	ld e, a
-	jr nc, .wrap
-	inc d
-.wrap
-	ld a, d
-	and HIGH(TILEMAP_AREA - 1)
-	or HIGH(vBGMap0)
-	ld d, a
-	dec b
-	jr nz, .row
-	restore_renderer_state_e
-	xor a
-	ldh [rVBK], a
+	ldh a, [rVBK]
+	push af
+	ldh a, [rSVBK]
+	push af
+	ldh a, [rLCDC]
+	bit B_LCDC_ENABLE, a
+	call nz, DisableLCD
+	call PassiveFullColorIsSliceMap
+	jr nz, .yellow
 	call PassiveFullColorClearState
+	ld a, 1
+	call PassiveFullColorWriteActive
+	call PassiveFullColorCommitPalettes
+	call PassiveFullColorCommitVisibleAttributes
+	jr .restore_machine
+.yellow
+	ld b, SET_PAL_OVERWORLD
+	call RunPaletteCommand
+	call PassiveFullColorClearState
+	xor a
+	call PassiveFullColorWriteActive
+	call PassiveFullColorClearBGMapAttributes
+.restore_machine
+	pop af
+	ld b, a
+	pop af
+	ld c, a
+	pop af
+	ld d, a
+	ld a, b
+	ldh [rSVBK], a
+	ld a, c
+	ldh [rVBK], a
+	bit B_LCDC_ENABLE, d
+	ret z
 	jp EnableLCD
 
 POPS
@@ -293,7 +267,7 @@ PassiveFullColorClearState:
 ; Runs after Yellow's RedrawRowOrColumn. It never replaces or suppresses the
 ; bank-0 write, and consumes only the mode frozen immediately before it.
 PassiveFullColorVBlank:
-	push de ; D is Yellow's consumed redraw mode
+	ld h, d ; freeze Yellow's consumed redraw mode without touching the stack
 	; VBlank has IME clear and its prologue selected Yellow's WRAM1 stack.
 	; Read WRAM2 stacklessly, then restore bank 1 before any pop or return.
 	ld a, FULL_COLOR_PHASE2_WRAM_BANK
@@ -318,15 +292,18 @@ PassiveFullColorVBlank:
 	ld a, 1
 	ldh [rSVBK], a
 	ld a, b
-	cp 1
+	dec a
 	jr nz, .inactive
+	ld a, [wUnusedObtainedBadges]
+	rra
+	jr c, .inactive
 	ld a, [wCurMap]
 	cp PALLET_TOWN
 	jr z, .slice
 	cp ROUTE_1
 	jr nz, .inactive
 .slice
-	pop de
+	ld d, h
 	ld a, d
 	cp REDRAW_ROW
 	jp z, PassiveFullColorCommitRedrawRow
@@ -349,14 +326,12 @@ PassiveFullColorVBlank:
 	cp 3
 	jr nz, .clear
 	ld c, e
-	pop de
 	ld b, 0
 	call PassiveFullColorWriteState
 	jp PassiveFullColorHomogenizeBGPalettes
 .clear
 	ld a, e
 	ld c, a
-	pop de
 	ld a, c
 	and a
 	ret z
