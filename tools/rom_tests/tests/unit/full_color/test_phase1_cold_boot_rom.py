@@ -28,13 +28,11 @@ def _numeric_symbols(path: Path) -> dict[str, int]:
 @pytest.fixture
 def debug_rom(request: pytest.FixtureRequest) -> tuple[Emulator, dict[str, int]]:
     rom_path = Path(
-        os.environ.get(
-            "ROM_TEST_ROM", REPOSITORY_ROOT / "pokeyellow_phase1_debug.gbc"
-        )
+        os.environ.get("ROM_TEST_ROM", REPOSITORY_ROOT / "pokeyellow_debug.gbc")
     )
     symbols_path = Path(
         os.environ.get(
-            "ROM_TEST_SYMBOLS", REPOSITORY_ROOT / "pokeyellow_phase1_debug.sym"
+            "ROM_TEST_SYMBOLS", REPOSITORY_ROOT / "pokeyellow_debug.sym"
         )
     )
     emulator = Emulator(

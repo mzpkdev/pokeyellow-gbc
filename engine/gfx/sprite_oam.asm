@@ -4,7 +4,7 @@ PrepareOAMData::
 ; Yellow code has been changed to use registers more efficiently
 ; as well as tweaking the code to show cgb palettes
 
-IF DEF(PHASE2_AUDIT) || DEF(FULL_COLOR_PRODUCTION_LINKAGE)
+IF DEF(PHASE2_AUDIT)
 .build
 ENDC
 	ld a, [wUpdateSpritesEnabled]
@@ -38,7 +38,7 @@ ENDC
 	jr nz, .visible
 
 	call GetSpriteScreenXY
-IF DEF(PHASE2_AUDIT) || FULL_COLOR_PRODUCTION_ACTIVATED
+IF DEF(PHASE2_AUDIT)
 	jp .nextSprite
 ELSE
 	jr .nextSprite
@@ -73,7 +73,7 @@ ENDC
 	ld e, a
 	ld a, [de] ; [x#SPRITESTATEDATA2_GRASSPRIORITY]
 	and $80
-IF DEF(PHASE2_AUDIT) || FULL_COLOR_PRODUCTION_ACTIVATED
+IF DEF(PHASE2_AUDIT)
 	push af
 	ldh a, [hSpritePriority]
 	and 1
@@ -131,7 +131,7 @@ ENDC
 	bit BIT_SPRITE_UNDER_GRASS, a
 	jr z, .skipPriority
 	ldh a, [hSpritePriority]
-IF DEF(PHASE2_AUDIT) || FULL_COLOR_PRODUCTION_ACTIVATED
+IF DEF(PHASE2_AUDIT)
 	and $80
 ENDC
 	or [hl]
@@ -142,7 +142,7 @@ ENDC
 	or OAM_HIGH_PALS
 .spriteusesOBP0
 	ld [de], a
-IF DEF(PHASE2_AUDIT) || FULL_COLOR_PRODUCTION_ACTIVATED
+IF DEF(PHASE2_AUDIT)
 	; Identity is retained beside the sprite state by LoadMapSpritesImageBaseOffset.
 	; Map only after the final tile and Pikachu offset have been selected, while
 	; preserving the producer's control bits and every live loop register.

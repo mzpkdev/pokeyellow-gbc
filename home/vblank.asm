@@ -24,15 +24,10 @@ ENDC
 	ldh a, [hLoadedROMBank]
 	ld [wVBlankSavedROMBank], a
 
-IF FULL_COLOR_PRODUCTION_ACTIVATED
-	; Resolve visible ownership before the first hardware writer. Color performs
-	; its complete visible route in the banked dispatcher; closed states perform
-	; neither route and join only the owner-neutral tail below.
+IF !DEF(PHASE2_AUDIT)
+	; Phase 1 dispatch is banked to keep the already-full Home section bounded.
+	; Its full-color route is a no-op; Yellow's mechanics continue unchanged.
 	farcall RouteRendererOwnershipVBlank
-	push de
-	ld a, e
-	cp VBLANK_ROUTE_YELLOW
-	jr nz, .visibleRouteComplete
 ENDC
 
 	ldh a, [hSCX]
@@ -66,26 +61,10 @@ ENDC
 	call VBlankCopyDouble
 	call UpdateMovingBgTiles
 	call hDMARoutine
-	IF !FULL_COLOR_PRODUCTION_ACTIVATED
 	ld a, BANK(PrepareOAMData)
 	call BankswitchCommon
 	call PrepareOAMData
-	ENDC
 
-IF FULL_COLOR_PRODUCTION_ACTIVATED
-.visibleRouteComplete
-	pop de
-ENDC
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
-FullColorProductionVBlankVisibleRouteComplete::
-ENDC
-	IF FULL_COLOR_PRODUCTION_ACTIVATED
-	; Build and freeze the next Color OAM unit only after the hardware-visible
-	; route has crossed its deadline. This mirrors Yellow's next-frame OAM build:
-	; producer work may extend into the visible period, hardware writes may not.
-	ld c, e
-	farcall PrepareFullColorProductionPostVisibleRoute
-	ENDC
 :
 	; VBlank-sensitive operations end.
 	call TrackPlayTime ; keep track of time played

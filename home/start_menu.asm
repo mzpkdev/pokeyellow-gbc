@@ -1,11 +1,7 @@
 DisplayStartMenu::
-	IF FULL_COLOR_PRODUCTION_ACTIVATED
-	ld c, RENDERER_CONTEXT_MENU
-	farcall BeginForcedYellowPresentationRoot
-	ENDC
 	ld a, BANK(StartMenu_Pokedex) ; also bank for other functions
 	call BankswitchCommon
-IF DEF(PHASE2_AUDIT) || FULL_COLOR_PRODUCTION_ACTIVATED
+IF DEF(PHASE2_AUDIT)
 	; Home has no room for the guarded integration. The selected bank is already
 	; bank 4, so keep a constant-size Home trampoline and emit the audit body
 	; beside the start-menu implementation it calls.
@@ -28,12 +24,6 @@ RedisplayStartMenu_DoNotDrawStartMenu::
 	farcall PrintSafariZoneSteps ; print Safari Zone info, if in Safari Zone
 	ENDC
 	call UpdateSprites
-	IF FULL_COLOR_PRODUCTION_ACTIVATED
-	; The closed Yellow route cannot service auto-BG requests. The completion
-	; adapter synchronously publishes this finished 20x18 menu to bank-0 BG1.
-	farcall RecordAndCompleteYellowPresentationRoot
-.fullColorProductionMenuTransitionComplete
-	ENDC
 .loop
 	IF DEF(PHASE2_AUDIT)
 	call FullColorHandleStartMenuInput
@@ -115,7 +105,7 @@ CloseStartMenu::
 	call LoadTextBoxTilePatterns
 	jp CloseTextDisplay
 
-IF DEF(PHASE2_AUDIT) || FULL_COLOR_PRODUCTION_ACTIVATED
+IF DEF(PHASE2_AUDIT)
 ; DisplayStartMenu pins bank 4 before entering this Home loop. Keep its Home
 ; call sites constant-sized and put the guarded integration beside the other
 ; start-menu implementation instead of consuming the last Home bytes.

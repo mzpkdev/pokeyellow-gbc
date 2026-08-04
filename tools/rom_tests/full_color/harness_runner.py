@@ -106,7 +106,6 @@ def components(
             f"-j{cpu_count}",
             "pokeyellow.gbc",
             "pokeyellow_debug.gbc",
-            "pokeyellow_phase1_debug.gbc",
             "pokeyellow_vc.gbc",
             "pokeyellow_phase2_audit.gbc",
         ),

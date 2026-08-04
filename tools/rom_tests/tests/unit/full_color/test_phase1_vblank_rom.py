@@ -29,13 +29,11 @@ ENTRY_ROM_BANK = 5
 def cgb_debug_rom(request: pytest.FixtureRequest) -> Emulator:
     emulator = Emulator(
         rom=Path(
-            os.environ.get(
-                "ROM_TEST_ROM", REPOSITORY_ROOT / "pokeyellow_phase1_debug.gbc"
-            )
+            os.environ.get("ROM_TEST_ROM", REPOSITORY_ROOT / "pokeyellow_debug.gbc")
         ),
         symbols=Path(
             os.environ.get(
-                "ROM_TEST_SYMBOLS", REPOSITORY_ROOT / "pokeyellow_phase1_debug.sym"
+                "ROM_TEST_SYMBOLS", REPOSITORY_ROOT / "pokeyellow_debug.sym"
             )
         ),
         results=result_directory(request.node.nodeid),
