@@ -659,9 +659,13 @@ CheckMapConnections::
 	call LoadMapHeader
 	call PlayDefaultMusicFadeOutCurrent
 IF DEF(PHASE2_AUDIT)
-	; Yellow's palette command also translates its SGB block packet into CGB
-	; attributes. Keep the LCD off until both Yellow and the passive donor
-	; planes have completed, avoiding a partially recolored connection frame.
+	; Pallet and Route 1 share one authored Color authority. Preserve that live
+	; plane across their seamless connection instead of flashing the LCD off or
+	; letting Yellow's palette command replace it between visible frames.
+	farcall PassiveFullColorShouldColorOverlay
+	jr c, .loadPassiveSliceConnection
+	; Other audit connections retain the complete atomic handoff used when the
+	; selected renderer or supported-map boundary actually changes.
 	call DisableLCD
 ENDC
 	ld b, SET_PAL_OVERWORLD
@@ -675,6 +679,12 @@ IF DEF(PHASE2_AUDIT)
 	call EnableLCD
 ENDC
 	jp OverworldLoopLessDelay
+IF DEF(PHASE2_AUDIT)
+.loadPassiveSliceConnection
+	call InitMapSprites
+	call LoadTileBlockMap
+	jp OverworldLoopLessDelay
+ENDC
 .didNotEnterConnectedMap
 	jp OverworldLoop
 ; function to play a sound when changing maps

@@ -167,48 +167,34 @@ PassiveFullColorScheduleAttributeRestore:
 	jp PassiveFullColorWriteState
 
 ; Menu/dialogue close hook, called after Yellow's LoadCurrentMapView and
-; LoadGBPal. Perform the selected complete transition while hidden: Color
-; republishes all palettes and bank-1 attributes; Yellow clears the passive
-; state and the complete bank-1 map. Preserve the caller's LCD and bank state.
+; LoadGBPal. Never blank the live LCD: Color republishes its palettes in the
+; next bounded VBlank, while Yellow makes stale attributes inert before the
+; existing chunked cleanup clears them.
 PassiveFullColorRestoreAfterMenu:
-	ldh a, [rLCDC]
-	push af
-	ldh a, [rVBK]
-	push af
-	ldh a, [rSVBK]
-	push af
-	ldh a, [rLCDC]
-	bit B_LCDC_ENABLE, a
-	call nz, DisableLCD
 	call PassiveFullColorIsSliceMap
 	jr nz, .yellow
 	call PassiveFullColorClearState
 	ld a, 1
 	call PassiveFullColorWriteActive
+	ldh a, [rLCDC]
+	bit B_LCDC_ENABLE, a
+	jr nz, .schedule_color
 	call PassiveFullColorCommitPalettes
-	call PassiveFullColorCommitVisibleAttributes
-	jr .restore_machine
+	jp PassiveFullColorCommitVisibleAttributes
+.schedule_color
+	ld bc, $100
+	jp PassiveFullColorWriteState
 .yellow
 	ld b, SET_PAL_OVERWORLD
 	call RunPaletteCommand
 	call PassiveFullColorClearState
 	xor a
 	call PassiveFullColorWriteActive
-	call PassiveFullColorClearBGMapAttributes
-.restore_machine
-	pop af
-	ld b, a
-	pop af
-	ld c, a
-	pop af
-	ld d, a
-	ld a, b
-	ldh [rSVBK], a
-	ld a, c
-	ldh [rVBK], a
-	bit B_LCDC_ENABLE, d
-	ret z
-	jp EnableLCD
+	ldh a, [rLCDC]
+	bit B_LCDC_ENABLE, a
+	jp z, PassiveFullColorClearBGMapAttributes
+	ld bc, $320
+	jp PassiveFullColorWriteState
 
 POPS
 

@@ -71,20 +71,31 @@ DisplayTextIDInit::
 	ld b, HIGH(vBGMap1)
 	call CopyScreenTileBufferToVRAM ; transfer background in WRAM to VRAM
 	IF DEF(PHASE2_AUDIT)
-	; The initial Start copy contains no bank-1 attributes. Keep the window
-	; hidden until the finalized menu and cursor complete their paired transfer.
+	; Every window starts with stale bank-1 attributes. Color dialogue can stage
+	; its finalized border immediately; Start waits for its later menu and cursor.
+	farcall PassiveFullColorShouldColorOverlay
+	jr nc, .revealWindow
 	ldh a, [hTextID]
 	and a
-	jr nz, .revealWindow
-	farcall PassiveFullColorShouldColorOverlay
-	jr c, .keepWindowHidden
+	jr z, .colorStartMenu
+	call LoadFontTilePatterns
+	farcall PassiveFullColorPrepareMenuOverlay
+	ldh a, [hAutoBGTransferEnabled]
+	or 1
+	ldh [hAutoBGTransferEnabled], a
+	call Delay3
+	xor a
+	ldh [hWY], a
+	ret
+.colorStartMenu
+	call LoadFontTilePatterns
+	ld a, 1
+	ldh [hAutoBGTransferEnabled], a
+	ret
 .revealWindow
 	ENDC
 	xor a
 	ldh [hWY], a ; put the window on the screen
-	IF DEF(PHASE2_AUDIT)
-.keepWindowHidden
-	ENDC
 	call LoadFontTilePatterns
 	ld a, $01
 	ldh [hAutoBGTransferEnabled], a ; enable continuous WRAM to VRAM transfer each V-blank
