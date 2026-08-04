@@ -113,10 +113,10 @@ def test_canonical_authorities_load_and_round_trip() -> None:
         product: len(assignments.for_product(product).rows)
         for product in (NORMAL_PRODUCT, DEBUG_PRODUCT, VC_PRODUCT, PHASE2_AUDIT_PRODUCT)
     } == {
-        NORMAL_PRODUCT: 1404,
-        DEBUG_PRODUCT: 1404,
-        VC_PRODUCT: 1404,
-        PHASE2_AUDIT_PRODUCT: 1411,
+        NORMAL_PRODUCT: 1414,
+        DEBUG_PRODUCT: 1414,
+        VC_PRODUCT: 1414,
+        PHASE2_AUDIT_PRODUCT: 1421,
     }
 
 
