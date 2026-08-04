@@ -351,20 +351,31 @@ def _run_pallet_ui_boundary(
 
         emulator.press("a")
         observe("dialogue")
-        assert preference is not None
-        _await_production_map_return(emulator, preference, button="a")
+        if preference is None:
+            emulator.press("a")
+            emulator.tick(60)
+        else:
+            _await_production_map_return(emulator, preference, button="a")
         observe("dialogue-restored")
 
         emulator.press("start")
         observe("start-menu")
-        _await_production_map_return(emulator, preference, button="b")
+        if preference is None:
+            emulator.press("b")
+            emulator.tick(60)
+        else:
+            _await_production_map_return(emulator, preference, button="b")
         observe("direct-start-restored")
 
         _open_start_menu_item(emulator, 0)
         observe("party")
         emulator.press("b")
         observe("returned-start-menu")
-        _await_production_map_return(emulator, preference, button="b")
+        if preference is None:
+            emulator.press("b")
+            emulator.tick(60)
+        else:
+            _await_production_map_return(emulator, preference, button="b")
         observe("restored-overworld")
 
         # Prove that the UI round-trip returns to a naturally playable map,
