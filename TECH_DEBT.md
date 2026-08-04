@@ -190,20 +190,22 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
 ### FC-005: Mode handoff is not a product contract
 
 - **Status / priority:** CLOSED / P0.
-- **What exists:** the audit path activates on map load and restores attributes
-  after selected overlays, but there is no saved player preference or general
-  Color-to-Yellow/Yellow-to-Color reconstruction contract.
-- **Why retained:** Phase 2 needed one safe canary, not a second product mode.
-- **Current risk:** flipping a live flag would mix palette RAM, bank-1
-  attributes, pending work, and generations from two owners.
-- **Dependencies:** a save-compatible preference bit, effective-mode resolver,
-  pending reconciliation state, and FC-001/FC-004 closure.
+- **What exists:** a saved `COLOR/YELLOW` preference feeds a pure policy
+  resolver. Real Color-to-Yellow and Yellow-to-Color changes close admission,
+  settle departing work, advance one generation, reconstruct the complete
+  destination, cross one barrier, and only then activate it.
+- **Why closed:** preference is separated from effective ownership, unsupported
+  maps preserve preference while resolving to Yellow, and repeated same-owner
+  decisions do not create handoffs.
+- **Current risk:** future roots that bypass the lifecycle could still mix
+  palette RAM, bank-1 attributes, OAM, pending work, or generations.
+- **Dependencies:** the save-compatible preference bit, policy resolver,
+  reconstruction ledger, timing evidence, and FC-001/FC-004 closure.
 - **Right-time trigger:** reached when the player-facing production toggle was
   approved.
-- **Recommendation:** Options changes preference only. After the overlay
-  closes, cancel stale work, advance generation once for a real effective-mode
-  change, and publish the complete 32x32 attributes plus palettes while LCD is
-  off. Unsupported maps resolve to Yellow without erasing Color preference.
+- **Recommendation:** keep Options limited to preference. Route every new
+  presentation root through the same one-generation lifecycle and complete
+  destination reconstruction; never assign ownership from the menu itself.
 - **Acceptance proof:** repeated/no-op changes, supported/unsupported maps,
   maps in both directions, save/reset/Continue, and every overlay edge prove
   exactly one hidden reconstruction and no stale write.
@@ -214,18 +216,18 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
 ### FC-006: Passive state aliases dormant scheduler storage
 
 - **Status / priority:** CONSTRAINT / P1.
-- **What exists:** two passive state bytes alias dormant scheduler timing
-  scratch in WRAM2 because their lifetimes cannot overlap in the audit path.
-- **Why retained:** the alias preserved the measured WRAM layout without
-  growing an experimental reservation.
-- **Current risk:** production promotion or scheduler activation could make the
-  lifetimes overlap and silently corrupt pending palette/cleanup state.
-- **Dependencies:** final production passive-state allocation and the Phase 3
-  scheduler decision.
-- **Right-time trigger:** any build can reach both passive state and scheduler
-  timing state, or either lifetime expands beyond its proved boundary.
-- **Recommendation:** allocate standalone passive production state before
-  promotion; keep any audit alias only where a test proves mutual exclusion.
+- **What exists:** only `PHASE2_AUDIT` aliases two passive state bytes with
+  scheduler timing scratch because those audit lifetimes cannot overlap.
+  Production linkage allocates standalone, non-aliased scheduler state.
+- **Why retained:** the audit-only alias preserves the frozen Phase 2 WRAM and
+  symbol identity; production no longer depends on it.
+- **Current risk:** making the audit scheduler reachable, or expanding either
+  audit lifetime, could violate the proved mutual exclusion.
+- **Dependencies:** the frozen Phase 2 audit layout and hostile overlap tests.
+- **Right-time trigger:** any `PHASE2_AUDIT` change makes both aliased lifetimes
+  reachable or expands either reservation.
+- **Recommendation:** retain the alias only in the frozen audit partition;
+  every production-capable product must keep standalone scheduler storage.
 - **Acceptance proof:** linker symbols and hostile overlap tests prove unique,
   bounded storage in every product that can reach both owners.
 - **Sources:** [WRAM declarations](ram/wram.asm),
