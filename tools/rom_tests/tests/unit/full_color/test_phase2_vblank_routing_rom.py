@@ -1,4 +1,4 @@
-"""Real-interrupt routing checks for the Phase 2 full-color VBlank owner."""
+"""Real-interrupt routing checks for the shipped passive Color renderer."""
 
 from __future__ import annotations
 
@@ -6,9 +6,11 @@ from dataclasses import dataclass
 
 import pytest
 
+from tools.rom_tests.emulator import Emulator
+from tools.rom_tests.tests.conftest import REPOSITORY_ROOT, result_directory
 from tools.rom_tests.tests.unit.full_color.test_phase2_scheduler_rom import (
     Phase2Rom,
-    phase2_rom as _phase2_rom,  # noqa: F401 - registered by pytest
+    numeric_symbols,
 )
 
 
@@ -24,6 +26,11 @@ RETURN_PROBE = 0x0100
 HARNESS_HALT = 0xC6F0
 ENTRY_ROM_BANK = 5
 ENTRY_WRAM_BANK = 6
+PRODUCTS = ("pokeyellow", "pokeyellow_debug", "pokeyellow_vc")
+PASSIVE_OVERLAY_TRANSFER = 1 << 7
+
+OVERLAY_REDRAW_DEFERRAL_ROUTE = "overlay redraw deferral route"
+OVERLAY_REDRAW_BYPASS = "overlay redraw bypass"
 
 
 YELLOW_VISIBLE_WRITES = {
@@ -68,9 +75,27 @@ YELLOW_VISIBLE_NAMES = (
 )
 
 
-@pytest.fixture(name="phase2_rom")
-def phase2_rom_fixture(request: pytest.FixtureRequest) -> Phase2Rom:
-    return request.getfixturevalue("_phase2_rom")
+@pytest.fixture(name="phase2_rom", params=PRODUCTS)
+def phase2_rom_fixture(request: pytest.FixtureRequest):
+    product = request.param
+    rom = REPOSITORY_ROOT / f"{product}.gbc"
+    sym = REPOSITORY_ROOT / f"{product}.sym"
+    emulator = Emulator(
+        rom=rom,
+        symbols=sym,
+        results=result_directory(request.node.nodeid) / product,
+        cgb=True,
+    )
+    instance = Phase2Rom(emulator, numeric_symbols(sym))
+    dma_stub = bytes(
+        (0x3E, 0xC3, 0xE0, 0x46, 0x3E, 0x28, 0x3D, 0x20, 0xFD, 0xC9)
+    )
+    for offset, value in enumerate(dma_stub):
+        emulator.pyboy.memory[0xFF80 + offset] = value
+    try:
+        yield instance
+    finally:
+        emulator.close()
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,14 +131,40 @@ def _read_banked(rom: Phase2Rom, bank: int, address: int, size: int) -> bytes:
         emu.memory[RSVBK] = prior
 
 
-def _unique_site(blob: bytes, pattern: bytes, *, base: int, name: str) -> int:
+def _call_sites(
+    blob: bytes,
+    pattern: bytes,
+    *,
+    base: int,
+    name: str,
+    expected: int = 1,
+) -> tuple[int, ...]:
     offsets = [
         offset
         for offset in range(len(blob) - len(pattern) + 1)
         if blob[offset:offset + len(pattern)] == pattern
     ]
-    assert len(offsets) == 1, f"expected one {name} call site, found {len(offsets)}"
-    return base + offsets[0]
+    assert len(offsets) == expected, (
+        f"expected {expected} {name} call site(s), found {len(offsets)}"
+    )
+    return tuple(base + offset for offset in offsets)
+
+
+def _relative_jump_site(
+    blob: bytes,
+    opcode: int,
+    *,
+    base: int,
+    target: int,
+    name: str,
+) -> int:
+    sites = []
+    for offset in range(len(blob) - 1):
+        displacement = int.from_bytes(blob[offset + 1 : offset + 2], signed=True)
+        if blob[offset] == opcode and base + offset + 2 + displacement == target:
+            sites.append(base + offset)
+    assert len(sites) == 1, f"expected one {name}, found {len(sites)}"
+    return sites[0]
 
 
 def _vblank_call_sites(rom: Phase2Rom) -> dict[int, str]:
@@ -126,7 +177,35 @@ def _vblank_call_sites(rom: Phase2Rom) -> dict[int, str]:
         address = rom.emulator.symbols[name]
         patterns[name] = bytes((0xCD, address & 0xFF, address >> 8))
     for name, pattern in patterns.items():
-        sites[_unique_site(blob, pattern, base=start, name=name)] = name
+        expected = 2 if name == "VBlankCopyBgMap" else 1
+        for address in _call_sites(
+            blob, pattern, base=start, name=name, expected=expected,
+        ):
+            sites[address] = name
+
+    ordinary_route = rom.emulator.symbols["VBlank.ordinaryAutoBgMapTransfer"]
+    redraw_done = rom.emulator.symbols["VBlank.passiveFullColorVBlankDone"]
+    redraw_site = next(
+        address for address, name in sites.items() if name == "RedrawRowOrColumn"
+    )
+    overlay_branch = _relative_jump_site(
+        blob,
+        0x28,  # JR Z
+        base=start,
+        target=ordinary_route,
+        name="overlay selection branch",
+    )
+    overlay_bypass = _relative_jump_site(
+        blob,
+        0x18,  # JR
+        base=start,
+        target=redraw_done,
+        name="overlay redraw bypass",
+    )
+    overlay_route = overlay_branch + 2
+    assert overlay_route < overlay_bypass < ordinary_route <= redraw_site < redraw_done
+    sites[overlay_route] = OVERLAY_REDRAW_DEFERRAL_ROUTE
+    sites[overlay_bypass] = OVERLAY_REDRAW_BYPASS
     return sites
 
 
@@ -279,6 +358,33 @@ def test_passive_actual_vblank_runs_yellow_and_restores_raw_machine_state(
         phase2_rom, ENTRY_WRAM_BANK, saved_rom_bank, 1,
     ) == wram_alias_before
     assert _read_banked(phase2_rom, 1, saved_rom_bank, 1) == bytes((ENTRY_ROM_BANK,))
+
+
+def test_overlay_vblank_bypasses_and_defers_pending_yellow_redraw(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = 0x0C
+    emu.memory[0xFF40] &= 0x7F
+    phase2_rom.call("PassiveFullColorApplyMap")
+    emu.memory[symbols["hAutoBGTransferEnabled"]] = PASSIVE_OVERLAY_TRANSFER
+    emu.memory[symbols["hRedrawRowOrColumnMode"]] = 2
+
+    observation = _run_actual_vblank(phase2_rom)
+
+    assert observation.call_sites.index(OVERLAY_REDRAW_DEFERRAL_ROUTE) < (
+        observation.call_sites.index("VBlankCopyBgMap")
+    ) < observation.call_sites.index(OVERLAY_REDRAW_BYPASS) < (
+        observation.call_sites.index("VBlankCopy")
+    )
+    assert "AutoBgMapTransfer" not in observation.call_sites
+    assert "RedrawRowOrColumn" not in observation.call_sites
+    assert emu.memory[symbols["hRedrawRowOrColumnMode"]] == 2
+    assert phase2_rom.read_wram2("wRendererOwner") == bytes(
+        (phase2_rom.constants["RENDERER_YELLOW"],)
+    )
 
 
 def test_skipped_yellow_writer_mutation_trips_named_routing_assertion(

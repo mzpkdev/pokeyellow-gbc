@@ -24,13 +24,12 @@ links, and proof when the underlying code changes. Do not close an entry from a
 source diff, build, screenshot, or synthetic test alone when its acceptance
 proof requires linked-ROM or natural-gameplay evidence.
 
-Current product truth: the only playable color path is the `PHASE2_AUDIT`
-product, and it colors only Pallet Town and Route 1. A production
-`COLOR/YELLOW` option has been approved and planned, but it is not implemented
-on merged `main`. The optional local operator plan is
-`.preemdeck/plan/introduce-production-color-mode-toggle.md`; this tracked
-register does not depend on that untracked file. The authoritative tracked
-direction remains the [migration plan](specs/full-colors/docs/migration-plan.md).
+Current product truth: normal, debug, and VC products all ship the saved
+`COLOR/YELLOW` option and bounded passive Pallet Town/Route 1 renderer.
+`PHASE2_AUDIT` adds diagnostics and certification surfaces only; it never gates
+player-visible behavior. Broader scheduler ownership, OAM color, animation
+ownership, and all-map color remain proposed in the
+[migration plan](specs/full-colors/docs/migration-plan.md).
 
 ## Status and priority
 
@@ -53,17 +52,17 @@ Priorities:
 
 | ID | Status | Priority | Subject |
 | --- | --- | --- | --- |
-| [FC-001](#fc-001-audit-only-passive-runtime) | TRIGGERED | P0 | Audit-only passive runtime |
+| [FC-001](#fc-001-production-passive-runtime) | CLOSED | P0 | Production passive runtime |
 | [FC-002](#fc-002-hard-coded-map-gate) | PLANNED | P1 | Hard-coded map gate |
 | [FC-003](#fc-003-yellow-owned-scene-fallbacks) | PLANNED | P1 | Yellow-owned scene fallbacks |
-| [FC-004](#fc-004-palette-ownership-flashes) | TRIGGERED | P0 | Palette ownership flashes |
-| [FC-005](#fc-005-mode-handoff-is-not-a-product-contract) | TRIGGERED | P0 | Atomic mode handoff |
-| [FC-006](#fc-006-passive-state-aliases-dormant-scheduler-storage) | CONSTRAINT | P1 | WRAM alias with dormant scheduler |
+| [FC-004](#fc-004-palette-ownership-flashes) | CLOSED | P0 | Palette ownership flashes |
+| [FC-005](#fc-005-atomic-mode-handoff) | CLOSED | P0 | Atomic mode handoff |
+| [FC-006](#fc-006-passive-state-aliases-dormant-scheduler-storage) | CLOSED | P1 | WRAM alias with dormant scheduler |
 | [FC-007](#fc-007-dormant-renderer-architecture) | PLANNED | P1 | Dormant scheduler and lifecycle |
-| [FC-008](#fc-008-phase-2-audit-mailboxes-and-observability-carriers) | TRIGGERED | P0 | Phase 2 audit mailboxes and carriers |
-| [FC-009](#fc-009-product-link-and-reachability-partition) | TRIGGERED | P0 | Product link partition |
+| [FC-008](#fc-008-remove-phase2_audit-after-diagnostic-migration) | ACTIVE | P1 | Remove `PHASE2_AUDIT` after diagnostic migration |
+| [FC-009](#fc-009-product-link-and-reachability-partition) | CLOSED | P0 | Product link partition |
 | [FC-010](#fc-010-object-color-path-is-only-scaffolding) | PLANNED | P1 | OAM color scaffolding |
-| [FC-011](#fc-011-evidence-contract-assumes-audit-only-color) | TRIGGERED | P0 | Stale product/evidence assumption |
+| [FC-011](#fc-011-audit-evidence-still-needs-a-diagnostic-product) | ACTIVE | P1 | Diagnostic-product evidence dependency |
 | [FC-012](#fc-012-generated-inventory-transition-cost) | ACTIVE | P1 | Generated inventory transitions |
 | [FC-013](#fc-013-natural-gameplay-is-not-hosted) | ACTIVE | P1 | Natural gameplay not hosted |
 | [FC-014](#fc-014-donor-content-is-incomplete-for-yellow) | BLOCKED | P1 | Incomplete Yellow color content |
@@ -77,41 +76,36 @@ obsolescence is proved.
 
 | Surface | Production disposition | Audit/repository disposition | Activation or removal trigger |
 | --- | --- | --- | --- |
-| Passive palettes, tile attributes, redraw preparation, bounded VBlank commit, cleanup | Candidate for deliberate production promotion | Keep audit path independently buildable | Production toggle has closed linkage, atomicity, fallback, timing, save, and natural-play gates |
-| Phase 2 provenance, audit-only SRAM/WRAM mailboxes and trace carriers, callable audit roots | Unreachable and absent from release/debug/VC symbol maps | Keep under `PHASE2_AUDIT` for diagnostics and proof; preserve the separate Phase 1 `_DEBUG` SRAM protocol | Remove only when no accepted Phase 2 audit claim consumes them; never activate in production |
+| Passive palettes, tile attributes, redraw preparation, bounded VBlank commit, cleanup | Shipped unconditionally in normal, debug, and VC; runtime preference and map eligibility gate presentation | Same behavior in the audit product | Keep bounded until broader ownership and content phases close |
+| Phase 2 provenance, audit-only SRAM/WRAM mailboxes and trace carriers, callable audit roots | Unreachable and absent from release/debug/VC symbol maps | Temporarily keep under `PHASE2_AUDIT` for diagnostics and proof; preserve the separate Phase 1 `_DEBUG` SRAM protocol | Remove `PHASE2_AUDIT` after every diagnostic consumer and retained evidence contract has migrated |
 | Ownership scheduler, lifecycle planes, palette scheduler, paired transfers, OAM mapper | Unreachable in production until its owning migration phase | Keep buildable and tested as dormant seams | Activate one bounded subsystem only after its phase inventory and exit gate close; remove if the chosen production design supersedes it |
 
-A blanket guard removal is forbidden. It could ship Phase 2 audit command
-channels, dormant jobs, or provenance markers while making the evidence report
-a product that no longer exists. This quarantine does not remove or weaken the
-Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
+The passive runtime no longer belongs behind an audit guard. A blanket removal
+of the remaining flag is still forbidden until its consumers migrate: it could
+ship Phase 2 command channels or provenance markers, or invalidate retained
+evidence. This quarantine does not remove or weaken the Phase 1 `_DEBUG`
+mailbox, Gate 0, or Phase 1 runtime evidence.
 
 ## Debt entries
 
-### FC-001: Audit-only passive runtime
+### FC-001: Production passive runtime
 
-- **Status / priority:** TRIGGERED / P0.
-- **What exists:** `pokeyellow_phase2_audit.gbc` links the passive Pallet
-  Town/Route 1 renderer behind `_DEBUG` plus `PHASE2_AUDIT`; ordinary release,
-  debug, and VC products do not expose it.
-- **Why retained:** isolation let the slice prove geometry, timing, fallback,
-  and gameplay without changing stock product identities.
-- **Current risk:** promoting color with the audit flag would also promote
-  unproved diagnostics and dormant architecture.
-- **Dependencies:** [FC-004](#fc-004-palette-ownership-flashes),
-  [FC-005](#fc-005-mode-handoff-is-not-a-product-contract),
-  [FC-008](#fc-008-phase-2-audit-mailboxes-and-observability-carriers),
-  [FC-009](#fc-009-product-link-and-reachability-partition), and
-  [FC-011](#fc-011-evidence-contract-assumes-audit-only-color).
-- **Right-time trigger:** reached when the production `COLOR/YELLOW` option was
-  approved.
-- **Recommendation:** extract only the minimal passive substrate into ordinary
-  products behind a separate staged production predicate. Never define
-  `PHASE2_AUDIT` for production.
-- **Acceptance proof:** all four products link; production can select Color or
-  Yellow at an LCD-off reconstruction boundary; audit-only symbols are absent
-  from production `.sym` files; audit verification remains green; natural
-  play proves both modes and unsupported-map fallback.
+- **Status / priority:** CLOSED / P0.
+- **What exists:** normal, debug, and VC products all link the saved
+  Color/Yellow option and bounded Pallet Town/Route 1 passive renderer. The
+  audit product runs the same player-visible behavior.
+- **Why it changed:** audit isolation proved the initial slice, then the
+  operator approved it as ordinary product behavior without approving the
+  diagnostic surface or dormant architecture for promotion.
+- **Resolved risk:** production no longer needs `PHASE2_AUDIT` to reach Color,
+  so enabling the feature cannot implicitly enable audit commands or markers.
+- **Dependencies closed:** FC-004, FC-005, and FC-009. FC-008 and FC-011 remain
+  follow-up debt for deleting the now-diagnostic-only flag and migrating its
+  evidence consumers.
+- **Closure proof:** the product matrix checks all three shipped ROMs for the
+  same toggle and bounded runtime while excluding audit-only symbols; natural
+  play selects Color and Yellow inside one shipped binary and proves
+  unsupported-map fallback.
 - **Sources:** [Makefile](Makefile), [main.asm](main.asm),
   [passive_overworld.asm](engine/full_color/passive_overworld.asm), and the
   [renderer product matrix](docs/FULL_COLOR_RENDERER.md#current-scope).
@@ -126,8 +120,8 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
   from falsely coloring maps whose roofs, overrides, or tilesets differ.
 - **Current risk:** duplicated predicates can drift, and widening either one
   can produce wrong color or asymmetric VBlank behavior.
-- **Dependencies:** Phase 3 map/tileset-aware palette dispatch and Phase 6
-  accepted Yellow content.
+- **Dependencies:** Phase 3 map/tileset-aware palette dispatch and accepted
+  map-specific content from the future all-map authoring effort.
 - **Right-time trigger:** a proposed map cannot truthfully use the exact current
   256-entry lookup and all eight current palettes.
 - **Recommendation:** replace both checks with one effective-mode/map authority
@@ -166,68 +160,46 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
 
 ### FC-004: Palette ownership flashes
 
-- **Status / priority:** TRIGGERED / P0.
+- **Status / priority:** CLOSED / P0.
 - **What exists:** Yellow's `LoadGBPal`, fades, menus, dialogue, and battle
   transitions may replace global CGB BG palettes; the passive layer detects
   replacement and queues republication in a later VBlank.
 - **Why retained:** deferred publication respects visible-time and VBlank
   budgets better than an immediate palette write.
-- **Current risk:** Yellow and passive writers can expose old, gray, or donor
-  palettes on adjacent visible frames during dialogue, menus, and battle entry.
-- **Dependencies:** a formal preference/effective/presented-mode state machine
-  and [FC-005](#fc-005-mode-handoff-is-not-a-product-contract).
-- **Right-time trigger:** reached because a production mode toggle must promise
-  stable presentation, and manual play already observes palette flashes.
-- **Recommendation:** suspend passive republication while Yellow owns an
-  overlay, fade, or battle transition; reconcile once at the next hidden
-  reconstruction boundary.
-- **Acceptance proof:** frame strips and natural input tests show no mixed-owner
+- **Resolution:** passive republication is suspended while Yellow owns an
+  overlay, fade, or battle transition, and the saved preference is reconciled
+  once at the bounded restoration boundary.
+- **Closure proof:** frame strips and natural input tests show no mixed-owner
   frame across Start, Options, dialogue, party, battle, return, save, reset, and
   Continue; timing evidence still permits only bounded VBlank work.
 - **Sources:** [passive_palette_refresh.asm](engine/full_color/passive_palette_refresh.asm),
   [palette publication contract](docs/FULL_COLOR_RENDERER.md#scrolling-and-vblank),
   and [testing limitations](docs/TESTING.md#false-confidence-traps).
 
-### FC-005: Mode handoff is not a product contract
+### FC-005: Atomic mode handoff
 
-- **Status / priority:** TRIGGERED / P0.
-- **What exists:** the audit path activates on map load and restores attributes
-  after selected overlays, but there is no saved player preference or general
-  Color-to-Yellow/Yellow-to-Color reconstruction contract.
-- **Why retained:** Phase 2 needed one safe canary, not a second product mode.
-- **Current risk:** flipping a live flag would mix palette RAM, bank-1
-  attributes, pending work, and generations from two owners.
-- **Dependencies:** a save-compatible preference bit, effective-mode resolver,
-  pending reconciliation state, and FC-001/FC-004 closure.
-- **Right-time trigger:** reached when the player-facing production toggle was
-  approved.
-- **Recommendation:** Options changes preference only. After the overlay
-  closes, cancel stale work, advance generation once for a real effective-mode
-  change, and publish the complete 32x32 attributes plus palettes while LCD is
-  off. Unsupported maps resolve to Yellow without erasing Color preference.
-- **Acceptance proof:** repeated/no-op changes, supported/unsupported maps,
+- **Status / priority:** CLOSED / P0.
+- **What exists:** Options changes the saved preference while the active
+  presentation remains latched. The outer menu close performs the bounded
+  Color-to-Yellow or Yellow-to-Color reconciliation; unsupported maps resolve
+  to Yellow without erasing Color preference.
+- **Resolved risk:** live preference writes cannot expose a mixed palette and
+  bank-1 attribute plane or leave stale pending work active.
+- **Closure proof:** repeated/no-op changes, supported/unsupported maps,
   maps in both directions, save/reset/Continue, and every overlay edge prove
-  exactly one hidden reconstruction and no stale write.
+  one coherent reconciliation and no stale write.
 - **Sources:** [passive lifecycle](docs/FULL_COLOR_RENDERER.md#map-load-and-publication),
   [save declarations](ram/wram.asm), [Options engine](engine/menus/options.asm),
   and [handoff requirements](specs/full-colors/docs/requirements.md).
 
 ### FC-006: Passive state aliases dormant scheduler storage
 
-- **Status / priority:** CONSTRAINT / P1.
-- **What exists:** two passive state bytes alias dormant scheduler timing
-  scratch in WRAM2 because their lifetimes cannot overlap in the audit path.
-- **Why retained:** the alias preserved the measured WRAM layout without
-  growing an experimental reservation.
-- **Current risk:** production promotion or scheduler activation could make the
-  lifetimes overlap and silently corrupt pending palette/cleanup state.
-- **Dependencies:** final production passive-state allocation and the Phase 3
-  scheduler decision.
-- **Right-time trigger:** any build can reach both passive state and scheduler
-  timing state, or either lifetime expands beyond its proved boundary.
-- **Recommendation:** allocate standalone passive production state before
-  promotion; keep any audit alias only where a test proves mutual exclusion.
-- **Acceptance proof:** linker symbols and hostile overlap tests prove unique,
+- **Status / priority:** CLOSED / P1.
+- **What exists:** every product uses the same dedicated passive allocation;
+  the audit scheduler and diagnostic layouts remain separate from it.
+- **Resolution:** promotion allocated standalone passive state instead of
+  depending on the former audit-only lifetime alias.
+- **Closure proof:** linker symbols and hostile overlap tests prove unique,
   bounded storage in every product that can reach both owners.
 - **Sources:** [WRAM declarations](ram/wram.asm),
   [scheduler.asm](engine/full_color/scheduler.asm), and
@@ -259,34 +231,33 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
   [engine/full_color](engine/full_color), and the
   [migration plan](specs/full-colors/docs/migration-plan.md).
 
-### FC-008: Phase 2 audit mailboxes and observability carriers
+### FC-008: Remove `PHASE2_AUDIT` after diagnostic migration
 
-- **Status / priority:** TRIGGERED / P0.
-- **What exists:** the Phase 2 audit product adds its own SRAM/WRAM mailboxes,
-  trace records, audit commands, provenance, and callable roots used by ROM
-  probes. Separately, the ordinary `_DEBUG` product retains the legitimate
-  Phase 1 SRAM mailbox and trace protocol used by Gate 0 and Phase 1 runtime
-  evidence.
-- **Why retained:** they make bank, ownership, rejection, and provenance claims
-  observable without inferring them from screenshots.
-- **Current risk:** a blanket `PHASE2_AUDIT` guard removal can expose the Phase 2
-  command surface in production, collide with production interrupt scratch,
-  change save/WRAM layout, or let tests manipulate a path unavailable to
-  players.
-- **Dependencies:** FC-009 product partition and dedicated production scratch
-  allocation.
-- **Right-time trigger:** reached because the passive runtime is approved for
-  ordinary products while audit diagnostics are not.
-- **Recommendation:** keep Phase 2 audit commands, provenance, callable roots,
-  and carriers under `PHASE2_AUDIT`; give production passive interrupt state
-  separately named, non-aliased storage; test those Phase 2 symbols absent in
-  release/debug/VC. Preserve the Phase 1 `_DEBUG` mailbox and protocol until
-  Gate 0 and Phase 1 evidence have an explicitly approved replacement.
-- **Acceptance proof:** product `.sym`/`.map` scans and direct-ROM probes show
-  zero Phase 2 audit roots, commands, provenance carriers, or aliases in all
-  production variants while Phase 2 audit observability, Gate 0, and Phase 1
-  runtime evidence still pass. The ordinary debug product still exposes its
-  expected Phase 1 mailbox and trace protocol.
+- **Status / priority:** ACTIVE / P1.
+- **What exists:** `PHASE2_AUDIT` now adds only Phase 2 SRAM/WRAM mailboxes,
+  trace records, audit commands, provenance, callable roots, and the separate
+  audit product used by diagnostic and certification consumers. The toggle and
+  passive renderer are unconditional in normal, debug, and VC products.
+- **Why retained:** current Phase 2 probes and retained evidence still consume
+  these carriers to make bank, rejection, inventory, and provenance claims
+  observable. The separate Phase 1 `_DEBUG` mailbox remains an independent
+  Gate 0 and Phase 1 runtime protocol.
+- **Current risk:** the obsolete product flag duplicates layouts and product
+  identities, encourages tests to confuse diagnostics with behavior, and keeps
+  a permanent-looking build surface after behavior ceased to depend on it.
+- **Dependencies:** migrate every Phase 2 diagnostic consumer and retained
+  evidence identity to a product-neutral debug protocol or another reviewed
+  authority; close FC-011 without weakening Gate 0 or Phase 1 evidence.
+- **Right-time trigger:** reached now that every shipped product has the same
+  player-visible renderer behavior.
+- **Recommendation:** keep the remaining flag narrowly diagnostic while those
+  consumers exist. Then delete the `PHASE2_AUDIT` define, audit-only target,
+  conditional mailboxes/carriers/roots, and obsolete product identities in one
+  reviewed migration. Never expose them in production as an intermediate step.
+- **Acceptance proof:** source and symbol scans contain no `PHASE2_AUDIT` or
+  Phase 2-only carrier; all former diagnostic claims have named replacement
+  producers and migrated retained evidence; production mode-selection,
+  product-linkage, Gate 0, and Phase 1 runtime checks remain green.
 - **Sources:** [debug_runtime.asm](engine/full_color/debug_runtime.asm),
   [phase2_audit.asm](engine/full_color/phase2_audit.asm),
   [HRAM declarations](ram/hram.asm), and
@@ -294,23 +265,15 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
 
 ### FC-009: Product link and reachability partition
 
-- **Status / priority:** TRIGGERED / P0.
-- **What exists:** one outer `PHASE2_AUDIT` partition currently groups the live
-  passive slice, diagnostic payloads, and dormant future modules.
-- **Why retained:** a single experimental product boundary was correct while
-  none of the grouped machinery belonged in production.
-- **Current risk:** promoting the group ships too much; leaving it grouped
-  prevents promoting the narrow passive substrate at all. Source inclusion and
-  runtime reachability can also disagree across release, debug, VC, and audit.
-- **Dependencies:** exact source/ROM inventory closure and FC-001/FC-008.
-- **Right-time trigger:** reached by approved production promotion.
-- **Recommendation:** create a narrow production section for passive code,
-  data, state, and hooks, initially staged off. Preserve a separate audit-only
-  section for diagnostics and dormant modules, then activate only after
-  inventories close.
-- **Acceptance proof:** a four-product matrix proves expected symbols,
-  callability, no-op staged behavior, forbidden-symbol absence, bank/layout
-  bounds, and unchanged audit identity semantics.
+- **Status / priority:** CLOSED / P0.
+- **What exists:** passive code, data, state, hooks, and the saved toggle are
+  linked in normal, debug, and VC products. Audit-only diagnostics remain in a
+  separate partition, and broader scheduler/OAM machinery remains inactive.
+- **Resolved risk:** shipping the passive slice no longer requires promoting
+  the audit command surface or treating linked future seams as active owners.
+- **Closure proof:** the four-product matrix proves expected production
+  symbols, forbidden diagnostic-symbol absence, runtime mode reachability,
+  bank/layout bounds, and retained audit identity semantics.
 - **Sources:** [main.asm](main.asm), [layout.link](layout.link),
   [product variants](docs/ARCHITECTURE.md#product-variants-and-experimental-isolation),
   and [ROM discovery](tools/rom_tests/full_color/rom_discovery.py).
@@ -339,27 +302,29 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
   [Phase 4 plan](specs/full-colors/docs/migration-plan.md#phase-4-overworld-oam),
   and [AC-OW-05](specs/full-colors/docs/acceptance-criteria.md).
 
-### FC-011: Evidence contract assumes audit-only color
+### FC-011: Audit evidence still needs a diagnostic product
 
-- **Status / priority:** TRIGGERED / P0.
-- **What exists:** Phase 2 verification proves that color belongs to an exact
-  audit product and that ordinary products exclude its runtime; product hashes,
-  compile-time provenance, and inventory rows encode that claim.
-- **Why retained:** it prevents a source-only or stale-ROM claim from passing
-  as the measured Phase 2 slice.
-- **Current risk:** production promotion makes part of the old negative claim
-  false. Weakening or deleting the verifier would also discard the independent
-  audit claim and permit stale evidence.
-- **Dependencies:** FC-009 partition and a versioned production-toggle evidence
-  contract.
-- **Right-time trigger:** reached when production Color was approved.
-- **Recommendation:** preserve Phase 2 audit provenance, then add a new typed
-  evidence version proving production Color reachability, Yellow fallback,
-  audit-diagnostic exclusion, and exact product identities. Do not overwrite
-  an old schema with new semantics.
-- **Acceptance proof:** old audit evidence still validates its historical
-  claim; new generated evidence rejects wrong ROMs, stale hashes, forbidden
-  symbols, false mode reachability, and hand-edited payloads.
+- **Status / priority:** ACTIVE / P1.
+- **What exists:** production evidence proves Color and Yellow reachability in
+  the same shipped binaries and diagnostic-symbol exclusion. Separate Phase 2
+  verification still binds provenance, inventory rows, and observability to an
+  exact audit product.
+- **Why retained:** the remaining diagnostic evidence prevents source-only,
+  hand-edited, or stale-ROM claims from passing while its replacement is
+  designed.
+- **Current risk:** retaining a distinct audit product can be misread as proof
+  that player-visible Color is audit-only, and it blocks deletion of
+  `PHASE2_AUDIT` even though behavior no longer uses that flag.
+- **Dependencies:** replacement producers for every Phase 2 diagnostic claim,
+  preserved schema/provenance integrity, and FC-008.
+- **Right-time trigger:** reached when the production evidence contract began
+  selecting both modes in the same shipped product.
+- **Recommendation:** migrate audit consumers and retained evidence to named,
+  product-neutral diagnostic authorities without overwriting historical
+  semantics. Then remove the audit-product identity and close FC-008.
+- **Acceptance proof:** migrated generators reject wrong ROMs, stale hashes,
+  forbidden symbols, false mode reachability, and hand-edited payloads without
+  requiring an audit-behavior variant.
 - **Sources:** [phase2_measurements.py](tools/rom_tests/full_color/phase2_measurements.py),
   [phase2_audit_observability.py](tools/rom_tests/full_color/phase2_audit_observability.py),
   [Phase 2 definition](specs/full-colors/definitions/phase2-hostile-slice-representation.json),
@@ -428,7 +393,7 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
 - **Current risk:** treating donor mappings as authoritative can miscolor
   Yellow-exclusive graphics, roofs, maps, follower Pikachu, animations, and
   tilesets while all attribute bytes remain technically legal.
-- **Dependencies:** Phase 3 map-aware palette/roof dispatch and Phase 6
+- **Dependencies:** Phase 3 map-aware palette/roof dispatch and future
   independent authoring/validation for all 25 Yellow tilesets and overrides.
 - **Right-time trigger:** adding any map whose exact tileset, roof, override,
   or animation identity differs from the accepted slice.
@@ -440,7 +405,7 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
   special case has inventory closure, atlas/table review, semantic full-byte
   attribute tests, and natural visual acceptance.
 - **Sources:** [full_color_overworld.asm](data/tilesets/full_color_overworld.asm),
-  [Phase 6 plan](specs/full-colors/docs/migration-plan.md#phase-6-tileset-content),
+  [future all-25 plan](specs/full-colors/docs/migration-plan.md#future-non-gating-work-all-25-tileset-authoring),
   [R8.2](specs/full-colors/docs/requirements.md), and
   [Viridian warning](docs/ADDING_CONTENT.md#viridian-is-a-canary-not-completed-content).
 
@@ -478,11 +443,11 @@ Phase 1 `_DEBUG` mailbox, Gate 0, or Phase 1 runtime evidence.
 These are not shortcuts to remove. A constraint becomes debt only when its
 trigger is reached and the replacement has a proved boundary.
 
-### IC-001: Color is audit-only
+### IC-001: Color is not audit-gated
 
-**Status:** becoming debt now. Audit isolation remains the current truth, but
-approval of a production toggle has reached its replacement trigger. Resolve
-through FC-001, FC-008, FC-009, and FC-011 rather than deleting the outer guard.
+**Status:** the former audit-only constraint is retired. Normal, debug, and VC
+products all ship the bounded renderer. The remaining `PHASE2_AUDIT` flag is
+diagnostic debt tracked by FC-008 and FC-011, not a behavior boundary.
 
 ### IC-002: Pallet Town and Route 1 only
 

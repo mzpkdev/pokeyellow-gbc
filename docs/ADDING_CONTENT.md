@@ -125,10 +125,12 @@ diff, and obtain fresh review. Never bulk-bless failures.
 ## Full-color extension recipes
 
 The current playable color renderer is deliberately narrower than the ROMhack:
-only the `_DEBUG` + `PHASE2_AUDIT` product colors Pallet Town and Route 1.
-Yellow still owns bank-0 tile graphics, sprites, animations, overlays, menus,
-battles, mechanics, and scheduling. The passive layer may install complete BG
-palettes and VRAM-bank-1 attributes only.
+normal, debug, and VC products all offer Color for Pallet Town and Route 1.
+Yellow mode and unsupported maps use Yellow presentation. Yellow still owns
+bank-0 tile graphics, sprites, animations, overlays, menus, battles, mechanics,
+and scheduling. The passive layer may install complete BG palettes and
+VRAM-bank-1 attributes only. `PHASE2_AUDIT` adds diagnostics and certification
+surfaces; it never gates this player-visible behavior.
 
 ### Add a map compatible with the Phase 2 slice
 
@@ -163,13 +165,21 @@ you:
    when the boundary changes. That definition is a reviewed input and is
    distinct from the generated evidence file with the same basename under
    `specs/full-colors/evidence/`.
-5. Build all four products, generate evidence with the official generator, and
-   review every new subject. Never hand-edit derived evidence.
+5. Build all four products and generate the unreviewed proposal chain. Review
+   every new subject and hash delta, then deliberately incorporate the accepted
+   changes into the source transition and four inventories, including reviewer
+   metadata supplied by the human review. No Make target performs that
+   acceptance. Production runtime coverage must select Color and Yellow within
+   the same shipped binary; the audit product supplies only its additional
+   diagnostic evidence. Never hand-edit derived evidence.
 
 ```sh
 make yellow_debug yellow_phase2_audit pokeyellow.gbc pokeyellow_vc.gbc
+make measure-full-color-phase2-audit
+# Human review and deliberate authority updates happen here.
 .venv/bin/python -m tools.rom_tests.full_color.phase2_measurements \
   --root . \
+  --authority-reviewed \
   --output specs/full-colors/evidence/phase2-hostile-slice-representation.json
 make verify-full-color-phase2-audit
 ```
@@ -197,8 +207,9 @@ Viridian City uses `OVERWORLD`, so temporarily adding `VIRIDIAN_CITY` to both
 guards can diagnose activation, scrolling, and the Route 1 connection. It does
 not produce honest Viridian coloring: the global payload still hardcodes
 Pallet's roof colors. Phase 3 supplies map-aware palette selection and paired
-transfers; Phase 6 supplies and accepts Viridian's reviewed roof/content data.
-Until both are evidenced, keep Viridian outside the claimed slice.
+transfers; future all-map authoring must supply and accept Viridian's reviewed
+roof/content data. Until both are evidenced, keep Viridian outside the claimed
+slice.
 
 ### Change palettes or tile attributes
 
@@ -224,10 +235,11 @@ the gates, and review natural gameplay captures.
 
 Do not hide later ownership work in an allowlist or palette edit. Phase 3 builds
 map-aware palette selection and paired transfers; Phase 4 owns overworld OAM;
-Phase 5 stress-tests the architecture; Phase 6 completes and accepts all 25
-tilesets, roofs, overrides, and content; Phase 7 closes every handoff; Phase 8
-removes old overworld ownership; and Phase 9 hardens release timing and
-products. The authoritative exit gates live in the
+Phase 5 stress-tests the architecture; Phase 6 closes bounded Pallet Town and
+Route 1 data, overrides, animation, and field-replacement work; Phase 7 closes
+every handoff; Phase 8 removes old overworld ownership; and Phase 9 hardens
+release timing and products. All-25-tileset and all-map authoring remains
+future non-gating work. The authoritative exit gates live in the
 [migration plan](../specs/full-colors/docs/migration-plan.md).
 
 ## Verification before handoff
@@ -251,6 +263,6 @@ make test-full-color-all
 
 `test-full-color-all` does not include Phase 2 evidence verification or the
 cold-boot journey. Preserve Gate 0's independent runs, Phase 1 runtime evidence,
-the synthetic checker, mutation sensitivity, time bounds, audit exclusion, and
-byte-identical stable artifacts. Screenshots add evidence; they do not replace
-it.
+the synthetic checker, mutation sensitivity, time bounds, separation of
+audit-only diagnostics from production behavior, and byte-identical stable
+artifacts. Screenshots add evidence; they do not replace it.

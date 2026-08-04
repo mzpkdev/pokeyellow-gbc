@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from tools.rom_tests.emulator import Emulator
 from tools.rom_tests.scenarios.oaks_lab import (
+    BedroomSetup,
     JourneyCheckpoint,
     PALLET_TOWN,
     complete_oaks_lab_intro,
@@ -110,9 +111,14 @@ def reach_viridian_city(
     checkpoint: JourneyCheckpoint | None = None,
     *,
     use_debug_repel: bool = True,
+    bedroom_setup: BedroomSetup | None = None,
 ) -> None:
     """Start a new game and play continuously through to Viridian City."""
-    complete_oaks_lab_intro(emulator, checkpoint)
+    complete_oaks_lab_intro(
+        emulator,
+        checkpoint,
+        bedroom_setup=bedroom_setup,
+    )
     walk_from_oaks_lab_to_viridian(
         emulator,
         checkpoint,

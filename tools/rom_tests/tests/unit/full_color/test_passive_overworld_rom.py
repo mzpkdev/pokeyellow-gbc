@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-from tools.rom_tests.tests.conftest import REPOSITORY_ROOT
+from tools.rom_tests.emulator import Emulator
+from tools.rom_tests.tests.conftest import REPOSITORY_ROOT, result_directory
 from tools.rom_tests.tests.unit.full_color.test_phase2_scheduler_rom import (
     Phase2Rom,
+    _farcall_from_wram,
     _linked_overworld_tile_attributes,
-    phase2_rom as _phase2_rom,  # noqa: F401 - registered by pytest
+    numeric_symbols,
 )
 from tools.rom_tests.tests.unit.full_color.test_phase2_vblank_routing_rom import (
     ENTRY_ROM_BANK,
@@ -21,6 +21,8 @@ from tools.rom_tests.tests.unit.full_color.test_phase2_vblank_routing_rom import
 
 RBGPI = 0xFF68
 RBGPD = 0xFF69
+RBGP = 0xFF47
+BOOTROM_DISABLE = 0xFF50
 RSVBK = 0xFF70
 RVBK = 0xFF4F
 VBG_MAP_0 = 0x9800
@@ -29,11 +31,34 @@ PALLET_TOWN = 0
 ROUTE_1 = 0x0C
 REDRAW_COL = 1
 REDRAW_ROW = 2
+PAD_RIGHT = 1 << 4
+YELLOW_NORMAL_BGP = 0xE4
+SCREEN_WIDTH = 20
+SCREEN_HEIGHT = 18
+PRODUCTS = ("pokeyellow", "pokeyellow_debug", "pokeyellow_vc")
 
 
-@pytest.fixture(name="phase2_rom")
-def phase2_rom_fixture(request: pytest.FixtureRequest) -> Phase2Rom:
-    return request.getfixturevalue("_phase2_rom")
+@pytest.fixture(name="phase2_rom", params=PRODUCTS)
+def phase2_rom_fixture(request: pytest.FixtureRequest):
+    product = request.param
+    rom = REPOSITORY_ROOT / f"{product}.gbc"
+    sym = REPOSITORY_ROOT / f"{product}.sym"
+    emulator = Emulator(
+        rom=rom,
+        symbols=sym,
+        results=result_directory(request.node.nodeid) / product,
+        cgb=True,
+    )
+    instance = Phase2Rom(emulator, numeric_symbols(sym))
+    dma_stub = bytes(
+        (0x3E, 0xC3, 0xE0, 0x46, 0x3E, 0x28, 0x3D, 0x20, 0xFD, 0xC9)
+    )
+    for offset, value in enumerate(dma_stub):
+        emulator.pyboy.memory[0xFF80 + offset] = value
+    try:
+        yield instance
+    finally:
+        emulator.close()
 
 
 def _linked_bytes(rom: Phase2Rom, start: str, end: str) -> bytes:
@@ -42,9 +67,14 @@ def _linked_bytes(rom: Phase2Rom, start: str, end: str) -> bytes:
     address = rom.emulator.symbols[start]
     size = rom.emulator.symbols[end] - address
     offset = address if bank == 0 else bank * 0x4000 + address - 0x4000
-    return Path(REPOSITORY_ROOT / "pokeyellow_phase2_audit.gbc").read_bytes()[
-        offset : offset + size
-    ]
+    return rom.emulator.rom.read_bytes()[offset : offset + size]
+
+
+def _linked_palette_entry(rom: Phase2Rom, index: int) -> bytes:
+    bank = rom.emulator.symbol_banks["CGBBasePalettes"]
+    address = rom.emulator.symbols["CGBBasePalettes"] + index * 8
+    offset = address if bank == 0 else bank * 0x4000 + address - 0x4000
+    return rom.emulator.rom.read_bytes()[offset : offset + 8]
 
 
 def _write_palette(rom: Phase2Rom, payload: bytes) -> None:
@@ -70,12 +100,174 @@ def _write_vram(rom: Phase2Rom, bank: int, address: int, payload: bytes) -> None
         emu.memory[RVBK] = prior
 
 
+def _write_player_data(rom: Phase2Rom, symbol: str, value: int) -> None:
+    emu = rom.emulator.pyboy
+    prior = emu.memory[RSVBK]
+    emu.memory[RSVBK] = 1
+    try:
+        emu.memory[rom.emulator.symbols[symbol]] = value
+    finally:
+        emu.memory[RSVBK] = prior
+
+
+def _read_player_data(rom: Phase2Rom, symbol: str) -> int:
+    emu = rom.emulator.pyboy
+    prior = emu.memory[RSVBK]
+    emu.memory[RSVBK] = 1
+    try:
+        return emu.memory[rom.emulator.symbols[symbol]]
+    finally:
+        emu.memory[RSVBK] = prior
+
+
 def _activate_passive_map(rom: Phase2Rom, map_id: int = PALLET_TOWN) -> None:
     emu = rom.emulator.pyboy
     rom.call("InitRendererOwnership")
     emu.memory[rom.emulator.symbols["wCurMap"]] = map_id
+    _write_player_data(rom, "wUnusedObtainedBadges", 0)
     emu.memory[0xFF40] &= 0x7F
     rom.call("PassiveFullColorApplyMap")
+
+
+def test_product_option_toggles_only_saved_renderer_preference_bit(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    _write_player_data(phase2_rom, "wUnusedObtainedBadges", 0xA0)
+    emu.memory[symbols["hJoy5"]] = PAD_RIGHT
+
+    phase2_rom.call("OptionsMenu_ColorMode")
+
+    prior = emu.memory[RSVBK]
+    emu.memory[RSVBK] = 1
+    try:
+        assert emu.memory[symbols["wUnusedObtainedBadges"]] == 0xA1
+    finally:
+        emu.memory[RSVBK] = prior
+
+
+def test_saved_yellow_preference_blocks_map_publish_and_clears_all_attributes(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = PALLET_TOWN
+    _write_player_data(phase2_rom, "wUnusedObtainedBadges", 0x81)
+    emu.memory[0xFF40] &= 0x7F
+    _write_vram(phase2_rom, 1, VBG_MAP_0, b"\x07" * TILEMAP_AREA)
+
+    phase2_rom.call("PassiveFullColorApplyMap")
+
+    assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x00"
+    assert phase2_rom.emulator.read_vram_bank(1, VBG_MAP_0, TILEMAP_AREA) == (
+        b"\x00" * TILEMAP_AREA
+    )
+
+
+def test_menu_close_in_yellow_mode_restores_authoritative_pallet_palette(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = PALLET_TOWN
+    emu.memory[symbols["wOnSGB"]] = 1
+    emu.memory[symbols["hOnCGB"]] = 1
+    emu.memory[RBGP] = YELLOW_NORMAL_BGP
+    emu.memory[0xFF40] &= 0x7F
+
+    # Pallet is palette ID 1 in Yellow's linked CGB base-palette authority.
+    expected_yellow_pallet = _linked_palette_entry(phase2_rom, 1)
+    _write_player_data(phase2_rom, "wLastBGP", YELLOW_NORMAL_BGP)
+    _write_player_data(phase2_rom, "wUnusedObtainedBadges", 0)
+    phase2_rom.call("PassiveFullColorApplyMap")
+    stale_donor_palette = phase2_rom.emulator.read_palette_ram()
+    _write_vram(phase2_rom, 1, VBG_MAP_0, b"\x07" * TILEMAP_AREA)
+    _write_player_data(phase2_rom, "wUnusedObtainedBadges", 1)
+
+    assert stale_donor_palette[:8] != expected_yellow_pallet
+    assert _read_player_data(phase2_rom, "wLastBGP") == emu.memory[RBGP]
+    assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x01"
+
+    # Production has unmapped the boot ROM before this home-bank CopyData path.
+    emu.memory[BOOTROM_DISABLE] = 1
+    _farcall_from_wram(
+        phase2_rom, "PassiveFullColorRestoreAfterMenu", entry_bank=5,
+    )
+
+    assert phase2_rom.emulator.read_palette_ram()[:8] == expected_yellow_pallet
+    assert phase2_rom.emulator.read_vram_bank(1, VBG_MAP_0, TILEMAP_AREA) == (
+        b"\x00" * TILEMAP_AREA
+    )
+    assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x00"
+
+
+def test_overlay_presentation_stays_latched_after_color_preference_changes(
+    phase2_rom: Phase2Rom,
+) -> None:
+    _activate_passive_map(phase2_rom)
+    _write_player_data(phase2_rom, "wUnusedObtainedBadges", 1)
+
+    _, flags = phase2_rom.call("PassiveFullColorShouldColorOverlay")
+
+    assert flags & 0x10
+    assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x01"
+
+
+def test_inactive_live_activation_publishes_wrapped_visible_rows_before_color(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    attributes = _linked_overworld_tile_attributes(phase2_rom)
+    palettes = _linked_bytes(
+        phase2_rom, "FullColorOverworldBGPalettes", "FullColorOverworldBGPalettesEnd"
+    )
+    tiles = bytes((index * 29 + 7) & 0xFF for index in range(SCREEN_WIDTH * SCREEN_HEIGHT))
+    pointer = 0x9BF5  # bottom row, x=21: exercises both horizontal and vertical wrap
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = PALLET_TOWN
+    _write_player_data(phase2_rom, "wUnusedObtainedBadges", 0)
+    phase2_rom.write_fixed(symbols["wTileMap"], tiles)
+    phase2_rom.write_fixed(
+        symbols["wMapViewVRAMPointer"], bytes((pointer & 0xFF, pointer >> 8))
+    )
+    _write_vram(phase2_rom, 1, VBG_MAP_0, b"\x07" * TILEMAP_AREA)
+    phase2_rom.call("PassiveFullColorWriteActive", a=0)
+    phase2_rom.call("PassiveFullColorTranslateTileMap")
+    phase2_rom.call("PassiveFullColorWriteState", b=4, c=SCREEN_HEIGHT)
+
+    phase2_rom.call("PassiveFullColorVBlank", de=0)
+    neutral = phase2_rom.emulator.read_palette_ram()
+    assert all(neutral[index * 8 : index * 8 + 8] == neutral[:8] for index in range(8))
+    assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x00"
+
+    expected_by_address: dict[int, int] = {}
+    for row in range(SCREEN_HEIGHT):
+        y = ((pointer - VBG_MAP_0) // 32 + row) & 31
+        x = (pointer - VBG_MAP_0) & 31
+        for column in range(SCREEN_WIDTH):
+            address = VBG_MAP_0 + y * 32 + ((x + column) & 31)
+            expected_by_address[address] = attributes[tiles[row * SCREEN_WIDTH + column]]
+
+    for remaining in range(SCREEN_HEIGHT - 2, -1, -2):
+        phase2_rom.call("PassiveFullColorVBlank", de=0)
+        assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x00"
+        assert phase2_rom.emulator.read_palette_ram() == neutral
+        assert phase2_rom.read_wram2("wPassiveFullColorClearChunks") == bytes((remaining,))
+
+    actual = phase2_rom.emulator.read_vram_bank(1, VBG_MAP_0, TILEMAP_AREA)
+    assert all(actual[address - VBG_MAP_0] == value for address, value in expected_by_address.items())
+    offscreen = next(address for address in range(VBG_MAP_0, VBG_MAP_0 + TILEMAP_AREA) if address not in expected_by_address)
+    assert actual[offscreen - VBG_MAP_0] == 7
+    assert phase2_rom.read_wram2("wPassiveFullColorPalettePending") == b"\x06"
+
+    phase2_rom.call("PassiveFullColorVBlank", de=0)
+    assert phase2_rom.emulator.read_palette_ram() == palettes
+    assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x01"
+    assert phase2_rom.read_wram2("wPassiveFullColorPalettePending") == b"\x00"
 
 
 def test_cold_boot_map_zero_cannot_activate_without_a_real_map_publish(
@@ -173,12 +365,35 @@ def test_real_vblank_runs_yellow_bank0_redraw_before_exact_passive_attributes(
         phase2_rom.call("PassiveFullColorPrepareRedrawAttributes")
     else:
         phase2_rom.call("PassiveFullColorPrepareColumnAttributes")
+    assert phase2_rom.read_wram2(
+        "wPassiveFullColorDeferredRedrawState"
+    ) == bytes((0x80 | mode,))
+    _write_vram(phase2_rom, 0, VBG_MAP_0, b"\x55" * TILEMAP_AREA)
+    _write_vram(phase2_rom, 1, VBG_MAP_0, b"\xee" * TILEMAP_AREA)
     emu.memory[symbols["hRedrawRowOrColumnMode"]] = mode
 
-    observation = _run_actual_vblank(phase2_rom)
+    yellow_observation = _run_actual_vblank(phase2_rom)
 
-    assert "RedrawRowOrColumn" in observation.call_sites
+    assert "RedrawRowOrColumn" in yellow_observation.call_sites
     assert emu.memory[symbols["hRedrawRowOrColumnMode"]] == 0
+    assert phase2_rom.read_wram2(
+        "wPassiveFullColorDeferredRedrawState"
+    ) == bytes((mode,))
+    assert bytes(
+        phase2_rom.emulator.read_vram_bank(0, address, 1)[0]
+        for address in expected_addresses
+    ) == source
+    assert bytes(
+        phase2_rom.emulator.read_vram_bank(1, address, 1)[0]
+        for address in expected_addresses
+    ) == b"\xee" * len(expected_addresses)
+
+    _run_actual_vblank(phase2_rom)
+
+    assert emu.memory[symbols["hRedrawRowOrColumnMode"]] == 0
+    assert phase2_rom.read_wram2(
+        "wPassiveFullColorDeferredRedrawState"
+    ) == b"\x00"
     assert bytes(
         phase2_rom.emulator.read_vram_bank(0, address, 1)[0]
         for address in expected_addresses
@@ -268,13 +483,11 @@ def test_exit_makes_stale_attributes_inert_then_clears_every_bank1_address(
     )
 
 
-def test_actual_passive_vblank_restores_machine_state_and_never_runs_scheduler(
+def test_actual_passive_vblank_restores_machine_state_and_keeps_yellow_owner(
     phase2_rom: Phase2Rom,
 ) -> None:
     emu = phase2_rom.emulator.pyboy
     _activate_passive_map(phase2_rom)
-    queue_before = phase2_rom.read_wram2("wFullColorRequestCount")
-
     observation = _run_actual_vblank(phase2_rom)
 
     assert observation.stack_pointer == 0xFFFC
@@ -286,5 +499,4 @@ def test_actual_passive_vblank_restores_machine_state_and_never_runs_scheduler(
     assert phase2_rom.read_wram2("wRendererOwner") == bytes(
         (phase2_rom.constants["RENDERER_YELLOW"],)
     )
-    assert phase2_rom.read_wram2("wFullColorRequestCount") == queue_before == b"\x00"
     assert emu.memory[phase2_rom.emulator.symbols["wUpdateSpritesEnabled"]] != 0

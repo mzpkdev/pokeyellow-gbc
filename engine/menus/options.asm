@@ -5,7 +5,8 @@
 	const OPT_BATTLE_STYLE ; 2
 	const OPT_SOUND        ; 3
 	const OPT_PRINTER      ; 4
-	const_skip 2
+	const OPT_COLOR_MODE   ; 5
+	const_skip             ; 6
 	const OPT_CANCEL       ; 7
 DEF NUM_OPTIONS EQU const_value ; 8
 
@@ -47,7 +48,7 @@ OptionMenuJumpTable:
 	dw OptionsMenu_BattleStyle
 	dw OptionsMenu_SpeakerSettings
 	dw OptionsMenu_GBPrinterBrightness
-	dw OptionsMenu_Dummy
+	dw OptionsMenu_ColorMode
 	dw OptionsMenu_Dummy
 	dw OptionsMenu_Cancel
 
@@ -371,6 +372,39 @@ GetGBPrinterBrightness:
 	lb de, PRINTER_BRIGHTNESS_DARKER, PRINTER_BRIGHTNESS_LIGHTEST
 	ret
 
+OptionsMenu_ColorMode:
+	ldh a, [hJoy5]
+	and PAD_LEFT | PAD_RIGHT
+	jr z, .display
+	ld hl, wUnusedObtainedBadges
+	ld a, 1 << BIT_FULL_COLOR_YELLOW_MODE
+	xor [hl]
+	ld [hl], a
+.display
+	ld a, [wUnusedObtainedBadges]
+	and 1 << BIT_FULL_COLOR_YELLOW_MODE
+	ld bc, 0
+	jr z, .place
+	inc c
+.place
+	ld hl, .Strings
+	add hl, bc
+	add hl, bc
+	ld e, [hl]
+	inc hl
+	ld d, [hl]
+	hlcoord 14, 12
+	call PlaceString
+	and a ; clear carry flag
+	ret
+
+.Strings:
+	dw .Color
+	dw .Yellow
+
+.Color:  db "COLOR @"
+.Yellow: db "YELLOW@"
+
 OptionsMenu_Dummy:
 	and a ; clear carry flag
 	ret
@@ -404,9 +438,9 @@ OptionsControl:
 	scf
 	ret
 .doNotWrap
-	cp OPT_PRINTER ; skip the next two dummy options
+	cp OPT_COLOR_MODE
 	jr c, .increase
-	ld [hl], OPT_CANCEL - 1 ; Cancel is after Print
+	ld [hl], OPT_CANCEL - 1 ; Cancel is after Color Mode and one dummy slot
 .increase
 	inc [hl]
 	scf
@@ -414,9 +448,9 @@ OptionsControl:
 
 .pressedUp
 	ld a, [hl]
-	cp OPT_CANCEL ; skip the previous two dummy options
+	cp OPT_CANCEL ; skip the dummy option before Cancel
 	jr nz, .doNotSkip
-	ld [hl], OPT_PRINTER ; Print is before Cancel
+	ld [hl], OPT_COLOR_MODE
 	scf
 	ret
 .doNotSkip
@@ -456,7 +490,7 @@ InitOptionsMenu:
 	call PlaceString
 	xor a
 	ld [wOptionsCursorLocation], a
-	ld c, 5 ; the number of options to loop through
+	ld c, 6 ; five Yellow options plus the renderer preference
 .loop
 	push bc
 	call GetOptionPointer ; updates the next option
@@ -467,9 +501,17 @@ InitOptionsMenu:
 	jr nz, .loop
 	xor a
 	ld [wOptionsCursorLocation], a
-	inc a
+	farcall PassiveFullColorShouldColorOverlay
+	jr nc, .yellowInitialCursor
+	call OptionsMenu_UpdateCursorPosition
+	farcall PassiveFullColorPrepareMenuOverlay
+.yellowInitialCursor
+	ldh a, [hAutoBGTransferEnabled]
+	or 1
 	ldh [hAutoBGTransferEnabled], a
 	call Delay3
+	xor a
+	ldh [hWY], a
 	ret
 
 AllOptionsText:
@@ -477,7 +519,8 @@ AllOptionsText:
 	next "ANIMATION  :"
 	next "BATTLESTYLE:"
 	next "SOUND:"
-	next "PRINT:@"
+	next "PRINT:"
+	next "COLOR MODE:@"
 
 OptionMenuCancelText:
 	db "CANCEL@"

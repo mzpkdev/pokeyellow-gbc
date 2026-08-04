@@ -45,10 +45,8 @@ StartMenu_Pokemon::
 	call GBPalWhiteOutWithDelay3
 	call RestoreScreenTilesAndReloadTilePatterns
 	call LoadGBPal
-IF DEF(PHASE2_AUDIT)
 	; Yellow restored bank 0; schedule a bounded bank-1 donor reprojection.
 	farcall PassiveFullColorScheduleAttributeRestore
-ENDC
 	jp RedisplayStartMenu
 .chosePokemon
 	call SaveScreenTilesToBuffer1
@@ -687,11 +685,23 @@ StartMenu_SaveReset::
 	jp HoldTextDisplayOpen
 
 StartMenu_Option::
+	farcall PassiveFullColorShouldColorOverlay
+	jr nc, .optionsWindowHidden
+	ld a, $90
+	ldh [hWY], a
+	call DelayFrame
+.optionsWindowHidden
 	xor a
 	ldh [hAutoBGTransferEnabled], a
 	call ClearScreen
 	call UpdateSprites
 	callfar DisplayOptionMenu
+	farcall PassiveFullColorShouldColorOverlay
+	jr nc, .startWindowHidden
+	ld a, $90
+	ldh [hWY], a
+	call DelayFrame
+.startWindowHidden
 	call LoadScreenTilesFromBuffer2
 	call LoadTextBoxTilePatterns
 	call UpdateSprites

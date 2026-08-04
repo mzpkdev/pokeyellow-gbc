@@ -8,7 +8,6 @@
 ; Pallet Town and Route 1 both use OVERWORLD; the donor roof table gives both
 ; maps PalletRoof identity.
 
-IF DEF(PHASE2_AUDIT) || DEF(FULL_COLOR_PRODUCTION_LINKAGE)
 DEF FULL_COLOR_OVERWORLD_GRAY   EQU 0
 DEF FULL_COLOR_OVERWORLD_RED    EQU 1
 DEF FULL_COLOR_OVERWORLD_GREEN  EQU 2
@@ -113,7 +112,3 @@ IF DEF(PHASE2_AUDIT)
 ASSERT FullColorCanaryOBJPalettesEnd - FullColorCanaryOBJPalettes == 8 * 4 * 2
 ENDC
 ASSERT FullColorOverworldTileAttributesEnd - FullColorOverworldTileAttributes == $100
-ELSE
-	; Preserve the exact 384-byte Phase 2 ROM window ABI in release/VC products.
-	ds 64 + 64 + 256
-ENDC

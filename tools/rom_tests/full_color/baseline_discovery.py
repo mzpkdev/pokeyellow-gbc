@@ -115,7 +115,7 @@ def _validated_audit_only_added_paths(
     repository: Path,
     report: SourceDiscoveryReport,
 ) -> frozenset[str]:
-    """Return hash-bound files that do not exist in the reviewed product."""
+    """Return hash-bound files added after the reviewed baseline."""
     path = repository / SOURCE_TRANSITION_PATH
     try:
         transition = json.loads(
@@ -124,28 +124,28 @@ def _validated_audit_only_added_paths(
         )
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         raise RomDiscoveryError(
-            "unlinked source writer requires a valid audit-only source transition"
+            "unlinked source writer requires a valid reviewed source transition"
         ) from exc
     expected_keys = {
         "schema",
         "reviewed_source_sha256",
-        "audit_source_sha256",
+        "current_source_sha256",
         "baseline_manifest_sha256",
-        "audit_only_paths",
+        "reviewed_delta_paths",
         "subject_rebindings",
         "rom_subject_rebindings",
     }
     if set(transition) != expected_keys or transition["schema"] != (
-        "full-color-phase1-audit-source-transition-v2"
+        "full-color-production-source-transition-v3"
     ):
-        raise RomDiscoveryError("malformed audit-only source transition")
-    if transition["audit_source_sha256"] != report.source_sha256:
+        raise RomDiscoveryError("malformed reviewed source transition")
+    if transition["current_source_sha256"] != report.source_sha256:
         raise RomDiscoveryError(
-            "audit-only source transition does not bind current source discovery"
+            "reviewed source transition does not bind current source discovery"
         )
     if not _sha256_text(transition["reviewed_source_sha256"]):
         raise RomDiscoveryError("malformed reviewed source identity")
-    bindings = transition["audit_only_paths"]
+    bindings = transition["reviewed_delta_paths"]
     if not isinstance(bindings, dict):
         raise RomDiscoveryError("malformed audit-only path manifest")
 
@@ -170,12 +170,12 @@ def _validated_audit_only_added_paths(
             )
         if not isinstance(binding, dict) or set(binding) != {
             "reviewed_sha256",
-            "audit_sha256",
+            "current_sha256",
         }:
             raise RomDiscoveryError(
                 f"malformed audit-only path binding: {relative}"
             )
-        audit_sha256 = binding["audit_sha256"]
+        audit_sha256 = binding["current_sha256"]
         if not _sha256_text(audit_sha256):
             raise RomDiscoveryError(f"malformed audit path identity: {relative}")
         if current_manifest.get(relative) != audit_sha256:

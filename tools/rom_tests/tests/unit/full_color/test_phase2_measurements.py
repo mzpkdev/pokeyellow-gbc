@@ -10,6 +10,7 @@ import pytest
 import tools.rom_tests.full_color.phase2_measurements as phase2_measurements
 import tools.rom_tests.full_color.baseline_inventory as baseline_inventory
 
+from tools.rom_tests.full_color.discovery_assignment import DiscoveryAssignmentAuthority
 from tools.rom_tests.full_color.phase2_measurements import (
     DEFINITION_PATH,
     MINIMUM_STACK_MARGIN,
@@ -28,6 +29,21 @@ from tools.rom_tests.full_color.phase2_measurements import (
 from tools.rom_tests.full_color.inventory import WriterInventory
 ROOT = Path(__file__).resolve().parents[5]
 DEFINITION = load_definition(ROOT / DEFINITION_PATH)
+ROM_PRODUCTS = (
+    *phase2_measurements.PRODUCTION_PRODUCTS,
+    phase2_measurements.PHASE2_AUDIT_PRODUCT,
+)
+
+
+def patch_product_report(monkeypatch, product, changed) -> None:
+    discover_product = phase2_measurements.discover_phase2_rom_product
+    monkeypatch.setattr(
+        phase2_measurements,
+        "discover_phase2_rom_product",
+        lambda root, selected: (
+            changed if selected == product else discover_product(root, selected)
+        ),
+    )
 
 
 def audit_product_fixture(root: Path) -> None:
@@ -86,11 +102,11 @@ def candidate(**changes: object) -> Phase2Candidate:
     "mutation, message",
     [
         ("wrong-row", "wrong row"),
-        ("missing", "missing audit subject"),
-        ("extra", "extra audit subject"),
-        ("stale-product", "missing audit subject"),
-        ("stale-hash", "stale audit source identity"),
-        ("root-mismatch", "missing audit subject"),
+        ("missing", "missing pokeyellow_phase2_audit subject"),
+        ("extra", "extra pokeyellow_phase2_audit subject"),
+        ("stale-product", "missing pokeyellow_phase2_audit subject"),
+        ("stale-hash", "stale pokeyellow_phase2_audit source identity"),
+        ("root-mismatch", "missing pokeyellow_phase2_audit subject"),
     ],
 )
 def test_closed_audit_assignment_coverage_fails_closed(mutation, message) -> None:
@@ -156,8 +172,16 @@ def test_current_measurement_selects_concrete_bounded_representation() -> None:
     assert decision.rom_bank == 0x3B
     assert decision.debug_carrier_capacity >= DEFINITION.aggregate_high_water
     assert decision.ownership_state_bytes == PHASE1_STATE_BYTES
-    assert decision.normal_rom_reachable is False
+    assert decision.normal_rom_reachable is True
     assert decision.inventory_audit == {}
+    assert decision.to_dict()["activation"] == {
+        "normal_rom_reachable": True,
+        "production_products": list(phase2_measurements.PRODUCTION_PRODUCTS),
+        "audit_diagnostics": {
+            "guard": phase2_measurements.AUDIT_GUARD,
+            "product": phase2_measurements.PHASE2_AUDIT_PRODUCT,
+        },
+    }
 
 
 def test_selection_and_json_are_independent_of_candidate_order() -> None:
@@ -392,8 +416,13 @@ def test_standalone_audit_enforces_exact_phase2_row_ids(monkeypatch, mode) -> No
         audit_phase2_inventory(ROOT)
 
 
-@pytest.mark.parametrize("kind", ["source", "rom"])
-def test_same_coordinate_semantic_drift_fails_canonical_subject_audit(monkeypatch, kind) -> None:
+@pytest.mark.parametrize(
+    ("kind", "product"),
+    (("source", None), *(("rom", product) for product in ROM_PRODUCTS)),
+)
+def test_same_coordinate_semantic_drift_fails_canonical_subject_audit(
+    monkeypatch, kind, product
+) -> None:
     if kind == "source":
         report = phase2_measurements.discover_phase2_sources(ROOT)
         index = next(
@@ -408,26 +437,32 @@ def test_same_coordinate_semantic_drift_fails_canonical_subject_audit(monkeypatc
             lambda root: replace(report, findings=tuple(findings)),
         )
     else:
-        report = phase2_measurements.discover_phase2_rom(ROOT)
+        report = phase2_measurements.discover_phase2_rom_product(ROOT, product)
         index = next(
             index for index, finding in enumerate(report.findings)
             if finding.mechanism == "root-entry" and finding.root == "UpdateMovingBgTiles"
         )
         findings = list(report.findings)
         findings[index] = replace(findings[index], bytes="00")
-        monkeypatch.setattr(
-            phase2_measurements,
-            "discover_phase2_rom",
-            lambda root, guarded=True: replace(report, findings=tuple(findings)),
+        patch_product_report(
+            monkeypatch,
+            product,
+            replace(report, findings=tuple(findings)),
         )
     with pytest.raises(Phase2MeasurementError, match="subjects="):
         audit_phase2_inventory(ROOT)
 
 
-@pytest.mark.parametrize("kind", ["source", "rom", "candidate"])
+@pytest.mark.parametrize(
+    ("kind", "product"),
+    (
+        ("source", None),
+        *((kind, product) for kind in ("rom", "candidate") for product in ROM_PRODUCTS),
+    ),
+)
 @pytest.mark.parametrize("mutation", ["omit", "alter"])
 def test_descendant_subject_closure_is_mutation_sensitive(
-    monkeypatch, kind, mutation
+    monkeypatch, kind, product, mutation
 ) -> None:
     if kind == "source":
         report = phase2_measurements.discover_phase2_sources(ROOT)
@@ -446,7 +481,7 @@ def test_descendant_subject_closure_is_mutation_sensitive(
             lambda root: replace(report, findings=tuple(findings)),
         )
     else:
-        report = phase2_measurements.discover_phase2_rom(ROOT)
+        report = phase2_measurements.discover_phase2_rom_product(ROOT, product)
         field = "candidate_findings" if kind == "candidate" else "findings"
         findings = list(getattr(report, field))
         if kind == "candidate":
@@ -468,10 +503,10 @@ def test_descendant_subject_closure_is_mutation_sensitive(
             findings.pop(index)
         else:
             findings[index] = replace(findings[index], bytes="00")
-        monkeypatch.setattr(
-            phase2_measurements,
-            "discover_phase2_rom",
-            lambda root, guarded=True: replace(report, **{field: tuple(findings)}),
+        patch_product_report(
+            monkeypatch,
+            product,
+            replace(report, **{field: tuple(findings)}),
         )
     with pytest.raises(Phase2MeasurementError, match="subjects="):
         audit_phase2_inventory(ROOT)
@@ -492,9 +527,20 @@ def test_undispositioned_source_diagnostic_is_blocking(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize(
-    "kind", ["source", "rom", "candidate", "diagnostic", "unresolved"]
+    ("kind", "product"),
+    (
+        ("source", None),
+        ("diagnostic", None),
+        *(
+            (kind, product)
+            for kind in ("rom", "candidate", "unresolved")
+            for product in ROM_PRODUCTS
+        ),
+    ),
 )
-def test_duplicate_discovery_items_fail_before_projection(monkeypatch, kind) -> None:
+def test_duplicate_discovery_items_fail_before_projection(
+    monkeypatch, kind, product
+) -> None:
     if kind in {"source", "diagnostic"}:
         report = phase2_measurements.discover_phase2_sources(ROOT)
         field = "findings" if kind == "source" else "errors"
@@ -505,17 +551,17 @@ def test_duplicate_discovery_items_fail_before_projection(monkeypatch, kind) -> 
             lambda root: replace(report, **{field: (*values, values[0])}),
         )
     else:
-        report = phase2_measurements.discover_phase2_rom(ROOT)
+        report = phase2_measurements.discover_phase2_rom_product(ROOT, product)
         field = {
             "rom": "findings",
             "candidate": "candidate_findings",
             "unresolved": "unresolved_destinations",
         }[kind]
         values = getattr(report, field)
-        monkeypatch.setattr(
-            phase2_measurements,
-            "discover_phase2_rom",
-            lambda root, guarded=True: replace(report, **{field: (*values, values[0])}),
+        patch_product_report(
+            monkeypatch,
+            product,
+            replace(report, **{field: (*values, values[0])}),
         )
     with pytest.raises(Phase2MeasurementError, match="duplicate .* before projection"):
         audit_phase2_inventory(ROOT)
@@ -696,6 +742,44 @@ def test_passive_rom_pointer_authority_has_exact_site_and_root_coverage() -> Non
     } == {"WR-P2-YELLOW-OVERLAY-TRANSFER"}
 
 
+def test_production_pointer_projection_requires_exact_reviewed_subject() -> None:
+    product = phase2_measurements.DEBUG_PRODUCT
+    report = phase2_measurements.discover_phase2_rom_product(ROOT, product)
+    source = phase2_measurements._normalize_closed_scene_directions(
+        phase2_measurements.discover_phase2_sources(ROOT)
+    )
+    assignments = DiscoveryAssignmentAuthority.load(
+        ROOT / "specs/full-colors/inventory/assignments.json"
+    ).for_product(product)
+    reviewed_pointer_rows = {
+        row.subject.sha256: row.row_id
+        for row in assignments.rows
+        if row.subject.kind.value == "ROM_FINDING"
+    }
+    phase2_measurements._scoped_product_subjects(
+        source, report, reviewed_pointer_rows=reviewed_pointer_rows
+    )
+    findings = list(report.findings)
+    index = next(
+        index
+        for index, finding in enumerate(findings)
+        if finding.category == "writer"
+        and finding.resource == "UNKNOWN_DESTINATION"
+        and finding.root.startswith("PassiveFullColor")
+    )
+    finding = findings[index]
+    findings[index] = replace(
+        finding,
+        call_path=(*finding.call_path[:-1], "UnrelatedSameDepth"),
+    )
+    with pytest.raises(Phase2MeasurementError, match="unreviewed passive ROM pointer"):
+        phase2_measurements._scoped_product_subjects(
+            source,
+            replace(report, findings=tuple(findings)),
+            reviewed_pointer_rows=reviewed_pointer_rows,
+        )
+
+
 @pytest.mark.parametrize(
     "mutation", ["stale-site", "missing-root", "stale-ancestry"],
 )
@@ -737,36 +821,37 @@ def test_passive_rom_pointer_authority_rejects_stale_entries(
         phase2_measurements._validate_passive_rom_pointer_authority(findings)
 
 
-@pytest.mark.parametrize("kind", ["destination", "control"])
-def test_unresolved_rom_disposition_is_mutation_sensitive(monkeypatch, kind) -> None:
-    report = phase2_measurements.discover_phase2_rom(ROOT)
-    field = "unresolved_destinations" if kind == "destination" else "unresolved_control_flow"
-    values = list(getattr(report, field))
+@pytest.mark.parametrize("product", ROM_PRODUCTS)
+def test_product_rom_subject_is_mutation_sensitive(monkeypatch, product) -> None:
+    report = phase2_measurements.discover_phase2_rom_product(ROOT, product)
+    findings = list(report.findings)
     index = next(
-        index for index, value in enumerate(values)
-        if value.split(":", 1)[0] in phase2_measurements._phase2_roots()
+        index
+        for index, finding in enumerate(findings)
+        if finding.root == "UpdateMovingBgTiles"
+        and finding.mechanism == "root-entry"
     )
-    values[index] += " altered"
-    monkeypatch.setattr(
-        phase2_measurements,
-        "discover_phase2_rom",
-        lambda root, guarded=True: replace(report, **{field: tuple(values)}),
+    findings[index] = replace(findings[index], bytes="00")
+    patch_product_report(
+        monkeypatch,
+        product,
+        replace(report, findings=tuple(findings)),
     )
-    with pytest.raises(Phase2MeasurementError, match="unresolved dispositions"):
+    with pytest.raises(Phase2MeasurementError, match="subjects="):
         audit_phase2_inventory(ROOT)
 
 
 @pytest.mark.parametrize("mutation", ["schema", "traversal"])
-def test_standalone_audit_reuses_strict_v2_transition_validation(
+def test_standalone_audit_reuses_strict_v3_transition_validation(
     tmp_path, monkeypatch, mutation
 ) -> None:
     raw = json.loads((ROOT / phase2_measurements.SOURCE_TRANSITION_PATH).read_text())
     if mutation == "schema":
         raw["schema"] = "full-color-phase1-audit-source-transition-v1"
     else:
-        path, binding = next(iter(raw["audit_only_paths"].items()))
-        del raw["audit_only_paths"][path]
-        raw["audit_only_paths"]["../" + path] = binding
+        path, binding = next(iter(raw["reviewed_delta_paths"].items()))
+        del raw["reviewed_delta_paths"][path]
+        raw["reviewed_delta_paths"]["../" + path] = binding
     transition = tmp_path / "transition.json"
     transition.write_text(json.dumps(raw), encoding="utf-8")
     monkeypatch.setattr(baseline_inventory, "SOURCE_TRANSITION_PATH", transition)
@@ -827,6 +912,29 @@ def test_closed_authority_rejects_reintroduced_planned_only_disposition(
         audit_phase2_inventory(ROOT)
 
 
+def test_closed_authority_requires_nonempty_historical_source_partition(
+    tmp_path, monkeypatch
+) -> None:
+    raw = json.loads(
+        (ROOT / phase2_measurements.PLANNED_SUBJECTS_PATH).read_text(encoding="utf-8")
+    )
+    row_id = "MU-P2-MOVEMENT-HORIZONTAL"
+    removed = len(raw["source_subjects"][row_id])
+    raw["source_subjects"][row_id] = []
+    counts = raw["authority_counts"]["source_subjects"]
+    counts["by_row"][row_id] = 0
+    counts["total"] -= removed
+    authority = tmp_path / "planned-subjects.json"
+    authority.write_text(json.dumps(raw), encoding="utf-8")
+    monkeypatch.setattr(phase2_measurements, "PLANNED_SUBJECTS_PATH", authority)
+
+    with pytest.raises(
+        Phase2MeasurementError,
+        match="source subjects authority is empty for a non-empty closed row",
+    ):
+        audit_phase2_inventory(ROOT)
+
+
 def test_pressure_replay_equivalence_policy_mutation_changes_residency(tmp_path) -> None:
     raw = json.loads((ROOT / DEFINITION_PATH).read_text(encoding="utf-8"))
     horizontal = raw["scenario"][1]["enqueue"]
@@ -878,6 +986,37 @@ def test_committed_record_verifier_requires_byte_identical_evidence(
     evidence.write_text(decision.to_json() + " ", encoding="utf-8")
     with pytest.raises(Phase2MeasurementError, match="stale or edited"):
         verify_evidence(tmp_path, evidence)
+
+
+def test_official_generation_never_rewrites_reviewed_authorities(
+    tmp_path, monkeypatch
+) -> None:
+    inventory = ROOT / "specs/full-colors/inventory"
+    authority_paths = tuple(
+        inventory / name
+        for name in ("assignments.json", "writers.json", "scenes.json", "mutations.json")
+    )
+    before = {path: path.read_bytes() for path in authority_paths}
+    decision = select_phase2_representation(measurement())
+    monkeypatch.setattr(phase2_measurements, "generate", lambda root: decision)
+    output = tmp_path / "evidence.json"
+
+    with pytest.raises(SystemExit):
+        phase2_measurements.main(
+            ["--root", str(ROOT), "--output", str(output)]
+        )
+    assert not output.exists()
+    assert phase2_measurements.main(
+        [
+            "--root",
+            str(ROOT),
+            "--output",
+            str(output),
+            "--authority-reviewed",
+        ]
+    ) == 0
+    assert output.read_text(encoding="utf-8") == decision.to_json()
+    assert {path: path.read_bytes() for path in authority_paths} == before
 
 
 @pytest.mark.parametrize("stem", ["pokeyellow", "pokeyellow_debug", "pokeyellow_vc"])

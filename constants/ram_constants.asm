@@ -71,6 +71,10 @@ DEF BOX_NUM_MASK EQU %01111111
 	const BIT_EARTHBADGE   ; 7
 DEF NUM_BADGES EQU const_value
 
+; wUnusedObtainedBadges. Zero selects bounded Color rendering; one selects
+; ordinary Yellow rendering. The byte is saved with player data.
+DEF BIT_FULL_COLOR_YELLOW_MODE EQU 0
+
 ; wStatusFlags1
 	const_def
 	const BIT_STRENGTH_ACTIVE           ; 0

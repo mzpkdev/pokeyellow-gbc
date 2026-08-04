@@ -30,9 +30,27 @@ from .rom_discovery import RomFinding
 from .source_discovery import SourceFinding
 
 ASSIGNMENT_SCHEMA = "full-color-discovery-assignments-v1"
-NORMAL_DEBUG_PRODUCT = "pokeyellow_debug"
+NORMAL_PRODUCT = "pokeyellow"
+DEBUG_PRODUCT = "pokeyellow_debug"
+VC_PRODUCT = "pokeyellow_vc"
+GATE0_BASELINE_PRODUCT = "pokeyellow_debug_gate0"
+# Backwards-compatible name for the narrow Gate 0 baseline tranche.
+NORMAL_DEBUG_PRODUCT = GATE0_BASELINE_PRODUCT
 PHASE2_AUDIT_PRODUCT = "pokeyellow_phase2_audit"
-ASSIGNMENT_PRODUCTS = frozenset({NORMAL_DEBUG_PRODUCT, PHASE2_AUDIT_PRODUCT})
+PRODUCTION_PRODUCTS = (NORMAL_PRODUCT, DEBUG_PRODUCT, VC_PRODUCT)
+ASSIGNMENT_PRODUCTS = frozenset(
+    (*PRODUCTION_PRODUCTS, GATE0_BASELINE_PRODUCT, PHASE2_AUDIT_PRODUCT)
+)
+GATE0_BASELINE_ASSIGNMENT_IDS = frozenset({
+    "AS-MU-YELLOW-MAP-VIEW-INITIAL-ROM",
+    "AS-MU-YELLOW-MAP-VIEW-INITIAL-SOURCE",
+    "AS-SC-YELLOW-MAP-ENTRY-ROM",
+    "AS-SC-YELLOW-MAP-ENTRY-SOURCE",
+    "AS-WR-YELLOW-LCDC-DISABLE-ROM",
+    "AS-WR-YELLOW-LCDC-DISABLE-SOURCE",
+    "AS-WR-YELLOW-MAP-VIEW-TILE-COPY-ROM",
+    "AS-WR-YELLOW-MAP-VIEW-TILE-COPY-SOURCE",
+})
 
 _ASSIGNMENT_ID = re.compile(r"AS-[A-Z0-9][A-Z0-9-]*\Z")
 _ROW_ID = {

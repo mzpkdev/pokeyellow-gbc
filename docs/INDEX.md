@@ -14,14 +14,17 @@ ROMhack, including future features unrelated to color.
 
 - `pokeyellow.gbc` is the ordinary ROM. `pokeyellow_debug.gbc` is its debug
   product, and the VC target remains a separate compatibility product.
-- The only playable new color runtime is the experimental
-  `pokeyellow_phase2_audit.gbc` product built with `_DEBUG` and
-  `PHASE2_AUDIT`.
-- That audit ROM passively colors Pallet Town and Route 1 backgrounds. Yellow
-  still owns gameplay, bank-0 tile graphics, sprites, animations, overlays,
-  menus, battles, cutscenes, fades, and scheduling.
-- Normal release, debug, and VC products do not expose the passive renderer.
-  Retained full-color scheduler and ownership modules are migration seams and
+- The normal, debug, and VC products all ship the same saved `COLOR MODE`
+  preference between `COLOR` and `YELLOW`; fresh saves default to Color,
+  Continue retains the choice, and New Game may reset it to Color.
+- In Color mode the bounded passive renderer colors only Pallet Town and Route
+  1 backgrounds. Yellow mode and every unsupported map use Yellow
+  presentation. Yellow still owns gameplay, bank-0 tile graphics, sprites,
+  animations, overlays, menus, battles, cutscenes, fades, and scheduling.
+- `pokeyellow_phase2_audit.gbc` retains extra diagnostics and certification
+  surfaces only. `PHASE2_AUDIT` never decides whether the player-visible
+  toggle or passive renderer exists or runs.
+- Retained full-color scheduler and ownership modules are migration seams and
   test surfaces, not proof that they drive the visible game.
 - The broader architectural direction is ownership-first: one authority per
   mutable resource, explicit identities, bounded interrupt work, fail-closed
@@ -29,7 +32,7 @@ ROMhack, including future features unrelated to color.
   from the built ROM plus natural gameplay.
 
 Do not turn a roadmap statement into a claim about current runtime behavior.
-The code path, product guard, linked ROM, test evidence, and natural playthrough
+The code path, runtime gate, linked ROM, test evidence, and natural playthrough
 must agree.
 
 ## Manuals
@@ -53,7 +56,7 @@ must agree.
 - [DEVELOPMENT_WORKFLOW.md](DEVELOPMENT_WORKFLOW.md) — next-day startup,
   build/playtest loop, failure triage, artifact discipline, handoff, commits,
   pull requests, and CI. Read it when starting or parking a work session.
-- [FULL_COLOR_RENDERER.md](FULL_COLOR_RENDERER.md) — the active Phase 2 passive
+- [FULL_COLOR_RENDERER.md](FULL_COLOR_RENDERER.md) — the active bounded passive
   renderer, its exact ownership and data flow, lifecycle, VBlank budget,
   invariants, code map, and Phases 3–9. Read it for the current concrete
   initiative; do not treat its experimental machinery as a general ROMhack
@@ -111,18 +114,22 @@ make -j"$(nproc)" yellow yellow_debug yellow_vc yellow_phase2_audit
 The setup target has a historical full-color name, but it prepares the shared
 ROM test harness. Choose further checks by blast radius using the
 [verification ladder](TESTING.md#fast-to-slow-development-loop). For the
-current playable color slice, build paired products and compare them from cold
-boot:
+current playable color slice, build the shipped normal and debug products.
+The cold-boot journeys use the normal ROM for player-facing paths and the
+debug ROM only where a debug control is part of the scenario. Each journey
+still selects its mode inside the one ROM it boots. Build the audit product
+only when its extra Phase 2 diagnostics or certification contract is under
+test:
 
 ```console
-make yellow_debug yellow_phase2_audit
+make yellow yellow_debug
 .venv/bin/python -m pytest \
   tools/rom_tests/tests/e2e/test_full_color_cold_boot_journey.py -q
 ```
 
-Play `pokeyellow_phase2_audit.gbc` for the colored slice and
-`pokeyellow_debug.gbc` from the same revision as its Yellow reference. Hosted
-CI does not currently run the natural gameplay E2E suite; see
+For ordinary play review, select both Color and Yellow in `pokeyellow.gbc`;
+do not use a different product as the Yellow reference. Hosted CI does not
+currently run the natural gameplay E2E suite; see
 [TESTING.md](TESTING.md) before reporting a feature green.
 
 ## Common tasks
@@ -147,7 +154,7 @@ CI does not currently run the natural gameplay E2E suite; see
 - **Investigate a white screen, corrupt geometry, flicker, or stale evidence:**
   start with [failure triage](DEVELOPMENT_WORKFLOW.md#failure-triage), then use
   the [full-color-specific triage](DEVELOPMENT_WORKFLOW.md#full-color-specific-triage)
-  only when the audit path is implicated.
+  only when the bounded renderer path is implicated.
 - **Resume tomorrow or hand work over:** follow
   [start every session from facts](DEVELOPMENT_WORKFLOW.md#start-every-session-from-facts)
   and write the

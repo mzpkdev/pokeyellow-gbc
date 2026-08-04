@@ -6,13 +6,9 @@ VBlank::
 	push hl
 
 	ldh a, [rSVBK]
-IF DEF(PHASE2_AUDIT)
 	; The outer register frame is already on the interrupted WRAM bank. Save
 	; SVBK in HRAM so restoring it never tries to read through another bank.
 	ldh [hPassiveFullColorVBlankSavedSVBK], a
-ELSE
-	push af
-ENDC
 	ld a, 1
 	ldh [rSVBK], a
 
@@ -23,13 +19,6 @@ ENDC
 
 	ldh a, [hLoadedROMBank]
 	ld [wVBlankSavedROMBank], a
-
-IF !DEF(PHASE2_AUDIT)
-	; Phase 1 dispatch is banked to keep the already-full Home section bounded.
-	; Its full-color route is a no-op; Yellow's mechanics continue unchanged.
-	farcall RouteRendererOwnershipVBlank
-ENDC
-
 	ldh a, [hSCX]
 	ldh [rSCX], a
 	ldh a, [hSCY]
@@ -42,21 +31,29 @@ ENDC
 	ldh [rWY], a
 .ok
 
+	; A Color overlay alternates two hidden bank-1 rows with the matching Yellow
+	; bank-0 rows. Never execute both 40-byte transfers in one interrupt.
+	ldh a, [hAutoBGTransferEnabled]
+	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
+	jr z, .ordinaryAutoBgMapTransfer
+	farcall PassiveFullColorAutoBgMapTransfer
+	call VBlankCopyBgMap
+	; The bounded overlay transfer owns this frame. Leave any Yellow redraw
+	; armed so it runs, then receives its passive mirror, after the overlay.
+	jr .passiveFullColorVBlankDone
+.ordinaryAutoBgMapTransfer
 	call AutoBgMapTransfer
 	call VBlankCopyBgMap
 
-IF DEF(PHASE2_AUDIT)
 	; RedrawRowOrColumn consumes its mode. Freeze that one byte so the passive
 	; bank-1 mirror can follow the completed Yellow bank-0 write geometrically.
 	ldh a, [hRedrawRowOrColumnMode]
 	push af
-ENDC
 	call RedrawRowOrColumn
-IF DEF(PHASE2_AUDIT)
 	; D carries the consumed mode through Bankswitch; E is the discarded flags.
 	pop de
 	farcall PassiveFullColorVBlank
-ENDC
+.passiveFullColorVBlankDone
 	call VBlankCopy
 	call VBlankCopyDouble
 	call UpdateMovingBgTiles
@@ -101,13 +98,8 @@ ENDC
 	pop af
 	ldh [rVBK], a
 
-IF DEF(PHASE2_AUDIT)
 	ldh a, [hPassiveFullColorVBlankSavedSVBK]
 	ldh [rSVBK], a
-ELSE
-	pop af
-	ldh [rSVBK], a
-ENDC
 
 	pop hl
 	pop de

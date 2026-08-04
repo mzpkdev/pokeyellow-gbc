@@ -43,10 +43,14 @@ from .discovery_review import (
     source_finding_subject,
 )
 from .discovery_assignment import (
+    DEBUG_PRODUCT,
     DiscoveryAssignmentAuthority,
     NORMAL_DEBUG_PRODUCT,
+    NORMAL_PRODUCT,
     PHASE2_AUDIT_PRODUCT,
+    PRODUCTION_PRODUCTS,
     StaleDiscoveryAssignmentError,
+    VC_PRODUCT,
 )
 from .inventory import MutationInventory, SceneInventory, WriterInventory
 from .phase1_measurements import (
@@ -66,6 +70,12 @@ SCHEMA = "full-color-phase2-hostile-slice-representation-v1"
 MEASUREMENT_IDENTITY = "full-color-phase2-link-measurement-v1"
 AUDIT_GUARD = "PHASE2_AUDIT"
 AUDIT_MARKER = b"P2AUDIT1"
+PRODUCT_ARTIFACTS = {
+    NORMAL_PRODUCT: "pokeyellow",
+    DEBUG_PRODUCT: "pokeyellow_debug",
+    VC_PRODUCT: "pokeyellow_vc",
+    PHASE2_AUDIT_PRODUCT: "pokeyellow_phase2_audit",
+}
 DEFINITION_PATH = "specs/full-colors/definitions/phase2-hostile-slice-representation.json"
 SOURCE_TRANSITION_PATH = "specs/full-colors/definitions/phase1-audit-source-transition.json"
 PLANNED_SUBJECTS_PATH = "specs/full-colors/definitions/phase2-planned-subjects.json"
@@ -484,7 +494,7 @@ class Phase2Decision:
             debug_capacity,
             measurement.ownership_state_bytes,
             AUDIT_GUARD,
-            False,
+            True,
             measurement.rejected_candidates,
             dict(measurement.inventory_audit),
             measurement.definition.descriptor_layout,
@@ -502,8 +512,12 @@ class Phase2Decision:
                 for key, value in sorted(self.input_sha256.items())
             },
             "activation": {
-                "audit_guard": self.audit_guard,
                 "normal_rom_reachable": self.normal_rom_reachable,
+                "production_products": list(PRODUCTION_PRODUCTS),
+                "audit_diagnostics": {
+                    "guard": self.audit_guard,
+                    "product": PHASE2_AUDIT_PRODUCT,
+                },
             },
             "inventory_audit": dict(self.inventory_audit),
             "ownership_abi": {"preserved_prefix_bytes": self.ownership_state_bytes},
@@ -953,15 +967,22 @@ def _verify_audit_product(root: Path) -> tuple[Path, Path, Path]:
     return rom_path, sym_path, map_path
 
 
-@lru_cache(maxsize=4)
-def discover_phase2_rom(root: Path, *, guarded: bool = True):
-    """Run real ROM discovery; guarded mode requires compiled provenance."""
-    if guarded:
+@lru_cache(maxsize=8)
+def discover_phase2_rom_product(root: Path, product: str):
+    """Run exact hostile-slice discovery against one explicit link product."""
+    stem = PRODUCT_ARTIFACTS.get(product)
+    if stem is None:
+        raise Phase2MeasurementError(f"unknown Phase 2 link product: {product}")
+    if product == PHASE2_AUDIT_PRODUCT:
         rom_path, sym_path, map_path = _verify_audit_product(root)
     else:
-        rom_path = root / "pokeyellow_debug.gbc"
-        sym_path = root / "pokeyellow_debug.sym"
-        map_path = root / "pokeyellow_debug.map"
+        rom_path = root / f"{stem}.gbc"
+        sym_path = root / f"{stem}.sym"
+        map_path = root / f"{stem}.map"
+        if not all(path.is_file() for path in (rom_path, sym_path, map_path)):
+            raise Phase2MeasurementError(
+                f"missing production link artifacts for {product}"
+            )
     symbols = load_sym(sym_path)
     roots = _phase2_roots()
     return discover_rom_batched(
@@ -973,6 +994,12 @@ def discover_phase2_rom(root: Path, *, guarded: bool = True):
         mutation_roots=PHASE2_HOSTILE_MUTATION_ROOTS,
         dma_control_labels=DMA_CONTROL_LABELS, follow_calls=False,
     )
+
+
+def discover_phase2_rom(root: Path, *, guarded: bool = True):
+    """Compatibility wrapper for the diagnostic or debug product."""
+    product = PHASE2_AUDIT_PRODUCT if guarded else DEBUG_PRODUCT
+    return discover_phase2_rom_product(root, product)
 
 
 def _load_planned_subjects(
@@ -1127,6 +1154,25 @@ def _reject_duplicate_projection(values: Sequence[str], label: str) -> None:
         raise Phase2MeasurementError(f"duplicate {label} before projection: {duplicates}")
 
 
+def _reject_duplicate_rom_report(report: object, product: str = "") -> None:
+    prefix = f"{product} " if product else ""
+    _reject_duplicate_projection(
+        tuple(rom_finding_subject(finding).sha256 for finding in report.findings),
+        f"{prefix}ROM subjects",
+    )
+    _reject_duplicate_projection(
+        tuple(
+            rom_finding_subject(finding).sha256
+            for finding in report.candidate_findings
+        ),
+        f"{prefix}ROM candidate subjects",
+    )
+    _reject_duplicate_projection(
+        (*report.unresolved_destinations, *report.unresolved_control_flow),
+        f"{prefix}ROM unresolved messages",
+    )
+
+
 def _source_finding_root(finding: object) -> str | None:
     symbol = finding.symbol
     return next(
@@ -1169,8 +1215,8 @@ _PASSIVE_VISIBLE_POINTER_ROOTS = {
     "PassiveFullColorApplyMap": (
         (
             "PassiveFullColorApplyMap",
-            "3b:533b",
-            "3b:547a",
+            "3b:534f",
+            "3b:54bc",
         ),
     ),
     "PassiveFullColorCommitVisibleAttributes": (
@@ -1180,21 +1226,21 @@ _PASSIVE_VISIBLE_POINTER_ROOTS = {
 _PASSIVE_CLEAR_POINTER_ROOTS = {
     "PassiveFullColorClearBGMapChunk": (
         ("PassiveFullColorClearBGMapChunk",),
-        ("PassiveFullColorClearBGMapChunk", "3b:54d0"),
-        ("PassiveFullColorClearBGMapChunk", "3b:54d0", "3b:54d0"),
+        ("PassiveFullColorClearBGMapChunk", "3b:5512"),
+        ("PassiveFullColorClearBGMapChunk", "3b:5512", "3b:5512"),
     ),
     "PassiveFullColorVBlank": (
         (
-            "PassiveFullColorVBlank", "3b:5405", "3b:543d", "3b:544c",
-            "3b:545a", "3b:54a9",
+            "PassiveFullColorVBlank", "3b:5436", "3b:547c", "3b:548f",
+            "3b:549c", "3b:54eb",
         ),
         (
-            "PassiveFullColorVBlank", "3b:5405", "3b:543d", "3b:544c",
-            "3b:545a", "3b:54a9", "3b:54d0",
+            "PassiveFullColorVBlank", "3b:5436", "3b:547c", "3b:548f",
+            "3b:549c", "3b:54eb", "3b:5512",
         ),
         (
-            "PassiveFullColorVBlank", "3b:5405", "3b:543d", "3b:544c",
-            "3b:545a", "3b:54a9", "3b:54d0", "3b:54d0",
+            "PassiveFullColorVBlank", "3b:5436", "3b:547c", "3b:548f",
+            "3b:549c", "3b:54eb", "3b:5512", "3b:5512",
         ),
     ),
 }
@@ -1203,98 +1249,99 @@ _PASSIVE_COLUMN_POINTER_ROOTS = {
         ("PassiveFullColorCommitRedrawColumn",),
     ),
     "PassiveFullColorVBlank": (
-        ("PassiveFullColorVBlank", "3b:5405", "3b:5421", "3b:5a97"),
+        ("PassiveFullColorVBlank", "3b:5436", "3b:5455", "3b:5ab1"),
     ),
 }
 _PASSIVE_ROW_POINTER_ROOTS = {
     "PassiveFullColorCommitRedrawRow": (("PassiveFullColorCommitRedrawRow",),),
     "PassiveFullColorVBlank": (
-        ("PassiveFullColorVBlank", "3b:5405", "3b:5421", "3b:5b4c"),
+        ("PassiveFullColorVBlank", "3b:5436", "3b:5455", "3b:5b6a"),
     ),
 }
 
-# Audit ROM SHA-256 f134bad304c7b43fa5bc76b42fc085b05f4d2fbabb1c0869bcb453a4a19bcb17.
+# Diagnostic ROM pointer sites remain a reviewed literal authority. Production
+# products are independently bound by their product-specific assignments.
 # Keep every reviewed pointer store literal: address drift, opcode drift, a new
 # store, a new root, or different call ancestry must block projection.
 _PASSIVE_ROM_POINTER_WRITES = {
-    (0x3B, 0x548C, "72"): _PASSIVE_VISIBLE_POINTER_ROOTS,
-    (0x3B, 0x54D0, "22"): _PASSIVE_CLEAR_POINTER_ROOTS,
-    (0x3B, 0x5AA7, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AAA, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AB0, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AB3, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AB9, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5ABC, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AC2, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x54CE, "72"): _PASSIVE_VISIBLE_POINTER_ROOTS,
+    (0x3B, 0x5512, "22"): _PASSIVE_CLEAR_POINTER_ROOTS,
     (0x3B, 0x5AC5, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5ACB, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AC8, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
     (0x3B, 0x5ACE, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AD4, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AD1, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
     (0x3B, 0x5AD7, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5ADD, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5ADA, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
     (0x3B, 0x5AE0, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AE6, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AE3, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
     (0x3B, 0x5AE9, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AEF, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AEC, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
     (0x3B, 0x5AF2, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AF8, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AF5, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
     (0x3B, 0x5AFB, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B01, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5AFE, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
     (0x3B, 0x5B04, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B0A, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B07, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
     (0x3B, 0x5B0D, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B13, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B10, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
     (0x3B, 0x5B16, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B1C, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B19, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
     (0x3B, 0x5B1F, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B25, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B22, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
     (0x3B, 0x5B28, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B2E, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B2B, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
     (0x3B, 0x5B31, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B37, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B34, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
     (0x3B, 0x5B3A, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B40, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B3D, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
     (0x3B, 0x5B43, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B5C, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B5F, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B65, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B68, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B6E, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B71, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B77, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B7A, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B80, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B83, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B89, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B8C, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B92, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B95, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B9B, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B9E, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BA4, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BA7, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BAD, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BB0, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BB6, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BB9, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BBF, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BC2, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BC8, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BCB, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BD1, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BD4, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BDA, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BDD, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BE3, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BE6, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BEC, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BEF, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BF5, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BF8, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BFE, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5C01, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5C07, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5C0A, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B46, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B4C, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B4F, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B55, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B58, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B5E, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B61, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x5B7E, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B81, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B87, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B8A, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B90, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B93, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B99, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5B9C, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BA2, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BA5, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BAB, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BAE, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BB4, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BB7, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BBD, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BC0, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BC6, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BC9, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BCF, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BD2, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BD8, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BDB, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BE1, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BE4, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BEA, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BED, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BF3, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BF6, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BFC, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5BFF, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5C05, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5C08, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5C0E, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5C11, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5C17, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5C1A, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5C20, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5C23, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5C29, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x5C2C, "12"): _PASSIVE_ROW_POINTER_ROOTS,
 }
 
 
@@ -1348,7 +1395,11 @@ def _validate_passive_rom_pointer_authority(findings: Sequence[object]) -> None:
                 )
 
 
-def _planned_rom_row_for(finding: object) -> str:
+def _planned_rom_row_for(
+    finding: object,
+    *,
+    reviewed_pointer_rows: Mapping[str, str] | None = None,
+) -> str:
     """Project only reviewed passive pointer stores hidden by ROM dataflow."""
     if finding.category != "writer" or finding.resource != "UNKNOWN_DESTINATION":
         return _planned_row_for(
@@ -1358,6 +1409,20 @@ def _planned_rom_row_for(finding: object) -> str:
         return _planned_row_for(
             finding.root, finding.category, resource=finding.resource,
         )
+    if reviewed_pointer_rows is not None:
+        digest = rom_finding_subject(finding).sha256
+        row_id = reviewed_pointer_rows.get(digest)
+        if (
+            finding.mechanism != "pointer"
+            or row_id != "WR-P2-YELLOW-OVERLAY-TRANSFER"
+        ):
+            raise Phase2MeasurementError(
+                "unreviewed passive ROM pointer write: "
+                f"{finding.root} {finding.bank:02x}:{finding.address:04x} "
+                f"{finding.bytes} {finding.resource} {finding.mechanism} "
+                f"{finding.call_path}"
+            )
+        return row_id
     expected_roots = _PASSIVE_ROM_POINTER_WRITES.get(
         (finding.bank, finding.address, finding.bytes)
     )
@@ -1577,23 +1642,24 @@ def _validate_audit_assignment_enrichments(
         raise ValueError("\n".join(errors))
 
 
-def _validate_audit_assignment_coverage(
+def _validate_product_assignment_coverage(
     assignments: DiscoveryAssignmentAuthority,
     expected_subject_rows: Mapping[str, str],
     hashes: Mapping[str, str],
+    product: str = PHASE2_AUDIT_PRODUCT,
 ) -> DiscoveryAssignmentAuthority:
-    """Require one current audit assignment for every exact scoped subject."""
-    audit = assignments.for_product(PHASE2_AUDIT_PRODUCT)
+    """Require one current assignment for every exact product subject."""
+    selected = assignments.for_product(product)
     assigned: dict[str, str] = {}
     errors: list[str] = []
-    for row in audit.rows:
+    for row in selected.rows:
         digest = row.subject.sha256
         if digest in assigned:
-            errors.append(f"duplicate audit subject assignment: {digest}")
+            errors.append(f"duplicate {product} subject assignment: {digest}")
         assigned[digest] = row.row_id
         for name, expected in hashes.items():
             if getattr(row.evidence, name) != expected:
-                errors.append(f"{row.id}: stale audit {name.removesuffix('_sha256')} identity")
+                errors.append(f"{row.id}: stale {product} {name.removesuffix('_sha256')} identity")
     missing = sorted(set(expected_subject_rows) - set(assigned))
     extra = sorted(set(assigned) - set(expected_subject_rows))
     wrong = sorted(
@@ -1602,14 +1668,104 @@ def _validate_audit_assignment_coverage(
         if assigned[digest] != expected_subject_rows[digest]
     )
     if missing:
-        errors.append(f"missing audit subject assignment(s): {missing}")
+        errors.append(f"missing {product} subject assignment(s): {missing}")
     if extra:
-        errors.append(f"extra audit subject assignment(s): {extra}")
+        errors.append(f"extra {product} subject assignment(s): {extra}")
     if wrong:
-        errors.append(f"audit subject assigned to wrong row: {wrong}")
+        errors.append(f"{product} subject assigned to wrong row: {wrong}")
     if errors:
         raise ValueError("\n".join(errors))
-    return audit
+    return selected
+
+
+# Public compatibility name used by focused guard tests.
+_validate_audit_assignment_coverage = _validate_product_assignment_coverage
+
+
+def _product_hashes(
+    source_report: SourceDiscoveryReport, rom_report: object
+) -> dict[str, str]:
+    return {
+        "source_sha256": source_report.source_sha256,
+        "rom_sha256": rom_report.rom_sha256,
+        "sym_sha256": rom_report.sym_sha256,
+        "map_sha256": rom_report.map_sha256,
+    }
+
+
+def _scoped_product_subjects(
+    source_report: SourceDiscoveryReport,
+    rom_report: object,
+    *,
+    reviewed_pointer_rows: Mapping[str, str] | None = None,
+) -> tuple[tuple[object, ...], tuple[tuple[object, str], ...]]:
+    roots = set(_phase2_roots())
+    source = tuple(
+        finding
+        for finding in source_report.findings
+        if _source_finding_root(finding) is not None
+    )
+    rom = tuple(finding for finding in rom_report.findings if finding.root in roots)
+    sites: dict[tuple[int, int], list[str]] = {}
+    projected: list[tuple[object, str]] = []
+    for finding in rom:
+        row_id = _planned_rom_row_for(
+            finding, reviewed_pointer_rows=reviewed_pointer_rows
+        )
+        projected.append((finding, row_id))
+        sites.setdefault((finding.bank, finding.address), []).append(row_id)
+    for finding in rom_report.candidate_findings:
+        rows = sites.get((finding.bank, finding.address))
+        if rows:
+            projected.append((finding, sorted(rows)[0]))
+    return source, tuple(projected)
+
+
+def propose_phase2_subjects(root: Path) -> dict[str, object]:
+    """Discover an explicitly unreviewed proposal without editing authority.
+
+    The proposal deliberately contains raw canonical subjects and product
+    identities, not assignments or inventory edits.  A reviewer can compare it
+    with the checked-in authorities; the official evidence producer only
+    verifies those authorities and cannot promote this output.
+    """
+    source_report = _normalize_closed_scene_directions(discover_phase2_sources(root))
+    scoped_source = tuple(
+        finding
+        for finding in source_report.findings
+        if _source_finding_root(finding) is not None
+    )
+    products: dict[str, object] = {}
+    for product in (*PRODUCTION_PRODUCTS, PHASE2_AUDIT_PRODUCT):
+        report = discover_phase2_rom_product(root, product)
+        roots = set(_phase2_roots())
+        products[product] = {
+            "hashes": _product_hashes(source_report, report),
+            "rom_subjects": [
+                rom_finding_subject(finding).to_dict()
+                for finding in report.findings
+                if finding.root in roots
+            ],
+            "rom_candidate_subjects": [
+                rom_finding_subject(finding).to_dict()
+                for finding in report.candidate_findings
+                if (finding.bank, finding.address)
+                in {
+                    (item.bank, item.address)
+                    for item in report.findings
+                    if item.root in roots
+                }
+            ],
+        }
+    return {
+        "schema": "full-color-phase2-subject-proposal-v1",
+        "reviewed": False,
+        "source_sha256": source_report.source_sha256,
+        "source_subjects": [
+            source_finding_subject(finding).to_dict() for finding in scoped_source
+        ],
+        "products": products,
+    }
 
 
 def audit_phase2_inventory(root: Path) -> dict[str, object]:
@@ -1706,26 +1862,16 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
             f"standalone hostile authority validation failed: {exc}"
         ) from exc
 
-    if closure_state == "audit-closed":
+    assignment_counts: dict[str, int] = {}
+    if closure_state == "production-closed":
         source_report = _normalize_closed_scene_directions(source_report)
 
     _reject_duplicate_projection(
         tuple(source_finding_subject(finding).sha256 for finding in source_report.findings),
         "source subjects",
     )
-    _reject_duplicate_projection(
-        tuple(rom_finding_subject(finding).sha256 for finding in rom_report.findings),
-        "ROM subjects",
-    )
-    _reject_duplicate_projection(
-        tuple(rom_finding_subject(finding).sha256 for finding in rom_report.candidate_findings),
-        "ROM candidate subjects",
-    )
+    _reject_duplicate_rom_report(rom_report)
     _reject_duplicate_projection(tuple(source_report.errors), "source diagnostic messages")
-    _reject_duplicate_projection(
-        (*rom_report.unresolved_destinations, *rom_report.unresolved_control_flow),
-        "ROM unresolved messages",
-    )
 
     (
         planned_source_authority,
@@ -1734,12 +1880,29 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
         planned_unresolved_authority,
         planned_source_error_authority,
         planned_only_authority,
-    ) = _load_planned_subjects(root, closed=closure_state == "audit-closed")
+    ) = _load_planned_subjects(root, closed=closure_state == "production-closed")
 
     actual_source_errors = tuple(
         sorted(source_error_subject(message).sha256 for message in source_report.errors)
     )
-    if actual_source_errors != planned_source_error_authority:
+    if closure_state == "production-closed":
+        diagnostic_shapes = tuple(
+            re.sub(r":\d+:", ":<line>:", message)
+            for message in source_report.errors
+        )
+        if (
+            len(diagnostic_shapes) != len(planned_source_error_authority)
+            or len(set(diagnostic_shapes)) != len(diagnostic_shapes)
+            or any(
+                not message.endswith(": unresolved jp destination hl")
+                for message in diagnostic_shapes
+            )
+        ):
+            raise Phase2MeasurementError(
+                "source diagnostic dispositions changed: expected one unique "
+                "known dynamic-jump limitation per reviewed semantic site"
+            )
+    elif actual_source_errors != planned_source_error_authority:
         raise Phase2MeasurementError(
             "source diagnostic dispositions changed: every diagnostic must appear "
             "exactly once in the hash-bound authority"
@@ -1800,93 +1963,125 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
         actual_source = tuple(sorted(actual_source_subjects[row_id]))
         actual_rom = tuple(sorted(actual_rom_subjects[row_id]))
         actual_candidates = tuple(sorted(actual_candidate_subjects[row_id]))
-        if actual_source != planned_source_authority[row_id]:
+        if closure_state != "production-closed" and actual_source != planned_source_authority[row_id]:
             semantic_subject_errors.append(
                 f"{row_id}: source subjects {actual_source} != {planned_source_authority[row_id]}"
             )
-        if actual_rom != planned_rom_authority[row_id]:
+        if closure_state != "production-closed" and actual_rom != planned_rom_authority[row_id]:
             semantic_subject_errors.append(
                 f"{row_id}: ROM subjects {actual_rom} != {planned_rom_authority[row_id]}"
             )
-        if actual_candidates != planned_candidate_authority[row_id]:
+        if closure_state != "production-closed" and actual_candidates != planned_candidate_authority[row_id]:
             semantic_subject_errors.append(
                 f"{row_id}: ROM candidate subjects {actual_candidates} != "
                 f"{planned_candidate_authority[row_id]}"
             )
+        if closure_state == "production-closed":
+            if actual_source and not planned_source_authority[row_id]:
+                semantic_subject_errors.append(
+                    f"{row_id}: source subjects authority is empty for a non-empty "
+                    "closed row"
+                )
+            if actual_rom and not planned_rom_authority[row_id]:
+                semantic_subject_errors.append(
+                    f"{row_id}: ROM subjects authority is empty for a non-empty "
+                    "closed row"
+                )
+            if actual_candidates and not planned_candidate_authority[row_id]:
+                semantic_subject_errors.append(
+                    f"{row_id}: ROM candidate subjects authority is empty for a "
+                    "non-empty closed row"
+                )
         unresolved_count = tuple(planned_unresolved_authority.values()).count(row_id)
         has_role_evidence = bool(
-            planned_source_authority[row_id]
-            or planned_rom_authority[row_id]
-            or planned_candidate_authority[row_id]
+            actual_source_subjects[row_id]
+            or actual_rom_subjects[row_id]
+            or actual_candidate_subjects[row_id]
             or unresolved_count
         )
         if not has_role_evidence and row_id not in planned_only_authority:
             semantic_subject_errors.append(
                 f"{row_id}: exact planned row has no row-bound semantic evidence"
             )
-    if dict(sorted((item, _planned_row_for(item.split(":", 1)[0], "control_flow")) for item in scoped_unresolved)) != planned_unresolved_authority:
+    if closure_state != "production-closed" and dict(sorted((item, _planned_row_for(item.split(":", 1)[0], "control_flow")) for item in scoped_unresolved)) != planned_unresolved_authority:
         semantic_subject_errors.append("scoped ROM unresolved dispositions changed")
 
-    if closure_state == "audit-closed":
-        expected_subject_rows: dict[str, str] = {}
-        for row_id in PHASE2_PLANNED_ROW_IDS:
-            for digest in (
-                *actual_source_subjects[row_id],
-                *actual_rom_subjects[row_id],
-                *actual_candidate_subjects[row_id],
-            ):
+    if closure_state == "production-closed":
+        product_reports = {
+            product: discover_phase2_rom_product(root, product)
+            for product in (*PRODUCTION_PRODUCTS, PHASE2_AUDIT_PRODUCT)
+        }
+        for product, product_report in product_reports.items():
+            _reject_duplicate_rom_report(product_report, product)
+            reviewed_pointer_rows = {
+                row.subject.sha256: row.row_id
+                for row in assignments.for_product(product).rows
+                if row.subject.kind.value == "ROM_FINDING"
+            }
+            product_source, product_rom = _scoped_product_subjects(
+                source_report,
+                product_report,
+                reviewed_pointer_rows=reviewed_pointer_rows,
+            )
+            expected_subject_rows: dict[str, str] = {}
+            for finding in product_source:
+                source_root = _source_finding_root(finding)
+                assert source_root is not None
+                expected_subject_rows[source_finding_subject(finding).sha256] = (
+                    _planned_row_for(
+                        source_root, finding.category, resource=finding.resource
+                    )
+                )
+            for finding, row_id in product_rom:
+                digest = rom_finding_subject(finding).sha256
                 previous = expected_subject_rows.setdefault(digest, row_id)
                 if previous != row_id:
                     semantic_subject_errors.append(
-                        f"subject {digest} is ambiguously owned by {previous} and {row_id}"
+                        f"{product}: subject {digest} is ambiguously owned by "
+                        f"{previous} and {row_id}"
                     )
-        audit_hashes = {
-            "source_sha256": source_report.source_sha256,
-            "rom_sha256": rom_report.rom_sha256,
-            "sym_sha256": rom_report.sym_sha256,
-            "map_sha256": rom_report.map_sha256,
-        }
-        try:
-            audit_assignments = _validate_audit_assignment_coverage(
-                assignments, expected_subject_rows, audit_hashes
-            )
-            _validate_audit_assignment_enrichments(
-                audit_assignments, writers, scenes, mutations
-            )
-            matcher = audit_assignments.matcher(
-                source_sha256=source_report.source_sha256,
-                rom_sha256=rom_report.rom_sha256,
-                sym_sha256=rom_report.sym_sha256,
-                map_sha256=rom_report.map_sha256,
-                product=PHASE2_AUDIT_PRODUCT,
-            )
-            for finding in scoped_source:
-                matcher.project_source_finding(finding)
-            for finding in (*scoped_rom, *scoped_candidates):
-                matcher.project_rom_finding(finding)
-            matcher.assert_all_consumed()
-        except (ValueError, StaleDiscoveryAssignmentError) as exc:
-            semantic_subject_errors.append(f"audit assignment closure failed: {exc}")
+            hashes = _product_hashes(source_report, product_report)
+            try:
+                product_assignments = _validate_product_assignment_coverage(
+                    assignments, expected_subject_rows, hashes, product
+                )
+                _validate_audit_assignment_enrichments(
+                    product_assignments, writers, scenes, mutations
+                )
+                matcher = product_assignments.matcher(**hashes, product=product)
+                for finding in product_source:
+                    matcher.project_source_finding(finding)
+                for finding, _ in product_rom:
+                    matcher.project_rom_finding(finding)
+                matcher.assert_all_consumed()
+                assignment_counts[product] = len(product_assignments.rows)
+            except (ValueError, StaleDiscoveryAssignmentError) as exc:
+                semantic_subject_errors.append(
+                    f"{product} assignment closure failed: {exc}"
+                )
 
+        debug_report = product_reports[DEBUG_PRODUCT]
+        debug_hashes = _product_hashes(source_report, debug_report)
         phase2_rows = {
-            row["id"]: row
-            for row in authority_rows
+            row["id"]: row for row in authority_rows
             if row["id"] in PHASE2_PLANNED_ROW_IDS
         }
         stale_rows = sorted(
             row_id
             for row_id, row in phase2_rows.items()
-            if any(row["evidence"][name] != digest for name, digest in audit_hashes.items())
+            if any(
+                row["evidence"][name] != digest
+                for name, digest in debug_hashes.items()
+            )
         )
         if stale_rows:
             semantic_subject_errors.append(
-                f"audit inventory rows have stale product identities: {stale_rows}"
+                f"production inventory rows have stale debug identities: {stale_rows}"
             )
         semantic_subject_errors.extend(
             _closed_inventory_row_errors(
-                authority_rows,
-                audit_hashes,
-                (root / "pokeyellow_phase2_audit.gbc").read_bytes(),
+                authority_rows, debug_hashes,
+                (root / "pokeyellow_debug.gbc").read_bytes(),
             )
         )
         semantic_subject_errors.extend(
@@ -1895,8 +2090,16 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
         semantic_subject_errors.extend(
             _passive_production_contract_errors(source_report)
         )
+    inventory_report = (
+        discover_phase2_rom_product(root, DEBUG_PRODUCT)
+        if closure_state == "production-closed"
+        else rom_report
+    )
+    inventory_rom = tuple(
+        finding for finding in inventory_report.findings if finding.root in roots
+    )
     discovered_source_sites = {finding.site_key for finding in scoped_source}
-    discovered_rom_sites = {finding.site_key for finding in scoped_rom}
+    discovered_rom_sites = {finding.site_key for finding in inventory_rom}
     missing_source = sorted(set(source_sites) - discovered_source_sites)
     missing_rom = sorted(set(machine_sites) - discovered_rom_sites)
     # Every configured root must have both a source subject and ROM root-entry subject.
@@ -1904,7 +2107,7 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
         item.symbol for item in scoped_source if item.mechanism == "configured-root"
     }
     rom_root_names = {
-        item.root for item in scoped_rom if item.mechanism == "root-entry"
+        item.root for item in inventory_rom if item.mechanism == "root-entry"
     }
     missing_roots = sorted(roots - source_root_names | roots - rom_root_names)
     pallet_header = (root / "data/maps/headers/PalletTown.asm").read_text(
@@ -1924,7 +2127,11 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
             and item.destination == "PartyMenuInit"
             and item.row_kind == "DIRECTED_EDGE"
             and item.direction
-            == ("YELLOW_TO_YELLOW" if closure_state == "audit-closed" else "MAP_TO_YELLOW")
+            == (
+                "YELLOW_TO_YELLOW"
+                if closure_state == "production-closed"
+                else "MAP_TO_YELLOW"
+            )
             for item in scoped_source
         )
         and any(
@@ -1949,8 +2156,11 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
         "concrete_slice": ["PalletTown_h", "Route1_h", "OVERWORLD", "NORTH"],
         "guard": AUDIT_GUARD,
         "guarded_root_count": len(roots),
-        "normal_rom_reachable": False,
-        "planned_assignment_count": len(audit_assignments.rows),
+        "normal_rom_reachable": True,
+        "production_products": list(PRODUCTION_PRODUCTS),
+        "diagnostic_product": PHASE2_AUDIT_PRODUCT,
+        "product_assignment_counts": assignment_counts,
+        "planned_assignment_count": sum(assignment_counts.values()),
         "planned_row_count": len(planned),
         "inventory_state": closure_state,
         "coverage": "SCOPED_DESCENDANT_CLOSURE",
@@ -2071,17 +2281,46 @@ def verify_evidence(root: Path, evidence_path: Path) -> Phase2Decision:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
-    parser.add_argument("--output", type=Path, required=True)
+    outputs = parser.add_mutually_exclusive_group(required=True)
+    outputs.add_argument("--output", type=Path)
+    outputs.add_argument("--proposal-output", type=Path)
     parser.add_argument("--verify", action="store_true")
+    parser.add_argument(
+        "--authority-reviewed",
+        action="store_true",
+        help="confirm human-reviewed authorities before writing accepted evidence",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        if args.verify:
+        if args.proposal_output is not None:
+            if args.verify or args.authority_reviewed:
+                raise Phase2MeasurementError(
+                    "review/verify flags apply only to reviewed evidence, not proposals"
+                )
+            proposal = propose_phase2_subjects(args.root.resolve())
+            args.proposal_output.parent.mkdir(parents=True, exist_ok=True)
+            args.proposal_output.write_text(
+                json.dumps(proposal, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        elif args.verify:
+            if args.authority_reviewed:
+                raise Phase2MeasurementError(
+                    "--authority-reviewed is not needed for read-only verification"
+                )
+            assert args.output is not None
             verify_evidence(args.root, args.output)
         else:
+            assert args.output is not None
+            if not args.authority_reviewed:
+                raise Phase2MeasurementError(
+                    "writing accepted Phase 2 evidence requires --authority-reviewed "
+                    "after human review"
+                )
             decision = generate(args.root)
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(decision.to_json(), encoding="utf-8")
