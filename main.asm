@@ -367,11 +367,6 @@ ENDC
 SECTION "Full Color Debug Runtime", ROMX[FULL_COLOR_PHASE2_ROM_END], BANK[FULL_COLOR_PHASE2_ROM_BANK]
 
 INCLUDE "engine/full_color/debug_runtime.asm"
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
-INCLUDE "engine/full_color/policy.asm"
-
-ASSERT BANK(ResolveEffectiveRendererOwner) == PHASE1_OWNERSHIP_ROM_BANK
-ENDC
 
 IF DEF(PHASE2_AUDIT) || DEF(FULL_COLOR_PRODUCTION_LINKAGE)
 INCLUDE "engine/full_color/lifecycle.asm"

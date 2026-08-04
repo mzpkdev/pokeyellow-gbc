@@ -14,7 +14,6 @@ from dataclasses import dataclass
 
 import pytest
 
-from tools.rom_tests.tests.conftest import REPOSITORY_ROOT
 from tools.rom_tests.tests.unit.full_color.test_phase2_guarded_runtime_rom import (
     _set_wram1_word,
 )
@@ -187,16 +186,6 @@ def _assert_owned_active(rom: Phase2Rom) -> None:
         (rom.constants["OVERWORLD_ACTIVE"],)
     )
     assert rom.read_wram2("wRendererAdmissionOpen") == b"\x01"
-
-
-def test_production_player_graphics_uses_lcd_safe_copy_path() -> None:
-    overworld = (REPOSITORY_ROOT / "home/overworld.asm").read_text()
-    routine = overworld.split("LoadPlayerSpriteGraphicsCommon::", 1)[1].split(
-        "; function to load data from the map header", 1
-    )[0]
-    assert routine.count("IF FULL_COLOR_PRODUCTION_ACTIVATED") == 2
-    assert routine.count("CopyVideoDataAlternate") == 2
-    assert routine.count("CopyVideoData") == 4
 
 
 def test_load_map_data_runs_yellow_palette_then_passive_publish_before_enable(

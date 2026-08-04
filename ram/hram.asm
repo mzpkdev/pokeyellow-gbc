@@ -381,12 +381,7 @@ hSavedMapTextPtr:: dw
 	ds 1
 ENDU
 
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
-hFullColorProducerClassScratch:: db
-	ds 3
-ELSE
 	ds 4
-ENDC
 
 hWhoseTurn:: db ; 0 on player's turn, 1 on enemy's turn
 

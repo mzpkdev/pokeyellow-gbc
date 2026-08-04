@@ -561,7 +561,6 @@ _ALLOWED_PHASE_OWNERS: dict[Phase, frozenset[Owner]] = {
     Phase.OVERWORLD_ACTIVE: frozenset({Owner.RENDERER_FULL_COLOR_OVERWORLD}),
     Phase.OVERWORLD_OVERLAY: frozenset({Owner.RENDERER_FULL_COLOR_OVERWORLD}),
     Phase.HANDOFF_TO_YELLOW: frozenset(Owner),
-    Phase.YELLOW_RECONSTRUCTING: frozenset({Owner.RENDERER_YELLOW}),
 }
 
 
@@ -835,13 +834,9 @@ class OwnershipModel:
         )
 
     def finish_reconstruction(self) -> None:
-        if (self.owner, self.phase) not in {
-            (Owner.RENDERER_FULL_COLOR_OVERWORLD, Phase.OVERWORLD_RECONSTRUCTING),
-            (Owner.RENDERER_YELLOW, Phase.YELLOW_RECONSTRUCTING),
-        }:
-            raise ModelViolation(
-                "reconstruction completion requires a reconstructing owner"
-            )
+        self._require_state(
+            Owner.RENDERER_FULL_COLOR_OVERWORLD, Phase.OVERWORLD_RECONSTRUCTING
+        )
         missing = sorted(set(self.reconstruction_required) - self.reconstruction_completed)
         if missing:
             raise ModelViolation(
@@ -874,22 +869,16 @@ class OwnershipModel:
             raise ModelViolation(
                 "reconstruction requires exactly one complete presentation barrier"
             )
-        self.phase = (
-            Phase.OVERWORLD_ACTIVE
-            if self.owner is Owner.RENDERER_FULL_COLOR_OVERWORLD
-            else Phase.YELLOW_ACTIVE
-        )
+        self.phase = Phase.OVERWORLD_ACTIVE
         self.phase_history.append(self.phase)
         self.admission_open = True
 
     def complete_reconstruction_item(
         self, item: str, provenance: ReconstructionProvenance
     ) -> None:
-        if self.phase not in {
-            Phase.OVERWORLD_RECONSTRUCTING,
-            Phase.YELLOW_RECONSTRUCTING,
-        }:
-            raise ModelViolation("reconstruction item requires a reconstructing owner")
+        self._require_state(
+            Owner.RENDERER_FULL_COLOR_OVERWORLD, Phase.OVERWORLD_RECONSTRUCTING
+        )
         if item not in self.reconstruction_required:
             raise ModelViolation(f"reconstruction: unknown authoritative item {item}")
         if not isinstance(provenance, ReconstructionProvenance):
@@ -909,11 +898,9 @@ class OwnershipModel:
         self.reconstruction_provenance[item] = provenance
 
     def present_reconstruction(self) -> None:
-        if self.phase not in {
-            Phase.OVERWORLD_RECONSTRUCTING,
-            Phase.YELLOW_RECONSTRUCTING,
-        }:
-            raise ModelViolation("reconstruction barrier requires a reconstructing owner")
+        self._require_state(
+            Owner.RENDERER_FULL_COLOR_OVERWORLD, Phase.OVERWORLD_RECONSTRUCTING
+        )
         missing = sorted(set(self.reconstruction_required) - self.reconstruction_completed)
         if missing:
             raise ModelViolation(
@@ -938,9 +925,8 @@ class OwnershipModel:
         self._require_state(
             Owner.RENDERER_FULL_COLOR_OVERWORLD, Phase.HANDOFF_TO_YELLOW
         )
-        self._select_arriving_owner(
-            Owner.RENDERER_YELLOW, Phase.YELLOW_RECONSTRUCTING
-        )
+        self._select_arriving_owner(Owner.RENDERER_YELLOW, Phase.YELLOW_ACTIVE)
+        self.admission_open = True
 
     def _begin_handoff(self, phase: Phase) -> None:
         committing = [job.job_id for job in self.active_jobs if job.state is JobState.COMMITTING]
@@ -964,7 +950,7 @@ class OwnershipModel:
         self.owner = owner
         self.phase = phase
         self.phase_history.append(self.phase)
-        if phase in {Phase.OVERWORLD_RECONSTRUCTING, Phase.YELLOW_RECONSTRUCTING}:
+        if phase is Phase.OVERWORLD_RECONSTRUCTING:
             self.reconstruction_required = RECONSTRUCTION_ITEMS
             self.reconstruction_completed.clear()
             self.reconstruction_provenance.clear()
@@ -982,15 +968,9 @@ class OwnershipModel:
         self._retired_generations.add(self.generation)
         self.generation = max(self._retired_generations) + 1
         self.owner = Owner.RENDERER_YELLOW
-        self.phase = Phase.YELLOW_RECONSTRUCTING
+        self.phase = Phase.YELLOW_ACTIVE
         self.phase_history.append(self.phase)
-        self.admission_open = False
-        self.reconstruction_required = RECONSTRUCTION_ITEMS
-        self.reconstruction_completed.clear()
-        self.reconstruction_provenance.clear()
-        self.reconstruction_poisoned = set(RECONSTRUCTION_ITEMS)
-        self.reconstruction_unknown_prior_state = True
-        self.presentation_barriers = 0
+        self.admission_open = True
         self.last_request_result = None
 
     def revalidate(self, job_id: str, *, owner: Owner, generation: int) -> bool:
@@ -1108,12 +1088,6 @@ def execute_valid_actions(actions: Iterable[ModelAction], *, capacity: int = 2) 
         if action.kind is ActionKind.RESET:
             _settle_committing(model)
             model.reset()
-            for item in model.reconstruction_required:
-                model.complete_reconstruction_item(
-                    item, RECONSTRUCTION_ITEM_PROVENANCE[item]
-                )
-            model.present_reconstruction()
-            model.finish_reconstruction()
             executed = True
         elif action.kind is ActionKind.HANDOFF_TO_OVERWORLD:
             if model.phase is Phase.YELLOW_ACTIVE:
@@ -1134,10 +1108,7 @@ def execute_valid_actions(actions: Iterable[ModelAction], *, capacity: int = 2) 
                 )
                 executed = True
         elif action.kind is ActionKind.FINISH_RECONSTRUCTION:
-            if model.phase in {
-                Phase.OVERWORLD_RECONSTRUCTING,
-                Phase.YELLOW_RECONSTRUCTING,
-            }:
+            if model.phase is Phase.OVERWORLD_RECONSTRUCTING:
                 for item in model.reconstruction_required:
                     model.complete_reconstruction_item(
                         item, RECONSTRUCTION_ITEM_PROVENANCE[item]
@@ -1160,19 +1131,7 @@ def execute_valid_actions(actions: Iterable[ModelAction], *, capacity: int = 2) 
                     (
                         "HANDOFF_TO_YELLOW:FRESH_GENERATION",
                         "HANDOFF_TO_YELLOW:SELECT_AND_INITIALIZE_OWNER",
-                    )
-                )
-                for item in model.reconstruction_required:
-                    model.complete_reconstruction_item(
-                        item, RECONSTRUCTION_ITEM_PROVENANCE[item]
-                    )
-                model.present_reconstruction()
-                model.finish_reconstruction()
-                model.executed_steps.extend(
-                    (
-                        "HANDOFF_TO_YELLOW:COMPLETE_RECONSTRUCTION_LEDGER",
-                        "HANDOFF_TO_YELLOW:PRESENTATION_BARRIER",
-                        "HANDOFF_TO_YELLOW:ACTIVATE_AND_REOPEN_ADMISSION",
+                        "HANDOFF_TO_YELLOW:REOPEN_ADMISSION",
                     )
                 )
                 executed = True

@@ -51,11 +51,7 @@ PrepareFullColorPairedTransferSelected::
 	ld a, l
 	cp LOW(wFullColorAttributeRectangle)
 	jr nz, .attribute_source
-	IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
-	ld hl, wFullColorPairedScratchTail
-	ELSE
 	ld hl, wFullColorShadowOAMBatch
-	ENDC
 .attribute_source
 	ld a, [de]
 	and $ef
@@ -130,39 +126,16 @@ CommitFullColorPairedTransferSelected::
 	ld [wFullColorTimingState + 1], a
 	xor a
 	ldh [rVBK], a
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
-.firstPlane
-ENDC
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
-	call CommitFullColorProductionMapPlaneSelected
-ELSE
 	call CommitFullColorMapPlaneSelected
-ENDC
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
-.firstPlaneComplete
-ENDC
 	ld a, 1
 	ldh [rVBK], a
 	ld de, wFullColorBGPaletteBase
 	ld [wFullColorRequestStaging + 2], a
 	call LoadFullColorActiveMapDestinationSelected
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
-.secondPlane
-ENDC
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
-	call CommitFullColorProductionMapPlaneSelected
-ELSE
 	call CommitFullColorMapPlaneSelected
-ENDC
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
-.secondPlaneComplete
-ENDC
 	ld a, [wFullColorTimingState + 1]
 	ldh [rVBK], a
 	call LoadFullColorActiveDescriptorSelected
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
-.complete
-ENDC
 	ret
 
 ; DE packed source, HL first destination. Width/height are in staging.
@@ -190,11 +163,7 @@ CommitFullColorMapPlaneSelected:
 	ld a, e
 	cp LOW(wFullColorAttributeRectangle)
 	jr nz, .load
-	IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
-	ld de, wFullColorPairedScratchTail
-	ELSE
 	ld de, wFullColorShadowOAMBatch
-	ENDC
 .load
 	ld a, [de]
 	ld [hl], a
@@ -294,205 +263,5 @@ CommitFullColorAnimationReplacementSelected::
 	ret
 
 ASSERT wFullColorBGPaletteBase + 256 == wFullColorAttributeRectangle
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
-ASSERT wFullColorAttributeRectangle + SCREEN_AREA == wFullColorPairedScratchTail
-ELSE
 ASSERT wFullColorAttributeRectangle + SCREEN_AREA == wFullColorShadowOAMBatch
-ENDC
 ASSERT 256 + 104 == SCREEN_AREA
-
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
-PUSHS
-SECTION "Full Color Production Animation Producer", ROMX, BANK[FULL_COLOR_PHASE2_ROM_BANK]
-; Returns BC at the first visible occurrence of the tile identity in A. The
-; destination walks the same 32x32 hardware map geometry as paired commits.
-FindFullColorProductionAnimatedTileSelected:
-	ld [wFullColorProducerWidth], a
-	ld a, [wFullColorAuthorityVRAMView]
-	ld c, a
-	ld a, [wFullColorAuthorityVRAMView + 1]
-	ld b, a
-	and $fc
-	ld [wFullColorTimingState], a
-	ld hl, wTileMap
-	ld d, SCREEN_HEIGHT
-.row
-	ld e, SCREEN_WIDTH
-.cell
-	ld a, [wFullColorProducerWidth]
-	cp [hl]
-	jr z, .found
-	inc hl
-	call AdvanceFullColorProductionAttributeDestinationSelected
-	dec e
-	jr nz, .cell
-	ld e, TILEMAP_WIDTH - SCREEN_WIDTH
-.row_stride
-	call AdvanceFullColorProductionAttributeDestinationSelected
-	dec e
-	jr nz, .row_stride
-	dec d
-	jr nz, .row
-	scf
-	ret
-.found
-	and a
-	ret
-
-AdvanceFullColorProductionAttributeDestinationSelected:
-	inc bc
-	ld a, [wFullColorTimingState]
-	add 4
-	cp b
-	ret nz
-	ld b, a
-	sub 4
-	ld b, a
-	ret
-
-; Queue the native overworld water animation or flower field replacement as a
-; paired tile-data/attribute unit. Yellow's UpdateMovingBgTiles is not reached
-; on the Color route, so this root owns both its counters and visible writes.
-ProduceFullColorProductionAnimatedTileSelected:
-	call FullColorProducerStorageAvailableSelected
-	jp c, .deferred
-	ldh a, [hTileAnimations]
-	and a
-	jp z, .none
-	ldh a, [hMovingBGTilesCounter1]
-	inc a
-	ldh [hMovingBGTilesCounter1], a
-	cp 20
-	jp c, .none
-	cp 21
-	jr z, .flower
-
-; Water: derive the next immutable 16-byte tile from current bank-0 graphics.
-	ld a, [wMovingBGTilesCounter2]
-	inc a
-	and 7
-	ld [wMovingBGTilesCounter2], a
-	and 4
-	ld [wFullColorProducerFlags], a
-	ld a, $14
-	call FindFullColorProductionAnimatedTileSelected
-	jr c, .water_counter
-	ld a, c
-	ld [wFullColorProducerWidth], a
-	ld a, b
-	ld [wFullColorProducerHeight], a
-	ldh a, [rVBK]
-	push af
-	xor a
-	ldh [rVBK], a
-	ld hl, vTileset tile $14
-	ld de, wFullColorProducerTiles
-	ld b, FULL_COLOR_ANIMATION_TILE_BYTES
-.water_byte
-	ld a, [hl]
-	push bc
-	ld b, a
-	ld a, [wFullColorProducerFlags]
-	and a
-	ld a, b
-	pop bc
-	jr nz, .water_left
-	rrca
-	jr .water_store
-.water_left
-	rlca
-.water_store
-	ld [de], a
-	inc hl
-	inc de
-	dec b
-	jr nz, .water_byte
-	pop af
-	ldh [rVBK], a
-	ldh a, [hTileAnimations]
-	rrca
-	jr nc, .water_counter_ready
-	xor a
-	ldh [hMovingBGTilesCounter1], a
-.water_counter_ready
-	ld de, vTileset tile $14
-	ld a, $14
-	jr .enqueue
-.water_counter
-	ldh a, [hTileAnimations]
-	rrca
-	jr nc, .none
-	xor a
-	ldh [hMovingBGTilesCounter1], a
-	jr .none
-
-.flower
-	xor a
-	ldh [hMovingBGTilesCounter1], a
-	ld a, $03
-	call FindFullColorProductionAnimatedTileSelected
-	jr c, .none
-	ld a, c
-	ld [wFullColorProducerWidth], a
-	ld a, b
-	ld [wFullColorProducerHeight], a
-	ld a, [wMovingBGTilesCounter2]
-	and 3
-	cp 2
-	ld hl, FullColorProductionFlowerTile1
-	jr c, .flower_source
-	ld hl, FullColorProductionFlowerTile2
-	jr z, .flower_source
-	ld hl, FullColorProductionFlowerTile3
-.flower_source
-	ld de, wFullColorProducerTiles
-	ld b, FULL_COLOR_ANIMATION_TILE_BYTES
-.flower_byte
-	ld a, [hli]
-	ld [de], a
-	inc de
-	dec b
-	jr nz, .flower_byte
-	ld de, vTileset tile $03
-	ld a, $03
-.enqueue
-	push de
-	ld c, a
-	ld b, 0
-	ld hl, FullColorOverworldTileAttributes
-	add hl, bc
-	ld a, [hl]
-	and $ef
-	ld [wFullColorProducerTiles + FULL_COLOR_ANIMATION_TILE_BYTES], a
-	pop de
-	ld a, e
-	ld [wFullColorProducerDestination], a
-	ld a, d
-	ld [wFullColorProducerDestination + 1], a
-	ld a, FULL_COLOR_REQUEST_ANIMATION_REPLACEMENT
-	ld [wFullColorProducerClass], a
-	xor a
-	ld [wFullColorProducerFlags], a
-	call BuildAndPrepareFullColorAnimationDescriptorSelected
-	cp ACCEPTED
-	ret z
-	scf
-	ret
-.deferred
-	ld a, DEFERRED
-	scf
-	ret
-.none
-	ld a, COALESCED
-	and a
-	ret
-
-EXPORT ProduceFullColorProductionAnimatedTileSelected
-
-; Keep field-replacement authority in this production-owned bank instead of
-; reaching the unexported Yellow Home labels.
-FullColorProductionFlowerTile1: INCBIN "gfx/tilesets/flower/flower1.2bpp"
-FullColorProductionFlowerTile2: INCBIN "gfx/tilesets/flower/flower2.2bpp"
-FullColorProductionFlowerTile3: INCBIN "gfx/tilesets/flower/flower3.2bpp"
-POPS
-ENDC

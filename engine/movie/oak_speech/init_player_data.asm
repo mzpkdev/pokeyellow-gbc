@@ -1,9 +1,4 @@
 InitPlayerData:
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
-	xor a
-	ld [wUnusedObtainedBadges], a
-ENDC
-	; fallthrough
 InitPlayerData2:
 
 	call Random
@@ -43,13 +38,9 @@ DEF START_MONEY EQU $3000
 	ld [wMonDataLocation], a
 
 	ld hl, wObtainedBadges
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
-	ld [hl], a
-ELSE
 	ld [hli], a
 	ASSERT wObtainedBadges + 1 == wUnusedObtainedBadges
 	ld [hl], a
-ENDC
 
 	ld hl, wPlayerCoins
 	ld [hli], a

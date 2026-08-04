@@ -2,16 +2,16 @@
   "inputs": {
     "map": {
       "path": "pokeyellow_debug.map",
-      "sha256": "4ad7b303f9ac4e78194bfcf722fea3d081f43646ff7d3c6ba7bde52513915bdd",
+      "sha256": "38c04422fba2a70911cbbf5523316c05a68054c4f485326f584bf3f7a8e9d4af",
       "sha256_kind": "full-color-phase1-canonical-map-v1"
     },
     "rom": {
       "path": "pokeyellow_debug.gbc",
-      "sha256": "28da93b3410b27f0be9f95035bd626cd09a8ea444febdf32707e125a3eef88d5"
+      "sha256": "60fcf230262d88a8e25edb44c08127fae68935016d3abdbfbb2f0c07f87d4d47"
     },
     "sym": {
       "path": "pokeyellow_debug.sym",
-      "sha256": "7d553f316dda66d93df659ebb929d88c4a244f241fa4ef5f112b5a874f4358e9"
+      "sha256": "33104efc62dead4f91dc9b05234e2182e02b7b2dae0f9942a812f19d0326d5c7"
     }
   },
   "ownership_state": {
@@ -63,7 +63,7 @@
       "end": 32767,
       "kind": "ROM",
       "reason": "lower-ranked by the deterministic measured selection rule",
-      "start": 31948
+      "start": 31865
     },
     {
       "bank": 2,
@@ -77,14 +77,14 @@
       "end": 32767,
       "kind": "ROM",
       "reason": "lower-ranked by the deterministic measured selection rule",
-      "start": 31451
+      "start": 31448
     },
     {
       "bank": 4,
       "end": 32767,
       "kind": "ROM",
       "reason": "lower-ranked by the deterministic measured selection rule",
-      "start": 31480
+      "start": 31266
     },
     {
       "bank": 5,
@@ -168,7 +168,7 @@
       "end": 32767,
       "kind": "ROM",
       "reason": "lower-ranked by the deterministic measured selection rule",
-      "start": 24503
+      "start": 24442
     },
     {
       "bank": 17,
@@ -455,14 +455,14 @@
       "end": 17706,
       "kind": "ROM",
       "reason": "lower-ranked by the deterministic measured selection rule",
-      "start": 17576
+      "start": 17706
     },
     {
       "bank": 59,
       "end": 32767,
       "kind": "ROM",
       "reason": "lower-ranked by the deterministic measured selection rule",
-      "start": 26938
+      "start": 23284
     },
     {
       "bank": 60,
@@ -476,7 +476,7 @@
       "end": 32767,
       "kind": "ROM",
       "reason": "lower-ranked by the deterministic measured selection rule",
-      "start": 26968
+      "start": 26950
     },
     {
       "bank": 62,
@@ -501,17 +501,10 @@
     },
     {
       "bank": 2,
-      "end": 55295,
-      "kind": "WRAM",
-      "reason": "lower-ranked by the deterministic measured selection rule",
-      "start": 55102
-    },
-    {
-      "bank": 2,
       "end": 57343,
       "kind": "WRAM",
       "reason": "lower-ranked by the deterministic measured selection rule",
-      "start": 55456
+      "start": 54996
     },
     {
       "bank": 3,
@@ -552,8 +545,8 @@
   "rom": {
     "allocation_status": "linked",
     "selected_bank": 59,
-    "selected_free_bytes": 1154,
-    "selected_free_end": 17537,
+    "selected_free_bytes": 1322,
+    "selected_free_end": 17705,
     "selected_free_start": 16384
   },
   "schema": "full-color-phase1-ownership-placement-v1",

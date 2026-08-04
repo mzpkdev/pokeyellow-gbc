@@ -10,7 +10,6 @@ from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any, Sequence
 
-from . import source_transition
 from .baseline_discovery import discover_baseline_rom, discover_baseline_sources
 from .discovery_assignment import (
     DiscoveryAssignmentAuthority,
@@ -253,7 +252,7 @@ def _reviewed_source_view(
             raise InventoryReconciliationError(
                 f"audit-only transition target subject is absent: {new_sha}"
             )
-        rebound = source_transition._reviewed_source_location(finding, row)
+        rebound = replace(finding, symbol=row.subject.metadata["symbol"])
         if source_finding_subject(rebound) != row.subject:
             raise InventoryReconciliationError(
                 f"audit-only transition changes reviewed subject semantics: {old_sha}"
@@ -288,7 +287,6 @@ def _reviewed_rom_view(
             "audit-only transition does not enumerate reviewed ROM subjects"
         )
     translated: dict[str, Any] = {}
-    relocated_sites: dict[tuple[int, int], tuple[int, int, int]] = {}
     for old_sha, new_sha in bindings.items():
         finding = current.get(new_sha)
         row = rows[old_sha]
@@ -296,74 +294,21 @@ def _reviewed_rom_view(
             raise InventoryReconciliationError(
                 f"audit-only transition ROM target subject is absent: {new_sha}"
             )
-        rebound = source_transition._reviewed_rom_location(finding, row)
+        rebound = replace(
+            finding,
+            root=row.subject.metadata["root"],
+            call_path=tuple(row.subject.metadata["call_path"]),
+        )
         if rom_finding_subject(rebound) != row.subject:
             raise InventoryReconciliationError(
                 f"audit-only transition changes reviewed ROM semantics: {old_sha}"
             )
         translated[new_sha] = rebound
-        relocated_sites[(finding.bank, finding.address)] = (
-            row.subject.metadata["bank"],
-            row.subject.metadata["address"],
-            row.subject.metadata["rom_offset"],
-        )
-    def translate(findings: tuple[Any, ...]) -> tuple[Any, ...]:
-        result = []
-        for finding in findings:
-            exact = translated.get(rom_finding_subject(finding).sha256)
-            if exact is not None:
-                result.append(exact)
-                continue
-            relocation = relocated_sites.get((finding.bank, finding.address))
-            if relocation is None:
-                result.append(finding)
-                continue
-            bank, address, rom_offset = relocation
-            result.append(
-                replace(
-                    finding,
-                    bank=bank,
-                    address=address,
-                    rom_offset=rom_offset,
-                )
-            )
-        return tuple(result)
-
-    return replace(
-        rom_report,
-        findings=translate(rom_report.findings),
-        candidate_findings=translate(rom_report.candidate_findings),
-    )
-
-
-def _reviewed_rom_bytes(
-    assignments: DiscoveryAssignmentAuthority,
-    rom_report: Any,
-    transition: dict[str, Any] | None,
-    rom: bytes,
-) -> bytes:
-    """Project relocated reviewed machine sites onto their frozen coordinates."""
-    if transition is None:
-        return rom
-    rows = {
-        row.subject.sha256: row
-        for row in assignments.for_product(NORMAL_DEBUG_PRODUCT).rows
-        if row.subject.kind.value == "ROM_FINDING"
-    }
-    current = {
-        rom_finding_subject(finding).sha256: finding
+    findings = tuple(
+        translated.get(rom_finding_subject(finding).sha256, finding)
         for finding in rom_report.findings
-    }
-    projected = bytearray(rom)
-    for old_sha, new_sha in transition["rom_subject_rebindings"].items():
-        row = rows[old_sha]
-        finding = current[new_sha]
-        size = len(bytes.fromhex(row.subject.metadata["bytes"]))
-        old_offset = row.subject.metadata["rom_offset"]
-        projected[old_offset : old_offset + size] = rom[
-            finding.rom_offset : finding.rom_offset + size
-        ]
-    return bytes(projected)
+    )
+    return replace(rom_report, findings=findings)
 
 
 def _partition_authority(document: Any) -> tuple[Any, tuple[dict[str, Any], ...]]:
@@ -805,9 +750,6 @@ def build_progress(
         normal_assignments, source_report, repository_path
     )
     reviewed_rom = _reviewed_rom_view(normal_assignments, rom_report, source_transition)
-    reviewed_rom_data = _reviewed_rom_bytes(
-        normal_assignments, rom_report, source_transition, rom
-    )
     _assert_no_unlisted_slice_findings(normal_assignments, reviewed_source, reviewed_rom)
     matcher = normal_assignments.matcher(
         source_sha256=reviewed_source.source_sha256,
@@ -842,7 +784,7 @@ def build_progress(
         mutations,
         source_report=projected_source,
         rom_report=projected_rom,
-        rom=reviewed_rom_data,
+        rom=rom,
         raise_on_error=False,
     )
     rows = tuple(writers.rows) + tuple(scenes.rows) + tuple(mutations.rows)

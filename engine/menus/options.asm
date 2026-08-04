@@ -5,12 +5,7 @@
 	const OPT_BATTLE_STYLE ; 2
 	const OPT_SOUND        ; 3
 	const OPT_PRINTER      ; 4
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
-	const OPT_COLOR_MODE   ; 5
-	const_skip
-ELSE
 	const_skip 2
-ENDC
 	const OPT_CANCEL       ; 7
 DEF NUM_OPTIONS EQU const_value ; 8
 
@@ -52,11 +47,7 @@ OptionMenuJumpTable:
 	dw OptionsMenu_BattleStyle
 	dw OptionsMenu_SpeakerSettings
 	dw OptionsMenu_GBPrinterBrightness
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
-	dw OptionsMenu_ColorMode
-ELSE
 	dw OptionsMenu_Dummy
-ENDC
 	dw OptionsMenu_Dummy
 	dw OptionsMenu_Cancel
 
@@ -380,31 +371,6 @@ GetGBPrinterBrightness:
 	lb de, PRINTER_BRIGHTNESS_DARKER, PRINTER_BRIGHTNESS_LIGHTEST
 	ret
 
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
-OptionsMenu_ColorMode::
-	ldh a, [hJoy5]
-	and PAD_LEFT | PAD_RIGHT
-	jr z, .render
-	ld hl, wUnusedObtainedBadges
-	ld a, [hl]
-	xor 1 << BIT_COLOR_MODE_YELLOW
-	ld [hl], a
-.render
-	ld a, [wUnusedObtainedBadges]
-	and 1 << BIT_COLOR_MODE_YELLOW
-	ld de, .Color
-	jr z, .place
-	ld de, .Yellow
-.place
-	hlcoord 14, 12
-	call PlaceString
-	and a ; clear carry flag
-	ret
-
-.Color:  db "COLOR @"
-.Yellow: db "YELLOW@"
-ENDC
-
 OptionsMenu_Dummy:
 	and a ; clear carry flag
 	ret
@@ -438,11 +404,7 @@ OptionsControl:
 	scf
 	ret
 .doNotWrap
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
-	cp OPT_COLOR_MODE ; skip the remaining dummy option
-ELSE
 	cp OPT_PRINTER ; skip the next two dummy options
-ENDC
 	jr c, .increase
 	ld [hl], OPT_CANCEL - 1 ; Cancel is after Print
 .increase
@@ -452,17 +414,9 @@ ENDC
 
 .pressedUp
 	ld a, [hl]
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
-	cp OPT_CANCEL ; skip the previous dummy option
-ELSE
 	cp OPT_CANCEL ; skip the previous two dummy options
-ENDC
 	jr nz, .doNotSkip
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
-	ld [hl], OPT_COLOR_MODE ; Color Mode is before Cancel
-ELSE
 	ld [hl], OPT_PRINTER ; Print is before Cancel
-ENDC
 	scf
 	ret
 .doNotSkip
@@ -502,11 +456,7 @@ InitOptionsMenu:
 	call PlaceString
 	xor a
 	ld [wOptionsCursorLocation], a
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
-	ld c, 6 ; the number of options to loop through
-ELSE
 	ld c, 5 ; the number of options to loop through
-ENDC
 .loop
 	push bc
 	call GetOptionPointer ; updates the next option
@@ -527,12 +477,7 @@ AllOptionsText:
 	next "ANIMATION  :"
 	next "BATTLESTYLE:"
 	next "SOUND:"
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
-	next "PRINT:"
-	next "COLOR MODE :@"
-ELSE
 	next "PRINT:@"
-ENDC
 
 OptionMenuCancelText:
 	db "CANCEL@"
