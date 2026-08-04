@@ -12,6 +12,10 @@ PrepareOakSpeech:
 	push af
 	ld a, [wPrinterSettings]
 	push af
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
+	ld a, [wUnusedObtainedBadges]
+	push af
+ENDC
 	ld hl, wPlayerName
 	ld bc, wBoxDataEnd - wPlayerName
 	xor a
@@ -24,6 +28,11 @@ PrepareOakSpeech:
 	ld [wSurfingMinigameHiScore], a
 	ld [wSurfingMinigameHiScore + 1], a
 	ld [wSurfingMinigameHiScore + 2], a
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
+	pop af
+	ld [wUnusedObtainedBadges], a
+PrepareOakSpeechPreferenceRestored::
+ENDC
 	pop af
 	ld [wPrinterSettings], a
 	pop af

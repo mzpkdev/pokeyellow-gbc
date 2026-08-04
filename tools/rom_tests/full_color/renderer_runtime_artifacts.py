@@ -538,7 +538,7 @@ def validate_runtime_artifacts(
     root = root.resolve()
     repository_root = repository_root.resolve()
     manifest.validate_authority()
-    rom_path = repository_root / "pokeyellow_debug.gbc"
+    rom_path = repository_root / "pokeyellow_phase1_debug.gbc"
     if rom_path.is_symlink() or not rom_path.is_file():
         raise RendererConformanceError(
             "runtime manifest requires the authoritative debug ROM"
@@ -622,7 +622,7 @@ def validate_runtime_artifacts(
             )
         except ContractError as exc:
             raise RendererConformanceError(f"runtime carrier is invalid: {exc}") from exc
-        expected_identity = f"pokeyellow_debug.gbc:{manifest.rom_sha256}"
+        expected_identity = f"pokeyellow_phase1_debug.gbc:{manifest.rom_sha256}"
         if snapshot.to_json() != (root / by_role["actual-semantic-snapshot"].path).read_text(encoding="utf-8"):
             raise RendererConformanceError("runtime snapshot is not canonical")
         if trace.to_json() != (root / by_role["actual-writer-trace"].path).read_text(encoding="utf-8"):
@@ -665,7 +665,7 @@ def validate_runtime_artifacts(
         )
     except ContractError as exc:
         raise RendererConformanceError(f"runtime baseline carrier is invalid: {exc}") from exc
-    expected_identity = f"pokeyellow_debug.gbc:{manifest.rom_sha256}"
+    expected_identity = f"pokeyellow_phase1_debug.gbc:{manifest.rom_sha256}"
     for label, snapshot in (("before", before), ("after", after)):
         if snapshot.rom != expected_identity:
             raise RendererConformanceError(f"runtime baseline {label} ROM identity mismatch")

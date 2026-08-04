@@ -54,8 +54,8 @@ def phase2_rom_fixture(request: pytest.FixtureRequest) -> Phase2Rom:
 
 @pytest.fixture
 def stock_debug_rom(request: pytest.FixtureRequest):
-    rom = Path(REPOSITORY_ROOT / "pokeyellow_debug.gbc")
-    sym = Path(REPOSITORY_ROOT / "pokeyellow_debug.sym")
+    rom = Path(REPOSITORY_ROOT / "pokeyellow_phase1_debug.gbc")
+    sym = Path(REPOSITORY_ROOT / "pokeyellow_phase1_debug.sym")
     emulator = Emulator(
         rom=rom,
         symbols=sym,

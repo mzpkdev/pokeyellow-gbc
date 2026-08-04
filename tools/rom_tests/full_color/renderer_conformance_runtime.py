@@ -145,8 +145,8 @@ def check_phase1_runtime(root: Path, output: Path) -> ConformanceReport:
     root = root.resolve()
     case = canonical_phase1_case(root)
     emulator = Emulator(
-        rom=root / "pokeyellow_debug.gbc",
-        symbols=root / "pokeyellow_debug.sym",
+        rom=root / "pokeyellow_phase1_debug.gbc",
+        symbols=root / "pokeyellow_phase1_debug.sym",
         results=output / "diagnostics",
         cgb=True,
     )

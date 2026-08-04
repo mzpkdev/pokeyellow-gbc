@@ -29,13 +29,12 @@ class Phase2Rom:
 
     def call(
         self, name: str, *, a: int = 0, b: int = 0, c: int = 0,
-        de: int = 0, hl: int = 0,
+        de: int = 0, hl: int = 0, stack: int = 0xCFFE,
     ) -> tuple[int, int]:
         emu = self.emulator
         regs = emu.pyboy.register_file
         address = emu.symbols[name]
         bank = emu.symbol_banks[name]
-        stack = 0xCFFE
         regs.A, regs.B, regs.C = a, b, c
         regs.D, regs.E = (de >> 8) & 0xFF, de & 0xFF
         regs.HL, regs.SP = hl, stack

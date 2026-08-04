@@ -129,6 +129,13 @@ def test_gate0_builds_every_phase1_product_rom() -> None:
     assert _dependencies()["test-full-color-gate0"] == (
         "pokeyellow.gbc",
         "pokeyellow_debug.gbc",
+        "pokeyellow_phase1_debug.gbc",
+        "pokeyellow_vc.gbc",
+    )
+    assert _dependencies()["test-full-color-gate0-ci-run"] == (
+        "pokeyellow.gbc",
+        "pokeyellow_debug.gbc",
+        "pokeyellow_phase1_debug.gbc",
         "pokeyellow_vc.gbc",
     )
 
@@ -207,7 +214,9 @@ def test_phase1_runtime_has_a_stable_separate_command() -> None:
         "FULL_COLOR_RUNTIME_RESULTS ?= test-results/full-color-renderer-runtime"
         in makefile
     )
-    assert dependencies["test-full-color-renderer-runtime"] == ("yellow_debug",)
+    assert dependencies["test-full-color-renderer-runtime"] == (
+        "yellow_phase1_debug",
+    )
     target = recipes["test-full-color-renderer-runtime"]
     assert (
         "$(PYTHON) -m tools.rom_tests.full_color.renderer_runtime_runner --root ."

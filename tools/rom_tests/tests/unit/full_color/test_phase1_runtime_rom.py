@@ -32,6 +32,8 @@ from tools.rom_tests.full_color.runtime_observability import (
 )
 
 ROOT = Path(__file__).resolve().parents[5]
+PHASE1_ROM = ROOT / "pokeyellow_phase1_debug.gbc"
+PHASE1_SYMBOLS = ROOT / "pokeyellow_phase1_debug.sym"
 VISIBLE_FIELDS = (
     "bg_tile_ids",
     "bg_attributes",
@@ -104,9 +106,9 @@ def _assert_later_vblanks_execute_healthy_dma(emulator: Emulator) -> None:
 def _fresh_run(results: Path) -> dict[str, str]:
     case = canonical_phase1_case(ROOT)
     emulator = Emulator(
-        rom=Path(os.environ.get("ROM_TEST_ROM", ROOT / "pokeyellow_debug.gbc")),
+        rom=Path(os.environ.get("ROM_TEST_ROM", PHASE1_ROM)),
         symbols=Path(
-            os.environ.get("ROM_TEST_SYMBOLS", ROOT / "pokeyellow_debug.sym")
+            os.environ.get("ROM_TEST_SYMBOLS", PHASE1_SYMBOLS)
         ),
         results=results,
         cgb=True,
@@ -250,8 +252,8 @@ def test_phase1_diagnostic_failure_restores_host_trampoline_state(
     tmp_path: Path,
 ) -> None:
     emulator = Emulator(
-        ROOT / "pokeyellow_debug.gbc",
-        ROOT / "pokeyellow_debug.sym",
+        PHASE1_ROM,
+        PHASE1_SYMBOLS,
         tmp_path / "failure-cleanup",
         cgb=True,
     )
@@ -311,8 +313,8 @@ def test_real_unchanged_generation_baseline_reports(
     tmp_path: Path, path: str
 ) -> None:
     emulator = Emulator(
-        ROOT / "pokeyellow_debug.gbc",
-        ROOT / "pokeyellow_debug.sym",
+        PHASE1_ROM,
+        PHASE1_SYMBOLS,
         tmp_path / path,
         cgb=True,
     )
@@ -337,7 +339,7 @@ def test_real_unchanged_generation_baseline_reports(
 
 def test_real_soft_reset_baseline_report(tmp_path: Path) -> None:
     emulator = Emulator(
-        ROOT / "pokeyellow_debug.gbc", ROOT / "pokeyellow_debug.sym",
+        PHASE1_ROM, PHASE1_SYMBOLS,
         tmp_path / "soft-reset", cgb=True,
     )
     try:
@@ -382,8 +384,8 @@ def test_real_soft_reset_baseline_report(tmp_path: Path) -> None:
 def test_patched_debug_rom_mutations_fail_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, symbol: str, failure: str
 ) -> None:
-    rom = bytearray((ROOT / "pokeyellow_debug.gbc").read_bytes())
-    lines = (ROOT / "pokeyellow_debug.sym").read_text(encoding="utf-8").splitlines()
+    rom = bytearray(PHASE1_ROM.read_bytes())
+    lines = PHASE1_SYMBOLS.read_text(encoding="utf-8").splitlines()
     locations = {
         name: (int(bank, 16), int(address, 16))
         for line in lines
@@ -412,12 +414,12 @@ def test_patched_debug_rom_mutations_fail_closed(
 def test_patched_debug_rom_semantic_mutations_are_localized(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, symbol: str, path: str
 ) -> None:
-    rom = bytearray((ROOT / "pokeyellow_debug.gbc").read_bytes())
+    rom = bytearray(PHASE1_ROM.read_bytes())
     symbols = Emulator._parse_symbols(
-        (ROOT / "pokeyellow_debug.sym").read_text(encoding="utf-8").splitlines()
+        PHASE1_SYMBOLS.read_text(encoding="utf-8").splitlines()
     )
     banks = Emulator._parse_symbol_banks(
-        (ROOT / "pokeyellow_debug.sym").read_text(encoding="utf-8").splitlines()
+        PHASE1_SYMBOLS.read_text(encoding="utf-8").splitlines()
     )
     rom[banks[symbol] * 0x4000 + symbols[symbol] - 0x4000] = 1
     patched = tmp_path / f"{symbol}.gbc"

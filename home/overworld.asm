@@ -658,6 +658,12 @@ CheckMapConnections::
 	ld [wPikachuSpawnState], a
 	call LoadMapHeader
 	call PlayDefaultMusicFadeOutCurrent
+IF FULL_COLOR_PRODUCTION_ACTIVATED
+	; The destination header is now authoritative. Hide presentation and resolve
+	; ownership before either renderer's first destination palette writer.
+	farcall BeginOrdinaryMapPresentationRoot
+	jr nc, :+
+ENDC
 IF DEF(PHASE2_AUDIT)
 	; Yellow's palette command also translates its SGB block packet into CGB
 	; attributes. Keep the LCD off until both Yellow and the passive donor
@@ -666,10 +672,17 @@ IF DEF(PHASE2_AUDIT)
 ENDC
 	ld b, SET_PAL_OVERWORLD
 	call RunPaletteCommand
+IF FULL_COLOR_PRODUCTION_ACTIVATED
+:
+ENDC
 ; Since the sprite set shouldn't change, this will just update VRAM slots at
 ; x#SPRITESTATEDATA2_IMAGEBASEOFFSET without loading any tile patterns.
 	call InitMapSprites
 	call LoadTileBlockMap
+IF FULL_COLOR_PRODUCTION_ACTIVATED
+	farcall CompleteConnectedMapPresentationRoot
+	call EnableLCD
+ENDC
 IF DEF(PHASE2_AUDIT)
 	farcall PassiveFullColorApplyMap
 	call EnableLCD
@@ -1466,6 +1479,9 @@ IF DEF(PHASE2_AUDIT)
 ENDC
 	ld a, REDRAW_ROW
 	ldh [hRedrawRowOrColumnMode], a
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	farcall SubmitFullColorProductionNorthRowFar
+	ENDC
 	ret
 CopyToRedrawRowOrColumnSrcTiles::
 	ld de, wRedrawRowOrColumnSrcTiles
@@ -1497,6 +1513,9 @@ IF DEF(PHASE2_AUDIT)
 ENDC
 	ld a, REDRAW_ROW
 	ldh [hRedrawRowOrColumnMode], a
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	farcall SubmitFullColorProductionSouthRowFar
+	ENDC
 	ret
 ScheduleEastColumnRedraw::
 	hlcoord 18, 0
@@ -1517,6 +1536,9 @@ IF DEF(PHASE2_AUDIT)
 ENDC
 	ld a, REDRAW_COL
 	ldh [hRedrawRowOrColumnMode], a
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	farcall SubmitFullColorProductionEastColumnFar
+	ENDC
 	ret
 ScheduleColumnRedrawHelper::
 	ld de, wRedrawRowOrColumnSrcTiles
@@ -1549,6 +1571,9 @@ IF DEF(PHASE2_AUDIT)
 ENDC
 	ld a, REDRAW_COL
 	ldh [hRedrawRowOrColumnMode], a
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	farcall SubmitFullColorProductionWestColumnFar
+	ENDC
 	ret
 ; function to write the tiles that make up a tile block to memory
 ; Input: c = tile block ID, hl = destination address
@@ -1774,7 +1799,11 @@ LoadPlayerSpriteGraphicsCommon::
 	push hl
 	push bc
 	ld c, $c
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	call CopyVideoDataAlternate
+	ELSE
 	call CopyVideoData
+	ENDC
 	pop bc
 	pop hl
 	pop de
@@ -1786,7 +1815,11 @@ LoadPlayerSpriteGraphicsCommon::
 .noCarry
 	set 3, h ; add $800 ($80 tiles) to hl (1 << 3 == $8)
 	ld c, $c
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	jp CopyVideoDataAlternate
+	ELSE
 	jp CopyVideoData
+	ENDC
 ; function to load data from the map header
 LoadMapHeader::
 	farcall MarkTownVisitedAndLoadToggleableObjects
@@ -1947,6 +1980,46 @@ CopySignData::
 	jr nz, .signcopyloop
 	ret
 ; function to load map data
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+LoadMapData::
+	ldh a, [hLoadedROMBank]
+	push af
+	farcall BeginOrdinaryMapPresentationRoot
+	call ResetMapVariables
+	call LoadTextBoxTilePatterns
+	call LoadMapHeader
+	call InitMapSprites
+	call LoadScreenRelatedData
+	farcall IsFullColorOverworldOwnerFar
+	jr c, .fullColorYellow
+	farcall CompleteOrdinaryMapPresentationRoot
+	jr .fullColorPresentationComplete
+.fullColorYellow
+	call CopyMapViewToVRAM
+	ld a, 1
+	ld [wUpdateSpritesEnabled], a
+	ld b, SET_PAL_OVERWORLD
+	call RunPaletteCommand
+	call LoadPlayerSpriteGraphics
+	call UpdateSprites
+	farcall RecordAndCompleteYellowPresentationRoot
+.fullColorPresentationComplete
+.fullColorProductionMapTransitionComplete
+	call EnableLCD
+.fullColorMusic
+	ld a, [wStatusFlags6]
+	and 1 << BIT_DUNGEON_WARP | 1 << BIT_FLY_WARP
+	jr nz, .fullColorRestoreROMBank
+	ld a, [wStatusFlags7]
+	bit BIT_NO_MAP_MUSIC, a
+	jr nz, .fullColorRestoreROMBank
+	call UpdateMusic6Times
+	call PlayDefaultMusicFadeOutCurrent
+.fullColorRestoreROMBank
+	pop af
+	call BankswitchCommon
+	ret
+	ELSE
 LoadMapData::
 	ldh a, [hLoadedROMBank]
 	push af
@@ -1972,6 +2045,7 @@ ELSE
 	ld b, SET_PAL_OVERWORLD
 	call RunPaletteCommand
 ENDC
+
 	call LoadPlayerSpriteGraphics
 	ld a, [wStatusFlags6]
 	and 1 << BIT_DUNGEON_WARP | 1 << BIT_FLY_WARP
@@ -1985,6 +2059,7 @@ ENDC
 	pop af
 	call BankswitchCommon
 	ret
+	ENDC
 LoadScreenRelatedData::
 	call LoadTileBlockMap
 	call LoadTilesetTilePatternData

@@ -7,64 +7,61 @@ live in [TESTING.md](TESTING.md).
 
 ## Current scope
 
-The visible Phase 2 slice is an audit-only passive CGB color layer for Pallet
-Town and Route 1. It is not a release feature and it is not the retained
-full-color scheduler taking ownership of the game.
+Normal, debug, and VC builds expose `COLOR MODE: COLOR/YELLOW` in Options.
+`COLOR` selects the production full-color owner only for ordinary presentation
+of Pallet Town and Route 1. `YELLOW` keeps Yellow ownership everywhere.
 
-| Target | Product | Active passive slice |
+Dialogue, menus, battles, interiors, standalone scenes, unsupported maps,
+boot, hard reset, and soft reset are always Yellow-owned. Preference is policy
+input only: changing the saved bit never writes presentation state. The next
+real presentation boundary performs any required ownership handoff.
+
+| Target | Product | Playable policy |
 | --- | --- | --- |
-| `make yellow` | `pokeyellow.gbc` | No |
-| `make yellow_debug` | `pokeyellow_debug.gbc` | No |
-| `make yellow_vc` | VC ROM/patch | No |
-| `make yellow_phase2_audit` | `pokeyellow_phase2_audit.gbc` | Yes |
+| `make yellow` | `pokeyellow.gbc` | COLOR/YELLOW |
+| `make yellow_debug` | `pokeyellow_debug.gbc` | COLOR/YELLOW |
+| `make yellow_vc` | VC ROM/patch | COLOR/YELLOW |
+| `make yellow_phase2_audit` | `pokeyellow_phase2_audit.gbc` | Independent passive audit |
 
-The audit target defines both `_DEBUG` and `PHASE2_AUDIT`. Guarded code and data
-are linked by [main.asm](../main.asm). Ordinary products must not acquire a
-reachable passive renderer by accident.
+The Phase 2 audit product remains byte-pinned and independently verified. Its
+debug carriers and passive hooks are not linked into production products.
 
 ## Ownership contract
 
-Yellow remains authoritative for every bank-0 background tile and tile pattern;
-sprite graphics, OAM, movement, and mechanics; map construction, scrolling,
-menus, dialogue, battle, and cutscenes; and animations, overlays, fades, and
-scheduling.
+Exactly one renderer owns every owner-gated resource. Under Color ownership the
+production scheduler exclusively publishes the ordinary Pallet/Route 1 map,
+scroll/window state, authored palettes and attributes, paired movement and
+connection transfers, supported animated/field tiles, and OAM. Yellow's
+owner-gated VBlank writers are skipped.
 
-The passive slice may publish only:
+Under Yellow ownership no Color producer or commit may write. Yellow owns all
+forced contexts and all maps when the player selects `YELLOW`. Owner-neutral
+input, time, audio, serial, and interrupt cleanup still run once per frame.
 
-- a complete set of eight CGB background palettes; and
-- corresponding per-tile attributes in VRAM bank 1.
-
-It translates the tile picture Yellow already finished. It never suppresses,
-replaces, or races Yellow's bank-0 write. Object palettes are present in the
-audit data ABI, but the passive path does not publish them; sprites stay under
-Yellow control.
+Every real handoff cancels or completes departing work, advances exactly one
+fresh generation, reconstructs the complete destination from logical
+authority while admission is closed, crosses one presentation barrier, then
+reopens admission. Same-owner boundaries retain the generation and use the
+current owner's ordinary destination path.
 
 Earlier incomplete ownership attempts produced mismatched tilemaps and broken
 cutscenes. Do not widen this boundary as a shortcut for another colored map.
 
-## Active path and retained scaffolding
+## Production path and retained audit
 
-[engine/full_color/passive_overworld.asm](../engine/full_color/passive_overworld.asm)
-is the live presentation path. Hooks in Yellow's normal map, redraw, menu,
-palette, and VBlank flows call its `PassiveFullColor*` routines. The hard-coded
-map gate accepts only `PALLET_TOWN` and `ROUTE_1`.
+[engine/full_color/policy.asm](../engine/full_color/policy.asm) resolves the
+saved preference, context, and map without side effects. Lifecycle boundaries
+in `lifecycle.asm` apply that policy; `ownership.asm` owns generations and
+admission; `scheduler.asm` owns Color commits. `home/vblank.asm` selects one
+visible route before its first writer.
 
 [engine/full_color/passive_palette_refresh.asm](../engine/full_color/passive_palette_refresh.asm)
 detects a legitimate Yellow palette replacement after a fade or restoration
 and queues passive republication for a bounded VBlank.
 
-The following modules preserve measured contracts, debug observability, and
-future migration seams but do not drive the current Pallet/Route 1 display:
-
-- `ownership.asm` and `scheduler.asm`;
-- `palettes.asm`, `transfers.asm`, and `oam.asm`; and
-- most of `lifecycle.asm`.
-
-The active audit VBlank calls `PassiveFullColorVBlank`; it does not route the
-frame through `RouteRendererOwnershipVBlank`. The passive path reuses reviewed
-WRAM2 storage and the renderer generation, but it does not acquire
-`RENDERER_FULL_COLOR_OVERWORLD` ownership or enqueue ordinary scheduler jobs.
-Compiled or callable scaffolding is not evidence of active presentation.
+The separate audit ROM still calls `PassiveFullColorVBlank` and preserves the
+prior passive slice as an evidence authority. Compiled or callable audit
+machinery is not production reachability.
 
 ## Data authority
 
@@ -153,17 +150,18 @@ right branch without verifying its Yellow call site.
 
 ## Menus, interiors, dialogue, and battles
 
-The passive renderer is an overworld layer, not global display ownership.
+The production Color renderer is an ordinary two-map owner, not global display
+ownership.
 
 - Interiors are outside the map gate and use Yellow palettes with cleared
   bank-1 attributes.
-- Menus and dialogue can overwrite the visible attribute window. On close,
-  Yellow rebuilds `wTileMap`, then `PassiveFullColorRestoreAfterMenu` translates
-  the final 20×18 window and restores it LCD-off.
-- Battles and transitions remain Yellow behavior. Normal map restoration
-  reapplies the passive attributes when returning to an allowed map.
-- Sprites, battle effects, moving tiles, and cutscene objects are never inferred
-  from background tile IDs.
+- Menus and dialogue force a complete Color-to-Yellow handoff before their
+  first writer. Their close path resolves policy and reconstructs the ordinary
+  map owner.
+- Battles, interiors, standalone scenes, boot, and reset use the same forced
+  Yellow contract. Returning to eligible ordinary maps reconstructs Color only
+  when `COLOR` remains selected.
+- Unsupported maps resolve Yellow without changing the saved preference.
 
 Donor attributes appearing in an overlay, interior, or battle are an ownership
 leak, not evidence of broader renderer support.
@@ -190,15 +188,17 @@ raw `SVBK`, and leaves `rVBK` as Yellow expects.
 
 ## Load-bearing invariants
 
-1. Only a `PHASE2_AUDIT` build reaches the passive slice.
-2. Only Pallet Town and Route 1 are active until the extension procedure proves
+1. Production Color is reachable only through policy plus a lifecycle handoff.
+2. Only Pallet Town and Route 1 are Color-owned until the extension procedure proves
    another map.
-3. Yellow owns bank-0 tiles, sprites, mechanics, timing, fades, and overlays.
-4. Passive code writes only complete BG palettes and bank-1 BG attributes.
+3. Yellow owns overlays, dialogue, menus, battles, standalone scenes,
+   unsupported maps, reset, and every map under `YELLOW` preference.
+4. Color and Yellow owner-gated writers never run under the other owner.
 5. Every attribute comes from the authored 256-byte table.
-6. Initial publication is LCD-off; visible work is one bounded passive VBlank
-   operation.
-7. Yellow's bank-0 redraw precedes the corresponding bank-1 attribute commit.
+6. Initial Color reconstruction is LCD-off; later visible work is one bounded,
+   owner-exclusive Color VBlank operation.
+7. Color publishes its coordinated attributes, palettes, and OAM only on the
+   Color route; Yellow redraw and palette writers run only on the Yellow route.
 8. Every exit removes or neutralizes stale attributes.
 9. Map identity, active state, and renderer generation agree before a visible
    write.
@@ -209,17 +209,17 @@ A prettier screenshot does not justify breaking one of these contracts.
 
 ## Evidence boundary
 
-The active-runtime claim must be supported by the audit ROM, not merely by
-source inspection or synthetic machinery. Verification spans model tests,
-built-ROM probes, retained deterministic gates, and natural gameplay journeys.
+The active-runtime claim must be supported by production ROMs, while the audit
+ROM remains an independent retained authority. Verification spans model tests,
+built-ROM probes, deterministic gates, and natural gameplay journeys.
 Each catches different failures; none makes the others redundant.
 
-The synthetic renderer conformance checker proves its own modeled contract. It
-does not prove that gameplay routes through the passive path. Phase 1 runtime
-evidence proves ownership supersession mechanics, not global coloring. A single
-screenshot can show palette quality but cannot prove scrolling, timing,
-handoffs, flicker, or cutscene correctness. The exact commands and limitations
-are in [TESTING.md](TESTING.md).
+Run `make test-full-color-fast` while iterating and
+`make test-full-color-certify` before integration. Certification retains both
+independent Gate 0 runs and their comparator, Phase 1 runtime evidence,
+mutation-sensitive conformance, source-transition authority, numeric exact-fit
+and threshold-plus-one timing evidence, the pinned donor comparator, and Phase
+2 audit verification. A screenshot proves none of those contracts.
 
 ## Code map
 

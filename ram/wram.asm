@@ -2708,7 +2708,7 @@ wFullColorBGPaletteTransformed:: ds 64
 wFullColorOBJPaletteBase:: ds 64
 wFullColorOBJPaletteTransformed:: ds 64
 wFullColorAttributeRectangle:: ds SCREEN_AREA
-wFullColorShadowOAMBatch:: ds 160
+wFullColorPairedScratchTail:: ds 160
 wFullColorReconstructionLedger::
 wFullColorRequestCount:: db
 wFullColorRequestCursor:: db
@@ -2759,14 +2759,39 @@ wFullColorProducerClass:: db
 wFullColorPartyReturnPending:: db
 wFullColorProducerFlags:: db
 wFullColorProducerPending:: db
-wFullColorProductionReconstructionBarrier:: db
+wFullColorDescriptorAuthority:: ds FULL_COLOR_REQUEST_CAPACITY * 12
+wFullColorDescriptorAuthorityEnd::
+wFullColorProductionYellowReconstructionBarrier:: db
+wFullColorProductionColorReconstructionBarrier:: db
+wFullColorProductionReconstructionLedger:: ds 2
+wFullColorProductionReturnContext:: db
+wFullColorProductionTransitionStatus:: db
+wFullColorProductionTransitionRoute:: db
+wFullColorProductionSavedLCDC:: db
+wFullColorTransitionBudget::
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
+	ds 3
+ELSE
+	; Preserve the frozen Phase 2 audit layout and product identities.
+	dw
+ENDC
 wFullColorProductionLifecycleStateEnd::
 
 ASSERT wFullColorAuthoritySnapshotEnd - wFullColorAuthoritySnapshot == FULL_COLOR_AUTHORITY_SNAPSHOT_BYTES
 ASSERT wFullColorProducerAttributes - wFullColorProducerTiles == SCREEN_AREA
 ASSERT wFullColorProducerSource - wFullColorProducerAttributes == SCREEN_AREA
-ASSERT wFullColorProductionReconstructionBarrier >= wFullColorTimingState + 4
+ASSERT wFullColorProductionYellowReconstructionBarrier >= wFullColorTimingState + 4
+ASSERT wFullColorProductionReconstructionLedger + 2 <= wFullColorProductionReturnContext
 ASSERT wFullColorProductionLifecycleStateStart == FULL_COLOR_PHASE3_WRAM_START
 ASSERT wFullColorProductionLifecycleStateEnd < $d800
 ASSERT BANK(wFullColorProductionLifecycleStateStart) == FULL_COLOR_PHASE2_WRAM_BANK
+
+; Hardware DMA can consume only a page-aligned source. Keep the frozen batch
+; isolated from the fixed audit-compatible scheduler layout.
+SECTION "Full Color Production Frozen OAM", WRAMX[$d800], BANK[FULL_COLOR_PHASE2_WRAM_BANK]
+wFullColorShadowOAMBatch:: ds 160
+ASSERT LOW(wFullColorShadowOAMBatch) == 0
+ASSERT wFullColorShadowOAMBatch >= wFullColorProductionLifecycleStateEnd
+ASSERT wFullColorShadowOAMBatch + 160 + 128 <= wStack
+ASSERT BANK(wFullColorShadowOAMBatch) == FULL_COLOR_PHASE2_WRAM_BANK
 ENDC

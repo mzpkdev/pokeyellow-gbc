@@ -236,8 +236,8 @@ def write_visual_evidence(
 
 def run_baseline_visual_pipeline(root: Path, output: Path) -> dict[str, object]:
     emulator = Emulator(
-        rom=root / "pokeyellow_debug.gbc",
-        symbols=root / "pokeyellow_debug.sym",
+        rom=root / "pokeyellow_phase1_debug.gbc",
+        symbols=root / "pokeyellow_phase1_debug.sym",
         results=output / "diagnostics",
         cgb=True,
     )

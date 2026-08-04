@@ -13,6 +13,7 @@ from tools.rom_tests.full_color.artifacts import (
 )
 from tools.rom_tests.full_color.snapshots import SemanticSnapshot
 from tools.rom_tests.full_color.trace import WriterTrace
+from tools.rom_tests.full_color import visual_pipeline
 from tools.rom_tests.full_color.visual_pipeline import write_visual_evidence
 
 from .test_snapshots import snapshot_dict
@@ -33,6 +34,16 @@ def _snapshot() -> SemanticSnapshot:
 
 def _trace() -> WriterTrace:
     return WriterTrace(capacity=4, entries=(), permitted_writer_ids=("WR-NONE",))
+
+
+def test_baseline_visual_pipeline_uses_the_frozen_phase1_product() -> None:
+    source = Path(visual_pipeline.__file__).read_text(encoding="utf-8")
+    function = source.split("def run_baseline_visual_pipeline", 1)[1].split(
+        "\ndef ", 1
+    )[0]
+    assert 'rom=root / "pokeyellow_phase1_debug.gbc"' in function
+    assert 'symbols=root / "pokeyellow_phase1_debug.sym"' in function
+    assert 'root / "pokeyellow_debug.gbc"' not in function
 
 
 def test_visual_pipeline_writes_linked_viewable_deterministic_evidence(

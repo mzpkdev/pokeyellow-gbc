@@ -48,7 +48,6 @@ class Emulator:
         pyboy_options: dict[str, object] = {
             "window": "null",
             "sound_emulated": False,
-            "ram_file": BytesIO(bytes(0x8000)),
         }
         if cgb:
             pyboy_options.update(
@@ -56,7 +55,10 @@ class Emulator:
                 symbols=None,
                 log_level="ERROR",
             )
-        self.pyboy = PyBoy(str(rom), **pyboy_options)
+        self._pyboy_options = pyboy_options
+        self.pyboy = PyBoy(
+            str(rom), ram_file=BytesIO(bytes(0x8000)), **self._pyboy_options
+        )
         self.pyboy.set_emulation_speed(0)
 
     @staticmethod
@@ -91,6 +93,17 @@ class Emulator:
 
     def close(self) -> None:
         self.pyboy.stop()
+
+    def power_cycle(self) -> None:
+        """Perform a real emulator restart while preserving cartridge SRAM."""
+        saved_ram = BytesIO()
+        self.pyboy.stop(ram_file=saved_ram)
+        saved_ram.seek(0)
+        self.pyboy = PyBoy(
+            str(self.rom), ram_file=saved_ram, **self._pyboy_options
+        )
+        self.pyboy.set_emulation_speed(0)
+        self.frame = 0
 
     def read(self, symbol: str) -> int:
         return self.read_bytes(symbol, 1)[0]

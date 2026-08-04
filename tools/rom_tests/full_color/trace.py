@@ -187,6 +187,7 @@ class WriterTraceEntry:
             Phase.OVERWORLD_ACTIVE: {Owner.RENDERER_FULL_COLOR_OVERWORLD},
             Phase.OVERWORLD_OVERLAY: {Owner.RENDERER_FULL_COLOR_OVERWORLD},
             Phase.HANDOFF_TO_YELLOW: set(Owner),
+            Phase.YELLOW_RECONSTRUCTING: {Owner.RENDERER_YELLOW},
         }
         if self.owner not in allowed[self.phase]:
             raise TraceDecodeError(

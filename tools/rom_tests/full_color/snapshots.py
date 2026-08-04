@@ -1043,6 +1043,7 @@ class SemanticSnapshot:
             Phase.OVERWORLD_ACTIVE: {Owner.RENDERER_FULL_COLOR_OVERWORLD},
             Phase.OVERWORLD_OVERLAY: {Owner.RENDERER_FULL_COLOR_OVERWORLD},
             Phase.HANDOFF_TO_YELLOW: set(Owner),
+            Phase.YELLOW_RECONSTRUCTING: {Owner.RENDERER_YELLOW},
         }
         if snapshot.owner not in allowed[snapshot.phase]:
             raise SnapshotValidationError(
@@ -1094,7 +1095,10 @@ class SemanticSnapshot:
             )
         required = set(snapshot.reconstruction.required_items)
         completed = set(snapshot.reconstruction.completed_items)
-        if snapshot.phase is Phase.OVERWORLD_RECONSTRUCTING:
+        if snapshot.phase in {
+            Phase.OVERWORLD_RECONSTRUCTING,
+            Phase.YELLOW_RECONSTRUCTING,
+        }:
             if not snapshot.reconstruction.unknown_prior_state:
                 raise SnapshotValidationError(
                     "snapshot.reconstruction: prior state must be poisoned/unknown"

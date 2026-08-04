@@ -22,6 +22,25 @@ MACRO restore_renderer_state_e
 	ldh [rIE], a
 ENDM
 
+; Preserve an A-valued ABI while selecting renderer WRAM. The ordinary macro
+; cannot use push/pop for this: Yellow's stack is in bank 1, so popping after
+; selecting bank 2 reads a different physical stack. Mask IE before publishing
+; the one-byte HRAM handoff so VBlank cannot race another producer through it.
+MACRO select_renderer_state_preserve_a
+	push af
+	ldh a, [rIE]
+	ldh [hRendererStateSavedIE], a
+	xor a
+	ldh [rIE], a
+	pop af
+	ldh [hFullColorProducerClassScratch], a
+	ldh a, [rSVBK]
+	ldh [hRendererStateSavedSVBK], a
+	ld a, PHASE1_SELECTED_WRAM_BANK
+	ldh [rSVBK], a
+	ldh a, [hFullColorProducerClassScratch]
+ENDM
+
 MACRO clear_renderer_job
 	ld a, RENDERER_JOB_NONE
 	ld [wRendererJobState], a
@@ -70,11 +89,20 @@ InitRendererOwnership::
 	jr nz, .clear
 	ld a, RENDERER_YELLOW
 	ld [wRendererOwner], a
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	ld a, YELLOW_RECONSTRUCTING
+	ld [wRendererPhase], a
+	xor a
+	ld [wRendererAdmissionOpen], a
+	ld a, 1
+	ld [wRendererGeneration], a
+	ELSE
 	ld a, YELLOW_ACTIVE
 	ld [wRendererPhase], a
 	ld a, 1
 	ld [wRendererGeneration], a
 	ld [wRendererAdmissionOpen], a
+	ENDC
 	clear_renderer_job
 IF DEF(PHASE2_AUDIT) || DEF(FULL_COLOR_PRODUCTION_LINKAGE)
 	call InitFullColorSchedulerSelected
@@ -84,6 +112,22 @@ ENDC
 	ret
 
 SoftResetRendererOwnership::
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	; Close visible routing before the legacy white-out and timing delay. The LCD
+	; remains enabled so DelayFrames can receive VBlank, but reconstruction makes
+	; every renderer route closed and the white frame stays static. Disable the
+	; LCD only after that finite delay; SoftResetInit rebuilds the destination.
+	ld a, 1
+	ldh [hSoftReset], a
+	call StopAllSounds
+	call ResetRendererOwnershipForReconstruction
+	jr c, .commit_in_progress
+	call GBPalWhiteOut
+	ld c, 32
+	call DelayFrames
+	call DisableLCD
+	jp SoftResetInit
+	ELSE
 	call ResetRendererOwnership
 	jr c, .commit_in_progress
 	ld a, 1
@@ -93,6 +137,7 @@ SoftResetRendererOwnership::
 	ld c, 32
 	call DelayFrames
 	jp SoftResetInit
+	ENDC
 .commit_in_progress
 	jr .commit_in_progress
 
@@ -144,6 +189,13 @@ ENDC
 
 ; Input: A = HANDOFF_TO_OVERWORLD or HANDOFF_TO_YELLOW.
 BeginRendererHandoff::
+	IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
+	; Retain reviewed source-discovery writer roots at the production wrapper;
+	; linked discovery follows this jump into the fixed-bank implementation.
+.set_phase
+.assert
+	jp BeginRendererHandoffBanked
+	ELSE
 	ld c, a
 	select_renderer_state_e
 	ld a, c
@@ -184,7 +236,7 @@ BeginRendererHandoff::
 	ld a, HANDOFF
 	ld [wRendererJobCancellationReason], a
 .set_phase
-IF DEF(PHASE2_AUDIT) || DEF(FULL_COLOR_PRODUCTION_LINKAGE)
+IF DEF(PHASE2_AUDIT)
 	push bc
 	call CancelFullColorSchedulerSelected
 	pop bc
@@ -211,6 +263,126 @@ ENDC
 	call RecordRendererAssertion
 	scf
 	ret
+	ENDC
+
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
+PUSHS
+SECTION "Renderer Handoff Implementation", ROMX, BANK[PHASE1_OWNERSHIP_ROM_BANK]
+BeginRendererHandoffBanked:
+	ld c, a
+	select_renderer_state_e
+	ld a, c
+	cp HANDOFF_TO_OVERWORLD
+	jr z, .to_overworld
+	cp HANDOFF_TO_YELLOW
+	jp nz, .invalid
+	ld a, [wRendererOwner]
+	cp RENDERER_FULL_COLOR_OVERWORLD
+	jr nz, .invalid
+	ld a, [wRendererPhase]
+	cp OVERWORLD_ACTIVE
+	jr z, .validated
+	cp OVERWORLD_OVERLAY
+	jr nz, .invalid
+	jr .validated
+.to_overworld
+	ld a, [wRendererOwner]
+	cp RENDERER_YELLOW
+	jr nz, .invalid
+	ld a, [wRendererPhase]
+	cp YELLOW_ACTIVE
+	jr nz, .invalid
+.validated
+	xor a
+	ld [wRendererAdmissionOpen], a
+	ld a, [wRendererJobState]
+	cp COMMITTING
+	call z, CompleteDepartingRendererCommitSelected
+	ld a, [wRendererJobState]
+	cp PENDING
+	jr z, .cancel
+	cp PREPARED
+	jr nz, .set_phase
+.cancel
+	ld a, CANCELLED
+	ld [wRendererJobState], a
+	ld a, HANDOFF
+	ld [wRendererJobCancellationReason], a
+.set_phase
+IF DEF(PHASE2_AUDIT) || DEF(FULL_COLOR_PRODUCTION_LINKAGE)
+	push bc
+	call CancelFullColorSchedulerSelected
+	pop bc
+ENDC
+	ld a, c
+	ld [wRendererPhase], a
+	advance_renderer_generation .generation_exhausted
+	restore_renderer_state_e
+	and a
+	ret
+.generation_exhausted
+	xor a
+	ld [wRendererAdmissionOpen], a
+	ld b, FULL_COLOR_ASSERT_GENERATION_EXHAUSTED
+	jr .assert
+.invalid
+	ld b, FULL_COLOR_ASSERT_ILLEGAL_JOB_TRANSITION
+	jr .assert
+.assert
+	restore_renderer_state_e
+	ld a, b
+	call RecordRendererAssertion
+	scf
+	ret
+
+POPS
+
+; Selected-bank handoff/reset helper.
+;
+; Contract:
+; - caller already owns the renderer critical section with WRAM2 selected;
+; - wRendererJobState is COMMITTING for the current generation;
+; - returns with WRAM2 selected and the caller's original SVBK/IE snapshot
+;   still available to restore_renderer_state_e;
+; - uses CompleteRendererJob for the validated COMMITTING -> COMPLETE
+;   transition, so it never emits a cancellation or a duplicate scheduler-log
+;   entry. A rejected transition fails closed and never returns.
+; Clobbers AF, DE; preserves BC, HL.
+PUSHS
+SECTION "Renderer Commit Completion Helper", ROMX, BANK[PHASE1_OWNERSHIP_ROM_BANK]
+CompleteDepartingRendererCommitSelected::
+	ldh a, [hRendererStateSavedIE]
+	ld e, a
+	ldh a, [hRendererStateSavedSVBK]
+	ldh [rSVBK], a
+	; IE remains masked across the temporary bank restoration. The public
+	; transition routine observes/saves zero and therefore cannot open an
+	; interrupt window inside the outer ownership operation.
+	push hl
+	push bc
+	call CompleteRendererJob
+	pop bc
+	pop hl
+	jr c, .failed
+	ld a, PHASE1_SELECTED_WRAM_BANK
+	ldh [rSVBK], a
+	ld a, e
+	ldh [hRendererStateSavedIE], a
+	and a
+	ret
+.failed
+	ld a, PHASE1_SELECTED_WRAM_BANK
+	ldh [rSVBK], a
+	ld a, e
+	ldh [hRendererStateSavedIE], a
+	xor a
+	ld [wRendererAdmissionOpen], a
+.closed
+	jr .closed
+
+EXPORT CompleteDepartingRendererCommitSelected
+POPS
+ENDC
 
 ; Input: A = arriving owner, C = arriving phase.
 CompleteRendererHandoff::

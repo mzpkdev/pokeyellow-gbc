@@ -201,8 +201,8 @@ def run_phase1_runtime(
     run_dir.mkdir()
     case = canonical_phase1_case(root)
     emulator = Emulator(
-        rom=root / "pokeyellow_debug.gbc",
-        symbols=root / "pokeyellow_debug.sym",
+        rom=root / "pokeyellow_phase1_debug.gbc",
+        symbols=root / "pokeyellow_phase1_debug.sym",
         results=run_dir,
         cgb=True,
     )
@@ -260,7 +260,7 @@ def run_phase1_runtime(
     _write_text(baseline_paths["baseline-before"], data.baseline_before.to_json())
     _write_text(baseline_paths["baseline-after"], data.baseline_after.to_json())
     _write_text(baseline_paths["baseline-report"], baseline_report.to_json())
-    rom_sha256 = _rom_sha256(root / "pokeyellow_debug.gbc")
+    rom_sha256 = _rom_sha256(root / "pokeyellow_phase1_debug.gbc")
     manifest = RuntimeManifest(
         rom_sha256=rom_sha256,
         cases=(case_row,),

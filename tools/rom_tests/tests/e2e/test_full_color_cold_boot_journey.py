@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import cast
 
 from PIL import Image
+import pytest
 
 from tools.rom_tests.emulator import Emulator
 from tools.rom_tests.scenarios.new_game import reach_bedroom_overworld
@@ -136,6 +137,76 @@ class OakCaptureSequence:
     event_states: dict[str, tuple[int, ...]]
 
 
+PRODUCTION_PRODUCTS = ("pokeyellow", "pokeyellow_debug", "pokeyellow_vc")
+PRODUCTION_PREFERENCES = ("COLOR", "YELLOW")
+
+
+def _select_production_preference(emulator: Emulator, preference: str) -> None:
+    """Select COLOR MODE through the real Start/Options UI."""
+    if preference not in PRODUCTION_PREFERENCES:
+        raise AssertionError(f"unknown production preference: {preference}")
+    assert emulator.read("wUnusedObtainedBadges") & 1 == 0
+    emulator.press("start")
+    for _ in range(4):
+        emulator.press("down")
+    emulator.press("a")
+    assert emulator.read("wOptionsCursorLocation") == 0
+    for _ in range(5):
+        emulator.press("down")
+    assert emulator.read("wOptionsCursorLocation") == 5
+    if preference == "YELLOW":
+        emulator.press("right")
+    assert emulator.read("wUnusedObtainedBadges") & 1 == (
+        1 if preference == "YELLOW" else 0
+    )
+    emulator.press("b")
+    # COLOR performs a real Yellow-to-Color return before the Start menu can
+    # consume input. YELLOW is deliberately a same-owner no-op, so give both
+    # routes the same explicit UI settling boundary instead of relying on the
+    # transition's incidental latency.
+    emulator.tick(30)
+    emulator.press("b")
+    emulator.tick(5)
+
+
+def _expected_map_owner(preference: str, map_id: int) -> tuple[int, int]:
+    if preference == "COLOR" and map_id in {PALLET_TOWN, ROUTE_1}:
+        return (1, 3)
+    return (0, 0)
+
+
+def _await_production_map_return(
+    emulator: Emulator, preference: str, *, button: str
+) -> None:
+    """Drive a real UI close until policy ownership and the hidden WY agree."""
+    expected = _expected_map_owner(preference, emulator.read("wCurMap"))
+    emulator.press(button)
+    emulator.advance_until(
+        lambda: (
+            emulator.read("wRendererOwner"),
+            emulator.read("wRendererPhase"),
+        )
+        == expected
+        and emulator.read("hWY") == 0x90,
+        button=button,
+        max_presses=4,
+        description=f"{preference} ordinary-map return",
+    )
+    emulator.tick(60)
+
+
+def _open_start_menu_item(emulator: Emulator, target: int) -> None:
+    """Open the no-Pokedex Start menu and select an exact visible row."""
+    emulator.press("start")
+    for _ in range(6):
+        if emulator.read("wCurrentMenuItem") == target:
+            break
+        emulator.press("down")
+    else:
+        raise AssertionError(f"Start menu did not reach item {target}")
+    emulator.press("a")
+
+
 class _PresetMenuState:
     def __init__(self, max_menu_item: int) -> None:
         self.values = {
@@ -247,6 +318,8 @@ def _observe_boundary(
 def _run_pallet_ui_boundary(
     product: str,
     results: Path,
+    *,
+    preference: str | None = None,
 ) -> dict[str, BoundaryObservation]:
     emulator = Emulator(
         rom=REPOSITORY_ROOT / f"{product}.gbc",
@@ -264,6 +337,8 @@ def _run_pallet_ui_boundary(
 
     try:
         complete_oaks_lab_intro(emulator)
+        if preference is not None:
+            _select_production_preference(emulator, preference)
 
         # Use the same repeated-input cadence as the natural Viridian journey.
         # The first post-warp direction can be consumed while Pikachu settles,
@@ -276,30 +351,41 @@ def _run_pallet_ui_boundary(
 
         emulator.press("a")
         observe("dialogue")
-        emulator.press("a")
-        emulator.tick(60)
+        if preference is None:
+            emulator.press("a")
+            emulator.tick(60)
+        else:
+            _await_production_map_return(emulator, preference, button="a")
         observe("dialogue-restored")
 
         emulator.press("start")
         observe("start-menu")
-        emulator.press("b")
-        emulator.tick(60)
+        if preference is None:
+            emulator.press("b")
+            emulator.tick(60)
+        else:
+            _await_production_map_return(emulator, preference, button="b")
         observe("direct-start-restored")
 
-        emulator.press("start")
-        emulator.press("a")
+        _open_start_menu_item(emulator, 0)
         observe("party")
         emulator.press("b")
         observe("returned-start-menu")
-        emulator.press("b")
-        emulator.tick(60)
+        if preference is None:
+            emulator.press("b")
+            emulator.tick(60)
+        else:
+            _await_production_map_return(emulator, preference, button="b")
         observe("restored-overworld")
 
         # Prove that the UI round-trip returns to a naturally playable map,
         # rather than merely drawing a plausible-looking overworld frame.
         walk_to_value(emulator, "wXCoord", 8, "right", "Oak's Lab west side")
-        walk_from_oaks_lab_to_viridian(emulator, use_debug_repel=True)
-        observe("viridian-entry")
+        walk_from_oaks_lab_to_viridian(
+            emulator,
+            lambda name, _: observe(name),
+            use_debug_repel=True,
+        )
     except BaseException:
         emulator.save_screenshot(f"{product}-boundary-failure.png")
         raise
@@ -447,6 +533,8 @@ def _run_reverse_route1_journey(
 def _run_route1_wild_battle_round_trip(
     product: str,
     results: Path,
+    *,
+    preference: str | None = None,
 ) -> WildBattleRoundTrip:
     emulator = Emulator(
         rom=REPOSITORY_ROOT / f"{product}.gbc",
@@ -494,6 +582,8 @@ def _run_route1_wild_battle_round_trip(
 
     try:
         complete_oaks_lab_intro(emulator)
+        if preference is not None:
+            _select_production_preference(emulator, preference)
 
         # Follow the real south-to-north route without suppressing encounters.
         # Reach Route 1's first verified tall-grass corridor if an encounter
@@ -647,8 +737,11 @@ def _run_route1_wild_battle_round_trip(
 def _run_pallet_save_continue_round_trip(
     product: str,
     results: Path,
+    *,
+    preference: str | None = None,
+    hard_reset: bool = False,
 ) -> SaveContinueRoundTrip:
-    """Save in Pallet, soft-reset, Continue, and resume natural movement."""
+    """Save in Pallet, reset, Continue, and resume natural movement."""
     emulator = Emulator(
         rom=REPOSITORY_ROOT / f"{product}.gbc",
         symbols=REPOSITORY_ROOT / f"{product}.sym",
@@ -661,6 +754,8 @@ def _run_pallet_save_continue_round_trip(
 
     try:
         complete_oaks_lab_intro(emulator)
+        if preference is not None:
+            _select_production_preference(emulator, preference)
         walk_to_value(emulator, "wXCoord", 8, "left", "west side of Oak's Lab")
         walk_to_value(emulator, "wXCoord", 7, "left", "Pallet sign column")
         walk_to_value(emulator, "wYCoord", 10, "up", "Pallet sign row")
@@ -668,29 +763,37 @@ def _run_pallet_save_continue_round_trip(
 
         # This fresh game has no Pokédex, so SAVE is the fourth start-menu
         # item. Drive the real prompt, SRAM write, and dismissal path.
-        emulator.press("start")
-        for _ in range(3):
-            emulator.press("down")
-        emulator.press("a")
+        _open_start_menu_item(emulator, 3)
         emulator.press("a")
         save_ui("save-confirmation")
-        emulator.press("a")
-        assert emulator.read("wSaveFileStatus") == 2, "save did not become valid"
+        emulator.advance_until(
+            lambda: emulator.read("wSaveFileStatus") == 2,
+            button="a",
+            max_presses=4,
+            description="valid save file",
+        )
         emulator.press("a")
         save_ui("game-saved")
         emulator.press("b")
         emulator.tick(120)
         before_reset = _observe(emulator, f"{product}-before-reset.png")
 
-        # Yellow's documented A+B+Start+Select soft-reset path keeps the SRAM
-        # created above while rebuilding all volatile renderer state.
-        for button in ("a", "b", "start", "select"):
-            emulator.pyboy.button_press(button)
-        emulator.tick(20)
-        for button in ("a", "b", "start", "select"):
-            emulator.pyboy.button_release(button)
-        emulator.tick(120)
-        save_ui("soft-reset")
+        if hard_reset:
+            # Recreate the emulator from the ROM while carrying only cartridge
+            # SRAM across the boundary. No volatile renderer state survives.
+            emulator.power_cycle()
+            emulator.tick(120)
+            save_ui("hard-reset")
+        else:
+            # Yellow's documented A+B+Start+Select soft-reset path keeps the SRAM
+            # created above while rebuilding all volatile renderer state.
+            for button in ("a", "b", "start", "select"):
+                emulator.pyboy.button_press(button)
+            emulator.tick(20)
+            for button in ("a", "b", "start", "select"):
+                emulator.pyboy.button_release(button)
+            emulator.tick(120)
+            save_ui("soft-reset")
 
         def is_continue_menu() -> bool:
             return (
@@ -705,7 +808,8 @@ def _run_pallet_save_continue_round_trip(
             if is_continue_menu():
                 break
             emulator.press("start", wait_frames=30)
-        assert is_continue_menu(), "soft reset did not reach a valid Continue menu"
+        reset_kind = "hard reset" if hard_reset else "soft reset"
+        assert is_continue_menu(), f"{reset_kind} did not reach a valid Continue menu"
         save_ui("continue-menu")
 
         emulator.press("a")
@@ -754,6 +858,8 @@ def _run_pallet_save_continue_round_trip(
 def _run_pallet_house_round_trip(
     product: str,
     results: Path,
+    *,
+    preference: str | None = None,
 ) -> PalletHouseRoundTrip:
     """Enter Red's house from Pallet and return through its natural warp."""
     emulator = Emulator(
@@ -765,6 +871,8 @@ def _run_pallet_house_round_trip(
 
     try:
         complete_oaks_lab_intro(emulator)
+        if preference is not None:
+            _select_production_preference(emulator, preference)
         walk_to_value(emulator, "wXCoord", 8, "left", "west side of Oak's Lab")
         walk_to_value(emulator, "wYCoord", 6, "up", "Red's house row")
         walk_to_value(emulator, "wXCoord", 5, "left", "Red's house door")
@@ -1068,10 +1176,10 @@ def test_scenario_setup_removes_stale_failure_evidence() -> None:
     assert not tuple(results.iterdir())
 
 
-def test_stock_debug_cold_boot_reaches_viridian_without_state_injection() -> None:
+def test_phase1_diagnostic_cold_boot_reaches_viridian_without_state_injection() -> None:
     _prepare_results(RESULTS_ROOT / "stock-natural")
     observations = _run_journey(
-        "pokeyellow_debug",
+        "pokeyellow_phase1_debug",
         RESULTS_ROOT / "stock-natural",
         use_debug_repel=False,
     )
@@ -1085,7 +1193,7 @@ def test_audit_cold_boot_changes_only_color_state_in_the_slice() -> None:
     results = RESULTS_ROOT / "paired-audit"
     _prepare_results(results)
     vanilla = _run_journey(
-        "pokeyellow_debug",
+        "pokeyellow_phase1_debug",
         results,
         use_debug_repel=True,
     )
@@ -1242,7 +1350,7 @@ def test_audit_cold_boot_changes_only_color_state_in_the_slice() -> None:
 def test_reverse_route1_ledges_preserve_yellow_and_passive_color_state() -> None:
     results = RESULTS_ROOT / "paired-reverse-route1"
     _prepare_results(results)
-    vanilla = _run_reverse_route1_journey("pokeyellow_debug", results)
+    vanilla = _run_reverse_route1_journey("pokeyellow_phase1_debug", results)
     audit = _run_reverse_route1_journey("pokeyellow_phase2_audit", results)
 
     expected_palettes = _linked_bytes(
@@ -1317,7 +1425,7 @@ def test_reverse_route1_ledges_preserve_yellow_and_passive_color_state() -> None
 def test_pallet_house_round_trip_restores_passive_color_slice() -> None:
     results = RESULTS_ROOT / "paired-pallet-house"
     _prepare_results(results)
-    vanilla = _run_pallet_house_round_trip("pokeyellow_debug", results)
+    vanilla = _run_pallet_house_round_trip("pokeyellow_phase1_debug", results)
     audit = _run_pallet_house_round_trip("pokeyellow_phase2_audit", results)
 
     expected_palettes = _linked_bytes(
@@ -1411,7 +1519,7 @@ def test_oak_scripted_pikachu_capture_preserves_yellow_visuals_and_completes() -
     """Cover the historic battle-over-overworld corruption from a cold boot."""
     results = RESULTS_ROOT / "paired-oak-capture"
     _prepare_results(results)
-    vanilla = _run_oak_capture_sequence("pokeyellow_debug", results)
+    vanilla = _run_oak_capture_sequence("pokeyellow_phase1_debug", results)
     audit = _run_oak_capture_sequence("pokeyellow_phase2_audit", results)
 
     expected_palettes = _linked_bytes(
@@ -1520,7 +1628,7 @@ def test_oak_scripted_pikachu_capture_preserves_yellow_visuals_and_completes() -
 def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> None:
     results = RESULTS_ROOT / "pallet-ui-boundary"
     _prepare_results(results)
-    vanilla = _run_pallet_ui_boundary("pokeyellow_debug", results)
+    vanilla = _run_pallet_ui_boundary("pokeyellow_phase1_debug", results)
     audit = _run_pallet_ui_boundary("pokeyellow_phase2_audit", results)
 
     expected_names = (
@@ -1532,6 +1640,9 @@ def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> 
         "party",
         "returned-start-menu",
         "restored-overworld",
+        "route1-south",
+        "route1-mid",
+        "route1-north",
         "viridian-entry",
     )
     assert tuple(vanilla) == expected_names
@@ -1593,6 +1704,10 @@ def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> 
         "dialogue-restored",
         "direct-start-restored",
         "restored-overworld",
+        "route1-south",
+        "route1-mid",
+        "route1-north",
+        "viridian-entry",
     ):
         mismatches = [
             {
@@ -1631,7 +1746,7 @@ def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> 
 def test_route1_wild_battle_round_trip_restores_passive_color_slice() -> None:
     results = RESULTS_ROOT / "route1-wild-battle"
     _prepare_results(results)
-    vanilla = _run_route1_wild_battle_round_trip("pokeyellow_debug", results)
+    vanilla = _run_route1_wild_battle_round_trip("pokeyellow_phase1_debug", results)
     audit = _run_route1_wild_battle_round_trip("pokeyellow_phase2_audit", results)
     for journey in (vanilla, audit):
         route_steps, grass_pacing_steps = journey.encounter_steps
@@ -1696,7 +1811,7 @@ def test_route1_wild_battle_round_trip_restores_passive_color_slice() -> None:
 def test_pallet_save_reset_continue_restores_playable_color_slice() -> None:
     results = RESULTS_ROOT / "pallet-save-continue"
     _prepare_results(results)
-    vanilla = _run_pallet_save_continue_round_trip("pokeyellow_debug", results)
+    vanilla = _run_pallet_save_continue_round_trip("pokeyellow_phase1_debug", results)
     audit = _run_pallet_save_continue_round_trip("pokeyellow_phase2_audit", results)
 
     expected_palettes = _linked_bytes(
@@ -1763,3 +1878,122 @@ def test_pallet_save_reset_continue_restores_playable_color_slice() -> None:
         json.dumps(diagnostics, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+@pytest.mark.parametrize("product", PRODUCTION_PRODUCTS)
+@pytest.mark.parametrize("preference", PRODUCTION_PREFERENCES)
+def test_production_color_mode_natural_ui_and_map_matrix(
+    product: str, preference: str
+) -> None:
+    """Drive the real option, forced UI owners, two Color maps, and fallback."""
+    results = RESULTS_ROOT / f"production-{product}-{preference.lower()}-ui"
+    _prepare_results(results)
+    observations = _run_pallet_ui_boundary(
+        product, results, preference=preference
+    )
+    expected_names = (
+        "stable-overworld",
+        "dialogue",
+        "dialogue-restored",
+        "start-menu",
+        "direct-start-restored",
+        "party",
+        "returned-start-menu",
+        "restored-overworld",
+        "route1-south",
+        "route1-mid",
+        "route1-north",
+        "viridian-entry",
+    )
+    assert tuple(observations) == expected_names
+
+    map_owned = {
+        "stable-overworld",
+        "dialogue-restored",
+        "direct-start-restored",
+        "restored-overworld",
+        "route1-south",
+        "route1-mid",
+        "route1-north",
+        "viridian-entry",
+    }
+    for name, observation in observations.items():
+        journey = observation.journey
+        expected = (
+            _expected_map_owner(preference, journey.logical_state[0])
+            if name in map_owned
+            else (0, 0)
+        )
+        assert journey.renderer_state == expected, name
+        # Production owns the scheduler directly; audit-only passive latches
+        # remain dormant under both production owners.
+        assert journey.passive_state == (0, 0, 0, 0), name
+
+    assert observations["stable-overworld"].journey.logical_state[0] == PALLET_TOWN
+    for name in ("route1-south", "route1-mid", "route1-north"):
+        assert observations[name].journey.logical_state[0] == ROUTE_1
+    assert observations["viridian-entry"].journey.logical_state[0] == VIRIDIAN_CITY
+    generations = [
+        int.from_bytes(bytes(observations[name].journey.renderer_generation), "little")
+        for name in expected_names
+    ]
+    assert generations == sorted(generations)
+    if preference == "YELLOW":
+        assert len(set(generations)) == 1
+    else:
+        assert [
+            current - prior for prior, current in zip(generations, generations[1:])
+        ] == [1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 1]
+
+
+def test_production_debug_hard_reset_from_color_restores_saved_map() -> None:
+    results = RESULTS_ROOT / "production-pokeyellow_debug-color-hard-reset"
+    _prepare_results(results)
+    saved = _run_pallet_save_continue_round_trip(
+        "pokeyellow_debug",
+        results,
+        preference="COLOR",
+        hard_reset=True,
+    )
+    expected = _expected_map_owner("COLOR", PALLET_TOWN)
+    assert saved.before_reset.renderer_state == expected
+    assert saved.restored.renderer_state == expected
+    assert saved.playable.renderer_state == expected
+    assert saved.before_reset.renderer_generation != saved.restored.renderer_generation
+
+
+@pytest.mark.parametrize("preference", PRODUCTION_PREFERENCES)
+def test_production_debug_extended_return_matrix(preference: str) -> None:
+    """Cover unsupported-map, battle, and save/soft-reset returns naturally."""
+    product = "pokeyellow_debug"
+    prefix = f"production-{product}-{preference.lower()}"
+    house_results = RESULTS_ROOT / f"{prefix}-house"
+    _prepare_results(house_results)
+    house = _run_pallet_house_round_trip(
+        product, house_results, preference=preference
+    )
+    assert house.interior.renderer_state == (0, 0)
+    assert house.restored_pallet.renderer_state == _expected_map_owner(
+        preference, PALLET_TOWN
+    )
+
+    battle_results = RESULTS_ROOT / f"{prefix}-battle"
+    _prepare_results(battle_results)
+    battle = _run_route1_wild_battle_round_trip(
+        product, battle_results, preference=preference
+    )
+    assert battle.battle_menu.renderer_state == (0, 0)
+    assert battle.restored_route.renderer_state == _expected_map_owner(
+        preference, ROUTE_1
+    )
+
+    save_results = RESULTS_ROOT / f"{prefix}-save-continue"
+    _prepare_results(save_results)
+    saved = _run_pallet_save_continue_round_trip(
+        product, save_results, preference=preference
+    )
+    expected = _expected_map_owner(preference, PALLET_TOWN)
+    assert saved.before_reset.renderer_state == expected
+    assert saved.restored.renderer_state == expected
+    assert saved.playable.renderer_state == expected
+    assert saved.before_reset.renderer_generation != saved.restored.renderer_generation

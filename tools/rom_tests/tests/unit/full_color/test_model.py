@@ -244,6 +244,30 @@ def test_reconstruction_completion_rejects_saved_or_captured_provenance(
         model.complete_reconstruction_item("tilemaps_and_attributes", provenance)
 
 
+def test_yellow_handoff_uses_the_same_closed_reconstruction_contract() -> None:
+    model = OwnershipModel()
+    model.begin_handoff_to_overworld()
+    model.select_overworld_owner()
+    for item in RECONSTRUCTION_ITEMS:
+        model.complete_reconstruction_item(item, RECONSTRUCTION_ITEM_PROVENANCE[item])
+    model.present_reconstruction()
+    model.finish_reconstruction()
+    generation = model.generation
+
+    model.begin_handoff_to_yellow()
+    model.select_yellow_owner()
+    assert model.owner is Owner.RENDERER_YELLOW
+    assert model.phase is Phase.YELLOW_RECONSTRUCTING
+    assert model.generation == generation + 1
+    assert not model.admission_open
+    for item in RECONSTRUCTION_ITEMS:
+        model.complete_reconstruction_item(item, RECONSTRUCTION_ITEM_PROVENANCE[item])
+    model.present_reconstruction()
+    model.finish_reconstruction()
+    assert model.phase is Phase.YELLOW_ACTIVE
+    assert model.admission_open
+
+
 def test_accepted_and_coalesced_work_remains_until_eventual_completion() -> None:
     model = OwnershipModel(capacity=1)
     accepted = model.admit(request(model, "REQ-FIRST"))
@@ -343,7 +367,9 @@ def test_executor_tracks_ordered_handoff_steps_and_excludes_context_noops() -> N
         "HANDOFF_TO_YELLOW:CANCEL_DEPARTING_WORK",
         "HANDOFF_TO_YELLOW:FRESH_GENERATION",
         "HANDOFF_TO_YELLOW:SELECT_AND_INITIALIZE_OWNER",
-        "HANDOFF_TO_YELLOW:REOPEN_ADMISSION",
+        "HANDOFF_TO_YELLOW:COMPLETE_RECONSTRUCTION_LEDGER",
+        "HANDOFF_TO_YELLOW:PRESENTATION_BARRIER",
+        "HANDOFF_TO_YELLOW:ACTIVATE_AND_REOPEN_ADMISSION",
     ]
 
 

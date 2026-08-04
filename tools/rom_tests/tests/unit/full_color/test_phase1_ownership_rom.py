@@ -125,6 +125,7 @@ class Phase1Rom:
             "debug symbol file must export symbolic Phase 1 encodings: "
             + ", ".join(missing_constants)
         )
+        assert "YELLOW_RECONSTRUCTING" in constants
         return cls(emulator, constants)
 
     def wait_for_hard_boot(self, max_frames: int = 180) -> None:
@@ -359,9 +360,15 @@ class Phase1Rom:
 
 @pytest.fixture
 def phase1_rom(request: pytest.FixtureRequest) -> Phase1Rom:
-    rom_path = Path(os.environ.get("ROM_TEST_ROM", REPOSITORY_ROOT / "pokeyellow_debug.gbc"))
+    rom_path = Path(
+        os.environ.get(
+            "ROM_TEST_ROM", REPOSITORY_ROOT / "pokeyellow_phase1_debug.gbc"
+        )
+    )
     symbols_path = Path(
-        os.environ.get("ROM_TEST_SYMBOLS", REPOSITORY_ROOT / "pokeyellow_debug.sym")
+        os.environ.get(
+            "ROM_TEST_SYMBOLS", REPOSITORY_ROOT / "pokeyellow_phase1_debug.sym"
+        )
     )
     emulator = Emulator(
         rom=rom_path,

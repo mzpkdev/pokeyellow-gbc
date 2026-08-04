@@ -60,7 +60,7 @@ def test_certify_has_no_redundant_authority_component(tmp_path: Path) -> None:
     assert names.count("cold-boot-journeys") == 1
 
 
-def test_build_is_visible_first_and_builds_exactly_four_products(tmp_path: Path) -> None:
+def test_build_is_visible_first_and_builds_exactly_five_products(tmp_path: Path) -> None:
     build = components("fast", ROOT, tmp_path)[0]
     assert build.name == "build-products"
     assert build.command[0] == "make"
@@ -68,6 +68,7 @@ def test_build_is_visible_first_and_builds_exactly_four_products(tmp_path: Path)
     assert build.command[2:] == (
         "pokeyellow.gbc",
         "pokeyellow_debug.gbc",
+        "pokeyellow_phase1_debug.gbc",
         "pokeyellow_vc.gbc",
         "pokeyellow_phase2_audit.gbc",
     )

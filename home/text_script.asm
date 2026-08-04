@@ -5,10 +5,18 @@ UnknownText_2812:: ; unreferenced
 ; this function is used to display sign messages, sprite dialog, etc.
 ; INPUT: [hSpriteIndex] = sprite ID or [hTextID] = text ID
 DisplayTextID::
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	ld c, RENDERER_CONTEXT_DIALOGUE
+	farcall BeginForcedYellowPresentationRoot
+	ENDC
 	ASSERT hSpriteIndex == hTextID ; these are at the same memory location
 	ldh a, [hLoadedROMBank]
 	push af
 	farcall DisplayTextIDInit ; initialization
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	farcall RecordAndCompleteYellowPresentationRoot
+.fullColorProductionDialogueTransitionComplete
+	ENDC
 	ld hl, wTextPredefFlag
 	bit BIT_TEXT_PREDEF, [hl]
 	res BIT_TEXT_PREDEF, [hl]
@@ -107,7 +115,14 @@ CloseTextDisplay::
 	ld a, $90
 	ldh [hWY], a ; move the window off the screen
 	call DelayFrame
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	farcall BeginOrdinaryMapPresentationRoot
+	jr nc, .skipYellowMapPalette
+	ENDC
 	call LoadGBPal
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+.skipYellowMapPalette
+	ENDC
 	xor a
 	ldh [hAutoBGTransferEnabled], a ; disable continuous WRAM to VRAM transfer each V-blank
 ; loop to make sprites face the directions they originally faced before the dialogue
@@ -129,6 +144,10 @@ CloseTextDisplay::
 	bit BIT_FLY_WARP, a
 	call z, LoadPlayerSpriteGraphics
 	call LoadCurrentMapView
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	farcall CompleteOrdinaryMapPresentationRoot
+	call EnableLCD
+	ENDC
 IF DEF(PHASE2_AUDIT)
 	farcall PassiveFullColorRestoreAfterMenu
 ENDC
