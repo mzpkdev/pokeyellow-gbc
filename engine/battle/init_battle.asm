@@ -29,6 +29,9 @@ InitBattleCommon:
 	ld a, [hl]
 	push af
 	res BIT_TEXT_DELAY, [hl] ; no delay
+	IF DEF(PHASE2_AUDIT)
+		farcall PassiveFullColorPrepareBattleHandoff
+	ENDC
 	call InitBattleVariables
 	ld a, [wEnemyMonSpecies2]
 	sub OPP_ID_OFFSET

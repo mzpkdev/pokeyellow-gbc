@@ -254,6 +254,23 @@ PassiveFullColorClearState:
 	ldh [hAutoBGTransferEnabled], a
 	ret
 
+; Battles remain wholly Yellow-owned. Relinquish the passive overlay before
+; the stock palette command waits for safe video access and replaces both
+; bank-1 BG maps, so no transition frame can combine the two authorities.
+PassiveFullColorPrepareBattleHandoff:
+	call PassiveFullColorShouldColorOverlay
+	ret nc
+	call PassiveFullColorClearState
+	xor a
+	call PassiveFullColorWriteActive
+	; RunPaletteCommand installs palettes before its attribute packet. Clear the
+	; two maps first while the complete donor palette is still coherent, so its
+	; LCD-safe waits cannot expose stock colors through stale donor attributes.
+	ld c, 12 ; BGMapAttributes_WholeScreen
+	farcall LoadBGMapAttributes
+	ld b, SET_PAL_OVERWORLD
+	jp RunPaletteCommand
+
 PUSHS
 SECTION "Passive Full Color Window Transfer", ROMX, BANK[FULL_COLOR_PHASE2_ROM_BANK]
 
@@ -674,5 +691,6 @@ EXPORT PassiveFullColorPrepareRedrawAttributes
 EXPORT PassiveFullColorPrepareColumnAttributes
 EXPORT PassiveFullColorScheduleAttributeRestore, PassiveFullColorRestoreAfterMenu
 EXPORT PassiveFullColorShouldColorOverlay, PassiveFullColorPrepareMenuOverlay
+EXPORT PassiveFullColorPrepareBattleHandoff
 EXPORT PassiveFullColorAutoBgMapTransfer
 EXPORT PassiveFullColorVBlank
