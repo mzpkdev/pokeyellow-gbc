@@ -61,14 +61,14 @@ make yellow_phase2_audit
 Run all current gameplay journeys locally with:
 
 ```console
-make yellow_debug yellow_phase2_audit
+make yellow_debug
 .venv/bin/python -m pytest tools/rom_tests/tests/e2e -q
 ```
 
 The E2E suite expects `pokeyellow_debug.gbc` and `pokeyellow_debug.sym` unless a
-test or environment selects another product. The full-color journey also uses
-the Phase 2 audit product, which is why the complete-suite command builds it.
-Use a focused file or `-k` expression while iterating.
+test or environment selects another product. Full-color journeys select Color
+or Yellow inside that same shipped binary; they do not use the audit product as
+a behavioral variant. Use a focused file or `-k` expression while iterating.
 
 ## Writing a gameplay test
 
@@ -221,18 +221,20 @@ defined by the
 [`migration-plan.md`](../specs/full-colors/docs/migration-plan.md). A Phase 2
 green result grants no acceptance credit to later phases. Phase 3 adds
 palette/effect and paired-transfer proof; Phase 4 adds OAM; Phase 5 adds
-architecture stress; Phase 6 closes all 25 tilesets, roofs, overrides, and
-content; Phase 7 closes handoffs; Phase 8 proves obsolete ownership is gone;
-and Phase 9 hardens timing and release behavior.
+architecture stress; Phase 6 closes bounded Pallet Town/Route 1 content and
+animation/field-replacement obligations; Phase 7 closes handoffs; Phase 8
+proves obsolete ownership is gone; and Phase 9 hardens timing and release
+behavior. All-25-tileset and all-map color remain later non-gating work.
 
-Build both comparison products before specialized gameplay checks:
+Build the shipped debug product before specialized gameplay checks:
 
 ```console
-make yellow_debug yellow_phase2_audit
+make yellow_debug
 ```
 
-`pokeyellow_phase2_audit.gbc` is audit-only. Normal release, debug, and VC
-products must not acquire its passive color runtime.
+Normal release, debug, and VC products all include the bounded passive runtime
+and saved toggle. `pokeyellow_phase2_audit.gbc` adds diagnostic and
+certification surfaces only; `PHASE2_AUDIT` MUST NOT change renderer behavior.
 
 ### Contracts, models, and linked-ROM checks
 
@@ -311,14 +313,38 @@ The deterministic runners accept their corresponding `FULL_COLOR_*_RESULTS`
 Make variables when evidence must be routed outside the default tree. Never
 edit generated JSON by hand; use its official generator and review the diff.
 
+The `measure-full-color-*` targets are discovery commands, not acceptance
+commands. They write explicitly unreviewed, disposable proposals beneath
+`test-results/full-color-proposals/` (override with `FULL_COLOR_PROPOSALS`) and
+MUST NOT rewrite the checked-in source transition, four reviewed inventories,
+or Phase 1/Phase 2 evidence. `measure-full-color-phase2-audit` runs the complete
+proposal chain and leaves:
+
+- `phase1-source-transition.proposal.json`;
+- `audit-evidence-identities.proposal.json`, whose hash-only changes name all
+  four inventory authority paths and contain no reviewer metadata;
+- `phase2-subjects.proposal.json`, whose top-level `reviewed` value is false.
+
+There is deliberately no Make target that promotes those files. A human must
+review the subject and semantic deltas, deliberately edit the corresponding
+checked-in authorities, and supply reviewer metadata based on that review.
+Only after that boundary may the official Phase 1/Phase 2 evidence producer be
+run against the accepted authorities. Phase 2 requires the explicit
+`--authority-reviewed` acknowledgement before it will write accepted evidence;
+the flag does not add reviewer metadata or accept any discovery subjects.
+`verify-full-color-phase2-audit` is strictly read-only: it recomputes current
+evidence, byte-compares the checked-in record, and fails closed on any mismatch.
+
 ### Natural full-color gameplay
 
-The cold-boot file starts at boot and reaches states through player inputs. It
-compares stock debug and Phase 2 audit behavior while recording logical state,
-renderer state, VRAM, OAM, palettes, attributes, and screenshots:
+The cold-boot file starts at boot and reaches states through player inputs. Its
+player-facing journeys select Yellow and Color in the shipped normal binary;
+two scenarios use the debug product where a debug control is part of setup.
+Every journey records logical state, renderer state, VRAM, OAM, palettes,
+attributes, and screenshots:
 
 ```console
-make yellow_debug yellow_phase2_audit
+make yellow yellow_debug
 .venv/bin/python -m pytest tools/rom_tests/tests/e2e/test_full_color_cold_boot_journey.py -q
 ```
 
@@ -388,9 +414,9 @@ completed successfully.
   and assert eventual semantic outcomes instead of a magic frame number.
 - Stale canonical screenshots or reports can make a broken run look green. Use
   attempt-scoped outputs and check the current attempt status.
-- Stock/audit parity is selective: palettes and attributes may differ in the
-  colored slice. Tile data, scripts, OAM, menus, battles, and other Yellow-owned
-  behavior must retain intended parity.
+- Yellow/Color parity within one shipped binary is selective: palettes and
+  attributes may differ in the colored slice. Tile data, scripts, OAM, menus,
+  battles, and other Yellow-owned behavior must retain intended parity.
 
 ## Gates that must not be weakened
 
@@ -405,7 +431,8 @@ Preserve these constraints when repairing or extending the harness:
 - byte-identical stable-evidence comparison and the blocking hosted comparator;
 - the separation between synthetic checker and real-ROM evidence;
 - Phase 1 runtime ownership evidence;
-- exclusion of Phase 2 audit code from release, debug, and VC products;
+- inclusion of the same toggle and bounded passive runtime in release, debug,
+  and VC products, with Phase 2 diagnostics still excluded from them;
 - inventory closure, reviewed discovery, typed provenance, and mutation
   sensitivity.
 

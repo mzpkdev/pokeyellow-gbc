@@ -11,6 +11,7 @@ from tools.rom_tests.scenarios.oaks_lab import (
     complete_oaks_lab_intro,
     walk_from_bedroom_to_pallet,
 )
+from tools.rom_tests.scenarios.renderer_mode import move_cursor_to
 from tools.rom_tests.scenarios.viridian_city import ROUTE_1, walk_to_value
 from tools.rom_tests.test_support import apply_debug_repel
 from tools.rom_tests.tests.conftest import REPOSITORY_ROOT, result_directory
@@ -22,15 +23,15 @@ RLCDC = 0xFF40
 VBG_MAP_0 = 0x9800
 
 
-def _linked_attributes() -> bytes:
-    symbol_lines = (REPOSITORY_ROOT / "pokeyellow_phase2_audit.sym").read_text(
+def _linked_attributes(product: str) -> bytes:
+    symbol_lines = (REPOSITORY_ROOT / f"{product}.sym").read_text(
         encoding="utf-8"
     ).splitlines()
     addresses = Emulator._parse_symbols(symbol_lines)
     banks = Emulator._parse_symbol_banks(symbol_lines)
     address = addresses["FullColorOverworldTileAttributes"]
     offset = banks["FullColorOverworldTileAttributes"] * 0x4000 + (address & 0x3FFF)
-    return (REPOSITORY_ROOT / "pokeyellow_phase2_audit.gbc").read_bytes()[
+    return (REPOSITORY_ROOT / f"{product}.gbc").read_bytes()[
         offset : offset + 256
     ]
 
@@ -119,40 +120,18 @@ def _press_until_first_reveal(
     )
 
 
-def _move_cursor_to(
-    emulator: Emulator,
-    symbol: str,
-    target: int,
-    *,
-    label: str,
-    attempts: int = 12,
-) -> None:
-    for _ in range(attempts):
-        if emulator.read(symbol) == target:
-            return
-        emulator.pyboy.button("down", delay=10)
-        emulator.tick(14)
-    registers = emulator.pyboy.register_file
-    raise AssertionError(
-        f"{label}: {symbol} stopped at {emulator.read(symbol)}, expected {target}; "
-        f"PC={registers.PC:#06x} SP={registers.SP:#06x} "
-        f"joy5={emulator.read('hJoy5'):#04x} "
-        f"auto={emulator.read('hAutoBGTransferEnabled'):#04x} "
-        f"WY={emulator.pyboy.memory[RWY]:#04x}"
-    )
-
-
 def test_natural_color_start_options_window_is_paired_before_reveal() -> None:
+    product = "pokeyellow"
     results = result_directory(
         "test_full_color_start_menu_journey.py::natural-color-start-options"
     )
     emulator = Emulator(
-        rom=Path(REPOSITORY_ROOT / "pokeyellow_phase2_audit.gbc"),
-        symbols=Path(REPOSITORY_ROOT / "pokeyellow_phase2_audit.sym"),
+        rom=Path(REPOSITORY_ROOT / f"{product}.gbc"),
+        symbols=Path(REPOSITORY_ROOT / f"{product}.sym"),
         results=results,
         cgb=True,
     )
-    attributes = _linked_attributes()
+    attributes = _linked_attributes(product)
     try:
         reach_bedroom_overworld(emulator)
         walk_from_bedroom_to_pallet(emulator)
@@ -175,9 +154,12 @@ def test_natural_color_start_options_window_is_paired_before_reveal() -> None:
         )
         assert emulator.read_palette_ram() == palettes
 
-        for _ in range(4):
-            emulator.press("down", wait_frames=12)
-        assert emulator.read("wCurrentMenuItem") == 4
+        move_cursor_to(
+            emulator,
+            "wCurrentMenuItem",
+            4,
+            description="the Color Start-menu Options item",
+        )
         _press_until_first_reveal(
             emulator,
             "a",
@@ -218,16 +200,17 @@ def test_natural_color_start_options_window_is_paired_before_reveal() -> None:
 
 
 def test_natural_renderer_toggle_reconciles_only_on_outer_start_close() -> None:
+    product = "pokeyellow"
     results = result_directory(
         "test_full_color_start_menu_journey.py::natural-renderer-toggle-transaction"
     )
     emulator = Emulator(
-        rom=Path(REPOSITORY_ROOT / "pokeyellow_phase2_audit.gbc"),
-        symbols=Path(REPOSITORY_ROOT / "pokeyellow_phase2_audit.sym"),
+        rom=Path(REPOSITORY_ROOT / f"{product}.gbc"),
+        symbols=Path(REPOSITORY_ROOT / f"{product}.sym"),
         results=results,
         cgb=True,
     )
-    attributes = _linked_attributes()
+    attributes = _linked_attributes(product)
     try:
         reach_bedroom_overworld(emulator)
         walk_from_bedroom_to_pallet(emulator)
@@ -241,8 +224,11 @@ def test_natural_renderer_toggle_reconciles_only_on_outer_start_close() -> None:
             require_hidden_frame=False,
             ready=lambda: emulator.read("wMaxMenuItem") == 6,
         )
-        _move_cursor_to(
-            emulator, "wCurrentMenuItem", 4, label="Color Start to Options"
+        move_cursor_to(
+            emulator,
+            "wCurrentMenuItem",
+            4,
+            description="Color Start to Options",
         )
         _press_until_first_reveal(
             emulator,
@@ -253,8 +239,11 @@ def test_natural_renderer_toggle_reconciles_only_on_outer_start_close() -> None:
             ready=lambda: emulator.read("wOptionsCursorLocation") == 0,
         )
         emulator.tick(30)
-        _move_cursor_to(
-            emulator, "wOptionsCursorLocation", 5, label="Color Options to mode"
+        move_cursor_to(
+            emulator,
+            "wOptionsCursorLocation",
+            5,
+            description="Color Options to mode",
         )
 
         emulator.pyboy.button("right", delay=2)
@@ -298,13 +287,19 @@ def test_natural_renderer_toggle_reconciles_only_on_outer_start_close() -> None:
 
         emulator.pyboy.button("start", delay=10)
         emulator.tick(40)
-        _move_cursor_to(
-            emulator, "wCurrentMenuItem", 4, label="Yellow Start to Options"
+        move_cursor_to(
+            emulator,
+            "wCurrentMenuItem",
+            4,
+            description="Yellow Start to Options",
         )
         emulator.pyboy.button("a", delay=10)
         emulator.tick(40)
-        _move_cursor_to(
-            emulator, "wOptionsCursorLocation", 5, label="Yellow Options to mode"
+        move_cursor_to(
+            emulator,
+            "wOptionsCursorLocation",
+            5,
+            description="Yellow Options to mode",
         )
         emulator.pyboy.button("right", delay=10)
         emulator.tick(24)
@@ -341,16 +336,18 @@ def test_natural_renderer_toggle_reconciles_only_on_outer_start_close() -> None:
 
 
 def test_natural_pallet_route_1_connection_never_blanks_color_plane() -> None:
+    # This journey uses the test-only Repel control to isolate the connection.
+    product = "pokeyellow_debug"
     results = result_directory(
         "test_full_color_start_menu_journey.py::natural-pallet-route-1-connection"
     )
     emulator = Emulator(
-        rom=Path(REPOSITORY_ROOT / "pokeyellow_phase2_audit.gbc"),
-        symbols=Path(REPOSITORY_ROOT / "pokeyellow_phase2_audit.sym"),
+        rom=Path(REPOSITORY_ROOT / f"{product}.gbc"),
+        symbols=Path(REPOSITORY_ROOT / f"{product}.sym"),
         results=results,
         cgb=True,
     )
-    attributes = _linked_attributes()
+    attributes = _linked_attributes(product)
     try:
         complete_oaks_lab_intro(emulator)
         apply_debug_repel(emulator)
@@ -380,16 +377,17 @@ def test_natural_pallet_route_1_connection_never_blanks_color_plane() -> None:
 
 
 def test_natural_oak_dialogue_window_is_paired_before_reveal() -> None:
+    product = "pokeyellow"
     results = result_directory(
         "test_full_color_start_menu_journey.py::natural-oak-dialogue"
     )
     emulator = Emulator(
-        rom=Path(REPOSITORY_ROOT / "pokeyellow_phase2_audit.gbc"),
-        symbols=Path(REPOSITORY_ROOT / "pokeyellow_phase2_audit.sym"),
+        rom=Path(REPOSITORY_ROOT / f"{product}.gbc"),
+        symbols=Path(REPOSITORY_ROOT / f"{product}.sym"),
         results=results,
         cgb=True,
     )
-    attributes = _linked_attributes()
+    attributes = _linked_attributes(product)
     try:
         reach_bedroom_overworld(emulator)
         walk_from_bedroom_to_pallet(emulator)

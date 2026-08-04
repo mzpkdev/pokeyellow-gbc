@@ -8,12 +8,12 @@ live in [TESTING.md](TESTING.md).
 
 ## Current scope
 
-The visible Phase 2 slice is a playable audit/demo-only passive CGB color layer
-for Pallet Town and Route 1. Its Options menu exposes a saved `COLOR MODE`
+The shipped renderer is a bounded passive CGB color layer for Pallet Town and
+Route 1. The normal, debug, and VC products expose a saved `COLOR MODE`
 preference between `COLOR` and `YELLOW`; fresh saves default to Color, Continue
-retains the saved choice, and New Game may reset it to Color. It is not a
-release feature and it is not the retained full-color scheduler taking
-ownership of the game.
+retains the saved choice, and New Game may reset it to Color. It is a release
+feature, but it is not the retained full-color scheduler taking ownership of
+the game.
 
 `passive_overworld` is the only active color presentation path. No plan,
 compiled module, callable symbol, retained test, or migration proposal changes
@@ -21,14 +21,15 @@ that fact without a separately approved architecture change.
 
 | Target | Product | Active passive slice |
 | --- | --- | --- |
-| `make yellow` | `pokeyellow.gbc` | No |
-| `make yellow_debug` | `pokeyellow_debug.gbc` | No |
-| `make yellow_vc` | VC ROM/patch | No |
+| `make yellow` | `pokeyellow.gbc` | Yes |
+| `make yellow_debug` | `pokeyellow_debug.gbc` | Yes |
+| `make yellow_vc` | VC ROM/patch | Yes |
 | `make yellow_phase2_audit` | `pokeyellow_phase2_audit.gbc` | Yes |
 
-The audit target defines both `_DEBUG` and `PHASE2_AUDIT`. Guarded code and data
-are linked by [main.asm](../main.asm). Ordinary products must not acquire a
-reachable passive renderer by accident.
+The audit target defines both `_DEBUG` and `PHASE2_AUDIT`, but that flag adds
+only extra diagnostics and certification surfaces. The toggle, passive code,
+data, state, and hooks are unconditional product functionality; runtime mode
+selection, never `PHASE2_AUDIT`, decides whether Color is presented.
 
 ## Ownership contract
 
@@ -54,8 +55,9 @@ cutscenes. Do not widen this boundary as a shortcut for another colored map.
 
 [engine/full_color/passive_overworld.asm](../engine/full_color/passive_overworld.asm)
 is the live presentation path. Hooks in Yellow's normal map, redraw, menu,
-palette, and VBlank flows call its `PassiveFullColor*` routines. The activation
-gate requires the saved Color preference and accepts only `PALLET_TOWN` and
+palette, and VBlank flows call its `PassiveFullColor*` routines in every
+shipped product. The activation gate requires the saved Color preference and
+accepts only `PALLET_TOWN` and
 `ROUTE_1`. While Start or Options is open, the active presentation remains
 latched; the saved preference is reconciled only when the outer menu closes.
 
@@ -70,14 +72,14 @@ future migration seams but do not drive the current Pallet/Route 1 display:
 - `palettes.asm`, `transfers.asm`, and `oam.asm`; and
 - most of `lifecycle.asm`.
 
-The active audit VBlank calls `PassiveFullColorVBlank`; it does not route the
-frame through `RouteRendererOwnershipVBlank`. The passive path reuses reviewed
-WRAM2 storage and the renderer generation, but it does not acquire
+The active production VBlank calls `PassiveFullColorVBlank`; it does not route
+the frame through `RouteRendererOwnershipVBlank`. The passive path reuses
+reviewed WRAM2 storage and the renderer generation, but it does not acquire
 `RENDERER_FULL_COLOR_OVERWORLD` ownership or enqueue ordinary scheduler jobs.
 Compiled or callable scaffolding is not evidence of active presentation.
 Retained ownership, scheduler, and lifecycle machinery MUST NOT be activated,
 used as current presentation authority, or treated as the foundation of a
-color-mode toggle without a separately approved architecture change.
+broader renderer without a separately approved architecture change.
 
 ## Data authority
 
@@ -127,15 +129,24 @@ then clears the complete bank-1 BG map. Yellow continues normally.
 Yellow produces the next bank-0 row or column. Immediately before arming a
 redraw, `PassiveFullColorPrepareRedrawAttributes` or
 `PassiveFullColorPrepareColumnAttributes` translates those completed tile IDs
-outside VBlank into fixed records in `wFullColorAttributeRectangle`.
+outside VBlank into fixed records in `wPassiveFullColorRedrawStaging`.
 
-During VBlank, Yellow's `RedrawRowOrColumn` executes first. The consumed redraw
-mode is preserved, then `PassiveFullColorVBlank` commits the matching bank-1
-row or column. Column records carry destination addresses so the critical
-section does not reconstruct them per row.
+During an ordinary scrolling VBlank, Yellow's `RedrawRowOrColumn` executes
+first and publishes the offscreen bank-0 strip. The consumed mode changes the
+frozen redraw record from prepared to mirror-pending. The next redraw-free
+VBlank commits the matching bank-1 row or column, before another producer may
+reuse the single slot. Column records carry destination addresses so the
+critical section does not reconstruct them per row.
+
+The hidden overlay activation barrier is the exception: one bounded overlay
+transfer owns the frame, and any pending Yellow redraw remains armed until the
+barrier finishes. This prevents two 40-byte transfers from consuming the same
+interrupt while guaranteeing that the deferred redraw still runs afterward.
 
 The invariant is strict: prepare outside VBlank, Yellow tile write first,
-matching passive attribute write second.
+matching passive attribute write second, and apply producer backpressure until
+both halves finish. Overlay attributes and redraw records use separate WRAM2
+storage, so either may be staged first without corrupting the other.
 
 After `LoadGBPal`, `PassiveFullColorRefreshAfterLoadGBPal` checks the active
 map's palette zero. If the donor palette is absent, it queues republication
@@ -143,10 +154,12 @@ instead of writing palette RAM during visible time.
 
 At most one passive visible operation runs per frame:
 
-1. a Yellow row/column redraw wins;
-2. otherwise one activation-barrier step may run;
-3. otherwise a pending palette commit may run;
-4. otherwise one exit-cleanup chunk may run.
+1. an armed overlay-transfer step wins and defers any Yellow redraw;
+2. otherwise a Yellow row/column redraw wins and arms its passive mirror;
+3. otherwise a pending passive redraw mirror wins;
+4. otherwise one remaining activation-barrier step may run;
+5. otherwise a pending palette commit may run;
+6. otherwise one exit-cleanup chunk may run.
 
 A palette request remains pending when a redraw wins. Combining them violates
 the measured timing contract.
@@ -162,7 +175,7 @@ barrier. `PassiveFullColorHomogenizeBGPalettes` first copies palette 0 across
 palettes 1–7, making uncleared attributes visually equivalent to Yellow palette
 0. It then clears the 1024-byte bank-1 map in thirty-two 32-byte VBlank chunks.
 The entry side supports deferred palette republication; the complete handler is
-also an audit-callable seam. Never assume a new natural transition reaches the
+also a diagnostic-callable seam. Never assume a new natural transition reaches the
 right branch without verifying its Yellow call site.
 
 ## Menus, interiors, dialogue, and battles
@@ -195,8 +208,15 @@ Passive state is declared in [ram/wram.asm](../ram/wram.asm) and lives in WRAM2:
 - `wPassiveFullColorActive` prevents power-on map ID zero from impersonating a
   loaded Pallet Town;
 - `wPassiveFullColorPalettePending` records deferred palette work;
-- `wPassiveFullColorClearChunks` records bounded cleanup; and
-- `wPassiveFullColorGeneration` binds state to `wRendererGeneration`.
+- `wPassiveFullColorClearChunks` records bounded cleanup;
+- `wPassiveFullColorGeneration` binds state to `wRendererGeneration`; and
+- `wPassiveFullColorDeferredRedrawState` owns one prepared or mirror-pending
+  redraw transaction; `wPassiveFullColorRedrawStaging` holds its immutable
+  destination and attribute records outside the overlay translation plane.
+
+`InitRendererOwnership` clears the complete private passive allocation before
+any map can be treated as active. The allocation is unconditional and does not
+alias the audit scheduler or its timing scratch.
 
 Every active-state read validates the generation. A mismatch clears active and
 pending work. VBlank repeats the map allowlist check before publishing. Cleanup
@@ -210,7 +230,8 @@ raw `SVBK`, and leaves `rVBK` as Yellow expects.
 
 ## Load-bearing invariants
 
-1. Only a `PHASE2_AUDIT` build reaches the passive slice.
+1. Every normal, debug, and VC build exposes the same bounded passive slice;
+   `PHASE2_AUDIT` may add diagnostics but MUST NOT gate its behavior.
 2. Only the saved Color preference on Pallet Town and Route 1 is active until
    the extension procedure proves another map.
 3. Yellow owns bank-0 tiles, sprites, mechanics, timing, fades, and overlays.
@@ -230,10 +251,12 @@ A prettier screenshot does not justify breaking one of these contracts.
 
 ## Evidence boundary
 
-The active-runtime claim must be supported by the audit ROM, not merely by
-source inspection or synthetic machinery. Verification spans model tests,
-built-ROM probes, retained deterministic gates, and natural gameplay journeys.
-Each catches different failures; none makes the others redundant.
+The active-runtime claim must be supported in each shipped product, not merely
+by source inspection, the audit ROM, or synthetic machinery. Runtime journeys
+select Color and Yellow within the same production binary. Verification spans
+model tests, built-ROM probes, retained deterministic gates, and natural
+gameplay journeys. Each catches different failures; none makes the others
+redundant.
 
 The synthetic renderer conformance checker proves its own modeled contract. It
 does not prove that gameplay routes through the passive path. Phase 1 runtime
@@ -245,7 +268,8 @@ are in [TESTING.md](TESTING.md).
 ## Code map
 
 - [Makefile](../Makefile): products and audit flags.
-- [main.asm](../main.asm): guarded ROM placement.
+- [main.asm](../main.asm): production placement and audit-only diagnostic
+  placement.
 - [constants/full_color_constants.asm](../constants/full_color_constants.asm):
   ROM/WRAM banks, windows, and renderer constants.
 - [ram/wram.asm](../ram/wram.asm): ownership, scheduler, passive, and staging
@@ -273,14 +297,18 @@ remaining work and exit gates:
   final tile calculation, preserving follower offsets and DMA behavior.
 - **Phase 5 — architecture stress:** combined pressure, poisoned handoff
   reconstruction, interrupted connections, timing margins, and deferral.
-- **Phase 6 — tileset content:** independently authored and accepted data for
-  all 25 Yellow tilesets, roofs, overrides, Beach House, and animations.
+- **Phase 6 — bounded content:** independently authored and accepted data,
+  overrides, and animation/field-replacement behavior reached by Pallet Town
+  and Route 1.
 - **Phase 7 — handoffs:** every concrete map-to-Yellow and Yellow-to-overworld
   edge, including resets, nesting, errors, and soak paths.
 - **Phase 8 — ownership deletion:** remove superseded Yellow overworld tint,
   attribute, adapter, and restoration paths while preserving excluded scenes.
 - **Phase 9 — release hardening:** numeric budgets, multi-frame behavior, soak
   coverage, and release/debug/VC reproducibility.
+
+All-25-tileset and all-map color authoring remains future non-gating work after
+the bounded release. It is not implied by the shipped toggle.
 
 Until the relevant phases are proved, a new map belongs in the passive slice
 only if it truthfully uses the exact current `OVERWORLD` palette and attribute

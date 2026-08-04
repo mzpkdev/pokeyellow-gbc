@@ -19,13 +19,13 @@ RLCDC = 0xFF40
 
 
 def _linked_bytes(symbol: str, size: int) -> bytes:
-    symbols = REPOSITORY_ROOT / "pokeyellow_phase2_audit.sym"
+    symbols = REPOSITORY_ROOT / "pokeyellow.sym"
     lines = symbols.read_text(encoding="utf-8").splitlines()
     addresses = Emulator._parse_symbols(lines)
     banks = Emulator._parse_symbol_banks(lines)
     address = addresses[symbol]
     offset = banks[symbol] * 0x4000 + (address & 0x3FFF)
-    rom = REPOSITORY_ROOT / "pokeyellow_phase2_audit.gbc"
+    rom = REPOSITORY_ROOT / "pokeyellow.gbc"
     return rom.read_bytes()[offset : offset + size]
 
 
@@ -34,8 +34,8 @@ def test_oak_battle_relinquishes_color_before_transition() -> None:
         "test_full_color_oak_battle_handoff.py::oak-battle-handoff"
     )
     emulator = Emulator(
-        rom=Path(REPOSITORY_ROOT / "pokeyellow_phase2_audit.gbc"),
-        symbols=Path(REPOSITORY_ROOT / "pokeyellow_phase2_audit.sym"),
+        rom=Path(REPOSITORY_ROOT / "pokeyellow.gbc"),
+        symbols=Path(REPOSITORY_ROOT / "pokeyellow.sym"),
         results=results,
         cgb=True,
     )

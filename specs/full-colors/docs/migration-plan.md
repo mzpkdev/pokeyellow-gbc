@@ -4,11 +4,11 @@
 
 This document is a future proposal and execution framework. It does not
 supersede the current renderer architecture or product truth in
-[FULL_COLOR_RENDERER.md](../../../docs/FULL_COLOR_RENDERER.md) and
-[ARCHITECTURE.md](../../../docs/ARCHITECTURE.md). Where this plan describes
-ownership transfer, scheduling, lifecycle control, a production color-mode
-toggle, or any other behavior beyond the passive audit renderer, that behavior
-remains proposed.
+`FULL_COLOR_RENDERER.md` and `ARCHITECTURE.md`. The normal, debug, and VC
+products already ship the Color/Yellow toggle and bounded passive Pallet
+Town/Route 1 renderer. Where this plan describes broader ownership transfer,
+scheduling, lifecycle control, OAM color, animation ownership, or expanded map
+content beyond that passive renderer, the behavior remains proposed.
 
 Implementation MUST stop if this plan conflicts with the current approved
 manuals. An explicit operator decision and separately approved architecture
@@ -40,17 +40,19 @@ record:
 Each implementation PR names its affected requirement and inventory IDs,
 commit units, owner transitions, timing-row keys, and concrete `CHK-…` checks.
 
-## Proposed bounded production release scope
+## Current bounded production release scope
 
-The future production release proposed by this plan would expose a persistent
-`COLOR/YELLOW` policy preference. Color is eligible only for ordinary Pallet
-Town and Route 1 presentation. Boot/reset, overlays, dialogue, menus, battles,
+The shipped products expose a persistent `COLOR/YELLOW` policy preference.
+Color is eligible only for ordinary Pallet Town and Route 1 presentation.
+Boot/reset, overlays, dialogue, menus, battles,
 standalone scenes, unsupported maps, and every map under Yellow preference use
-the retained Yellow renderer. Preference never grants write authority; the
-effective-owner resolver does, and every real owner change uses one complete
-generation-advancing handoff, fresh destination reconstruction, and one
-presentation barrier. Reset and soft reset from Color are complete
-Color-to-Yellow handoffs under the same rule.
+the retained Yellow renderer. The current passive implementation reconciles
+the saved preference at its bounded menu, map-load, and VBlank publication
+boundaries; it does not activate the proposed scheduler or broader ownership
+resolver described by later phases.
+
+`PHASE2_AUDIT` adds diagnostics and certification surfaces only. It does not
+gate the toggle, passive renderer, or mode selection in any product.
 
 The diagnostic overlay oracle and all-25-tileset data remain valuable retained
 evidence and future authoring foundations, but production Color-overlay rollout
@@ -376,7 +378,8 @@ poisoned-return case is stress progress toward `AC-STRESS-02` and
 deterministic artifacts, positive numeric margins, and threshold-plus-one
 whole-unit deferral for every timed path.
 
-Do not begin bounded production content activation until this gate is green.
+Do not begin scheduler-owned production content activation until this gate is
+green. This gate does not retract the already shipped passive slice.
 
 ## Phase 6: bounded Pallet Town and Route 1 content
 

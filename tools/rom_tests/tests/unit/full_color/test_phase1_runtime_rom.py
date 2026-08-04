@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import os
 from pathlib import Path
 
@@ -46,6 +47,7 @@ VISIBLE_FIELDS = (
 INTERRUPT_FLAGS = 0xFF0F
 INTERRUPT_ENABLE = 0xFFFF
 VBLANK_INTERRUPT = 1
+RSVBK = 0xFF70
 WRAM0_START = 0xC000
 WRAM0_SIZE = 0x1000
 HRAM_START = 0xFF80
@@ -321,14 +323,19 @@ def test_real_unchanged_generation_baseline_reports(
         before = capture_yellow_baseline_snapshot(
             emulator, scenario=path, seed=0, checkpoint=f"{path}-before"
         )
+        expected = before
         if path == "forced-entry-bank-vblank":
-            emulator.pyboy.memory[0xFF70] = 7
+            emulator.pyboy.memory[RSVBK] = 7
+            assert emulator.pyboy.memory[RSVBK] == 7
+            expected = replace(before, banks=replace(before.banks, wram=7))
         emulator.tick()
+        if path == "forced-entry-bank-vblank":
+            assert emulator.pyboy.memory[RSVBK] == 7
         after = capture_yellow_baseline_snapshot(
             emulator, scenario=path, seed=0, checkpoint=f"{path}-after"
         )
         report = compare_phase1_baseline(
-            before, after, generation_contract=GenerationContract.UNCHANGED
+            expected, after, generation_contract=GenerationContract.UNCHANGED
         )
         assert report.passed, report.to_json()
     finally:

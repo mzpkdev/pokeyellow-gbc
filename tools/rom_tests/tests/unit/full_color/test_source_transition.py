@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-import hashlib
 import json
 import shutil
 from types import SimpleNamespace
@@ -15,12 +14,26 @@ from tools.rom_tests.full_color.discovery_assignment import (
     DiscoveryAssignmentAuthority,
     NORMAL_DEBUG_PRODUCT,
 )
-from tools.rom_tests.full_color.discovery_review import source_finding_subject
-from tools.rom_tests.full_color.rom_discovery import load_map
+from tools.rom_tests.full_color.discovery_review import (
+    rom_finding_subject,
+    source_finding_subject,
+)
+from tools.rom_tests.full_color.source_discovery import SourceFinding
 from tools.rom_tests.tests.conftest import REPOSITORY_ROOT
 
 
-def test_source_transition_generation_is_idempotent_and_preserves_authority() -> None:
+def _proposal_envelope(proposal: dict[str, object]) -> dict[str, object]:
+    return {
+        "schema": source_transition.PROPOSAL_SCHEMA,
+        "reviewed": False,
+        "authority_path": str(source_transition.TRANSITION_PATH),
+        "proposal": proposal,
+    }
+
+
+def test_source_transition_generation_is_idempotent_and_preserves_authority(
+    monkeypatch,
+) -> None:
     first = source_transition.generate_json(REPOSITORY_ROOT)
     second = source_transition.generate_json(REPOSITORY_ROOT)
     assert second == first
@@ -37,10 +50,10 @@ def test_source_transition_generation_is_idempotent_and_preserves_authority() ->
         assert generated[name] == authority[name]
     assert {
         path: binding["reviewed_sha256"]
-        for path, binding in generated["audit_only_paths"].items()
+        for path, binding in generated["reviewed_delta_paths"].items()
     } == {
         path: binding["reviewed_sha256"]
-        for path, binding in authority["audit_only_paths"].items()
+        for path, binding in authority["reviewed_delta_paths"].items()
     }
     assert len(set(generated["subject_rebindings"].values())) == len(
         generated["subject_rebindings"]
@@ -48,6 +61,150 @@ def test_source_transition_generation_is_idempotent_and_preserves_authority() ->
     assert len(set(generated["rom_subject_rebindings"].values())) == len(
         generated["rom_subject_rebindings"]
     )
+    monkeypatch.setattr(
+        source_transition,
+        "generate",
+        lambda root, *, authority_path=None: generated,
+    )
+    proposal = source_transition.generate_proposal(REPOSITORY_ROOT)
+    assert proposal["schema"] == source_transition.PROPOSAL_SCHEMA
+    assert proposal["reviewed"] is False
+    assert proposal["proposal"] == generated
+
+
+def test_source_transition_rebinds_authorized_unchanged_line_shift(tmp_path) -> None:
+    relative = "linked.asm"
+    (tmp_path / relative).write_text("; inserted\nMovedRoot:\n", encoding="utf-8")
+    reviewed = SourceFinding(
+        category="mutation",
+        path=relative,
+        line=1,
+        symbol="MovedRoot",
+        mechanism="configured-root",
+        destination="MovedRoot",
+        resource="MUTATION",
+        evidence_sha256=source_transition._source_line_sha256(
+            relative, 1, "MovedRoot:"
+        ),
+        destination_path=relative,
+        destination_line=1,
+    )
+    current = replace(
+        reviewed,
+        line=2,
+        evidence_sha256=source_transition._source_line_sha256(
+            relative, 2, "MovedRoot:"
+        ),
+        destination_line=2,
+    )
+    row = SimpleNamespace(subject=source_finding_subject(reviewed))
+
+    assert source_transition._unique_rebindings(
+        (row,),
+        (current,),
+        subject=source_finding_subject,
+        rebound=lambda finding, authority: source_transition._rebound_source_finding(
+            tmp_path, {relative}, finding, authority
+        ),
+        kind="source",
+    ) == {row.subject.sha256: source_finding_subject(current).sha256}
+
+    with pytest.raises(source_transition.SourceTransitionError, match="semantic matches"):
+        source_transition._unique_rebindings(
+            (row,),
+            (current,),
+            subject=source_finding_subject,
+            rebound=lambda finding, authority: source_transition._rebound_source_finding(
+                tmp_path, set(), finding, authority
+            ),
+            kind="source",
+        )
+
+    with pytest.raises(source_transition.SourceTransitionError, match="semantic matches"):
+        source_transition._unique_rebindings(
+            (row,),
+            (replace(current, symbol="UnrelatedRoot.local"),),
+            subject=source_finding_subject,
+            rebound=lambda finding, authority: source_transition._rebound_source_finding(
+                tmp_path, {relative}, finding, authority
+            ),
+            kind="source",
+        )
+
+
+def test_source_transition_rejects_changed_line_in_authorized_file(tmp_path) -> None:
+    relative = "linked.asm"
+    (tmp_path / relative).write_text("; inserted\nChangedRoot:\n", encoding="utf-8")
+    reviewed = SourceFinding(
+        category="mutation",
+        path=relative,
+        line=1,
+        symbol="MovedRoot",
+        mechanism="configured-root",
+        destination="MovedRoot",
+        resource="MUTATION",
+        evidence_sha256=source_transition._source_line_sha256(
+            relative, 1, "MovedRoot:"
+        ),
+        destination_path=relative,
+        destination_line=1,
+    )
+    current = replace(
+        reviewed,
+        line=2,
+        evidence_sha256=source_transition._source_line_sha256(
+            relative, 2, "ChangedRoot:"
+        ),
+        destination_line=2,
+    )
+    row = SimpleNamespace(subject=source_finding_subject(reviewed))
+
+    with pytest.raises(source_transition.SourceTransitionError, match="semantic matches"):
+        source_transition._unique_rebindings(
+            (row,),
+            (current,),
+            subject=source_finding_subject,
+            rebound=lambda finding, authority: source_transition._rebound_source_finding(
+                tmp_path, {relative}, finding, authority
+            ),
+            kind="source",
+        )
+
+
+def test_rom_rebinding_rejects_unrelated_same_depth_call_path() -> None:
+    source_report = source_transition.baseline.discover_baseline_sources(
+        REPOSITORY_ROOT
+    )
+    rom_report = source_transition._raw_baseline_rom(REPOSITORY_ROOT, source_report)
+    assignments = DiscoveryAssignmentAuthority.load(
+        REPOSITORY_ROOT / source_transition.ASSIGNMENTS_PATH
+    ).for_product(NORMAL_DEBUG_PRODUCT)
+    row = next(
+        row for row in assignments.rows
+        if row.subject.kind.value == "ROM_FINDING"
+        and len(row.subject.metadata["call_path"]) == 1
+    )
+    authority = json.loads(
+        (REPOSITORY_ROOT / source_transition.TRANSITION_PATH).read_text(
+            encoding="utf-8"
+        )
+    )
+    current_digest = authority["rom_subject_rebindings"][row.subject.sha256]
+    finding = next(
+        finding for finding in rom_report.findings
+        if rom_finding_subject(finding).sha256 == current_digest
+    )
+    unrelated = replace(finding, call_path=("UnrelatedSameDepth",))
+
+    assert source_transition._rebound_rom_finding(unrelated, row) == unrelated
+    with pytest.raises(source_transition.SourceTransitionError, match="0 semantic matches"):
+        source_transition._unique_rebindings(
+            (row,),
+            (unrelated,),
+            subject=rom_finding_subject,
+            rebound=source_transition._rebound_rom_finding,
+            kind="ROM",
+        )
 
 
 @pytest.mark.parametrize("mutation", ("missing", "ambiguous", "semantic"))
@@ -61,11 +218,19 @@ def test_source_transition_rejects_non_unique_or_changed_subjects(mutation: str)
         for row in assignments.rows
         if row.subject.kind.value == "SOURCE_FINDING"
     )
+    authority = json.loads(
+        (REPOSITORY_ROOT / source_transition.TRANSITION_PATH).read_text(
+            encoding="utf-8"
+        )
+    )
+    reviewed_delta_paths = set(authority["reviewed_delta_paths"])
     matching = next(
         finding
         for finding in report.findings
         if source_finding_subject(
-            replace(finding, symbol=row.subject.metadata["symbol"])
+            source_transition._rebound_source_finding(
+                REPOSITORY_ROOT, reviewed_delta_paths, finding, row
+            )
         ).sha256
         == row.subject.sha256
     )
@@ -81,14 +246,14 @@ def test_source_transition_rejects_non_unique_or_changed_subjects(mutation: str)
             (row,),
             findings,
             subject=source_finding_subject,
-            rebound=lambda finding, authority: replace(
-                finding, symbol=authority.subject.metadata["symbol"]
+            rebound=lambda finding, authority: source_transition._rebound_source_finding(
+                REPOSITORY_ROOT, reviewed_delta_paths, finding, authority
             ),
             kind="source",
         )
 
 
-def test_audit_identity_rebinding_changes_evidence_but_not_subjects(
+def test_audit_identity_rebinding_proposes_hashes_without_approving_or_writing(
     tmp_path, monkeypatch
 ) -> None:
     inventory = tmp_path / "specs/full-colors/inventory"
@@ -103,22 +268,25 @@ def test_audit_identity_rebinding_changes_evidence_but_not_subjects(
     transition.parent.mkdir(parents=True)
     transition.write_text(
         json.dumps(
-            {
+            _proposal_envelope({
                 "schema": source_transition.SCHEMA,
                 "reviewed_source_sha256": (
                     audit_evidence_identities.REVIEWED_SOURCE_SHA256
                 ),
-                "audit_source_sha256": "f" * 64,
+                "current_source_sha256": "f" * 64,
                 "baseline_manifest_sha256": (
                     audit_evidence_identities.BASELINE_MANIFEST_SHA256
                 ),
-                "audit_only_paths": {},
+                "reviewed_delta_paths": {},
                 "subject_rebindings": {},
                 "rom_subject_rebindings": {},
-            }
+            })
         )
     )
-    for relative in audit_evidence_identities.NORMAL_DEBUG_ARTIFACTS.values():
+    for relative in (
+        *audit_evidence_identities.NORMAL_DEBUG_ARTIFACTS.values(),
+        *audit_evidence_identities.AUDIT_ARTIFACTS.values(),
+    ):
         shutil.copyfile(REPOSITORY_ROOT / relative, tmp_path / relative)
     monkeypatch.setattr(
         audit_evidence_identities,
@@ -129,45 +297,32 @@ def test_audit_identity_rebinding_changes_evidence_but_not_subjects(
         source_transition,
         "generate",
         lambda root, *, authority_path=None: json.loads(
-            authority_path.read_text(encoding="utf-8")
-        ),
+            transition.read_text(encoding="utf-8")
+        )["proposal"],
     )
-    audit_evidence_identities.update(tmp_path)
+    proposal = audit_evidence_identities.propose(tmp_path, transition)
     normal_hashes = audit_evidence_identities._normal_debug_hashes(
         tmp_path, "f" * 64
     )
+    assert proposal["schema"] == audit_evidence_identities.PROPOSAL_SCHEMA
+    assert proposal["reviewed"] is False
+    assert set(proposal["documents"]) == {
+        relative.as_posix() for relative in audit_evidence_identities.DOCUMENTS
+    }
     for relative, before in originals.items():
-        after = json.loads((tmp_path / relative).read_text(encoding="utf-8"))
-        before_subjects = [row.get("subject") for row in before["rows"]]
-        after_subjects = [row.get("subject") for row in after["rows"]]
-        assert after_subjects == before_subjects
-        for row in after["rows"]:
-            evidence = row.get("evidence", {})
-            product = row.get("product", NORMAL_DEBUG_PRODUCT)
-            if relative.name == "assignments.json" and product == NORMAL_DEBUG_PRODUCT:
-                assert evidence == {
-                    "source_sha256": "f" * 64,
-                    **{
-                        name: (
-                            load_map(tmp_path / path).artifact_sha256
-                            if name == "map_sha256"
-                            else hashlib.sha256((tmp_path / path).read_bytes()).hexdigest()
-                        )
-                        for name, path in audit_evidence_identities.NORMAL_DEBUG_ARTIFACTS.items()
-                    },
-                    "reviewer": row["evidence"]["reviewer"],
-                    "reviewed": True,
-                }
-            if row.get("id") in audit_evidence_identities.NORMAL_DEBUG_INVENTORY_IDS.get(
-                relative.name, frozenset()
-            ):
-                assert evidence == {
-                    **normal_hashes,
-                    "reviewer": row["evidence"]["reviewer"],
-                    "reviewed": True,
-                }
-            if evidence.get("rom_sha256") == audit_evidence_identities.AUDIT_ROM_SHA256:
-                assert evidence["source_sha256"] == "f" * 64
+        assert json.loads((tmp_path / relative).read_text(encoding="utf-8")) == before
+        changes = proposal["documents"][relative.as_posix()]["changes"]
+        changed_ids = {change["id"] for change in changes}
+        expected_ids = (
+            audit_evidence_identities.NORMAL_DEBUG_ASSIGNMENT_IDS
+            if relative.name == "assignments.json"
+            else audit_evidence_identities.NORMAL_DEBUG_INVENTORY_IDS[relative.name]
+        )
+        assert changed_ids == expected_ids
+        for change in changes:
+            assert change["proposed"] == normal_hashes
+            assert "reviewer" not in change
+            assert "reviewed" not in change
 
 
 @pytest.mark.parametrize(
@@ -176,7 +331,7 @@ def test_audit_identity_rebinding_changes_evidence_but_not_subjects(
         ("schema", "source-transition authority is malformed"),
         (
             "digest",
-            "source-transition audit identity does not match current baseline discovery",
+            "source-transition identity does not match current baseline discovery",
         ),
     ),
 )
@@ -188,17 +343,19 @@ def test_audit_identity_rebinding_rejects_untrusted_transition(
     authority = {
         "schema": source_transition.SCHEMA,
         "reviewed_source_sha256": audit_evidence_identities.REVIEWED_SOURCE_SHA256,
-        "audit_source_sha256": "f" * 64,
+        "current_source_sha256": "f" * 64,
         "baseline_manifest_sha256": (
             audit_evidence_identities.BASELINE_MANIFEST_SHA256
         ),
-        "audit_only_paths": {},
+        "reviewed_delta_paths": {},
         "subject_rebindings": {},
         "rom_subject_rebindings": {},
     }
     if mutation == "schema":
         authority["schema"] = "fabricated-source-transition-schema"
-    transition.write_text(json.dumps(authority), encoding="utf-8")
+    transition.write_text(
+        json.dumps(_proposal_envelope(authority)), encoding="utf-8"
+    )
     monkeypatch.setattr(
         audit_evidence_identities,
         "discover_baseline_sources",
@@ -208,7 +365,7 @@ def test_audit_identity_rebinding_rejects_untrusted_transition(
     with pytest.raises(
         audit_evidence_identities.AuditEvidenceIdentityError, match=message
     ):
-        audit_evidence_identities.update(tmp_path)
+        audit_evidence_identities.propose(tmp_path, transition)
 
 
 @pytest.mark.parametrize(
@@ -216,7 +373,7 @@ def test_audit_identity_rebinding_rejects_untrusted_transition(
     (
         "reviewed_source_sha256",
         "baseline_manifest_sha256",
-        "audit_only_paths",
+        "reviewed_delta_paths",
         "subject_rebindings",
         "rom_subject_rebindings",
     ),
@@ -229,11 +386,11 @@ def test_audit_identity_rebinding_rejects_fabricated_nondigest_authority(
     canonical = {
         "schema": source_transition.SCHEMA,
         "reviewed_source_sha256": audit_evidence_identities.REVIEWED_SOURCE_SHA256,
-        "audit_source_sha256": "f" * 64,
+        "current_source_sha256": "f" * 64,
         "baseline_manifest_sha256": (
             audit_evidence_identities.BASELINE_MANIFEST_SHA256
         ),
-        "audit_only_paths": {},
+        "reviewed_delta_paths": {},
         "subject_rebindings": {},
         "rom_subject_rebindings": {},
     }
@@ -242,7 +399,9 @@ def test_audit_identity_rebinding_rejects_fabricated_nondigest_authority(
         authority[mutation] = "0" * 64
     else:
         authority[mutation] = {"fabricated": "authority"}
-    transition.write_text(json.dumps(authority), encoding="utf-8")
+    transition.write_text(
+        json.dumps(_proposal_envelope(authority)), encoding="utf-8"
+    )
     monkeypatch.setattr(
         audit_evidence_identities,
         "discover_baseline_sources",
@@ -258,7 +417,7 @@ def test_audit_identity_rebinding_rejects_fabricated_nondigest_authority(
         audit_evidence_identities.AuditEvidenceIdentityError,
         match="does not match canonical recomputation",
     ):
-        audit_evidence_identities.update(tmp_path)
+        audit_evidence_identities.propose(tmp_path, transition)
 
 
 @pytest.mark.parametrize(
@@ -302,6 +461,7 @@ def test_assignment_identity_rebinding_rejects_authority_mutation(
                 "map_sha256": "2" * 64,
                 "sym_sha256": "3" * 64,
             },
+            audit_evidence_identities.REVIEWED_AUDIT_HASHES,
         )
 
 
@@ -334,6 +494,7 @@ def test_assignment_identity_rebinding_rejects_scope_and_semantic_drift() -> Non
                 "map_sha256": "2" * 64,
                 "sym_sha256": "3" * 64,
             },
+            audit_evidence_identities.REVIEWED_AUDIT_HASHES,
         )
 
     changed = replace(
@@ -341,7 +502,7 @@ def test_assignment_identity_rebinding_rejects_scope_and_semantic_drift() -> Non
         evidence=replace(normal.rows[0].evidence, reviewer="changed-reviewer"),
     )
     after = DiscoveryAssignmentAuthority(
-        (changed,) + authority.rows[1:]
+        tuple(changed if row.id == changed.id else row for row in authority.rows)
     )
     with pytest.raises(
         audit_evidence_identities.AuditEvidenceIdentityError,

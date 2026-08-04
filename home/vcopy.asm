@@ -197,14 +197,12 @@ ENDR
 	ldh a, [hSPTemp + 1]
 	ld h, a
 	ld sp, hl
-	IF DEF(PHASE2_AUDIT)
-	; Return carry only when the audit menu paired an attribute plane with this
+	; Return carry only when the Color menu paired an attribute plane with this
 	; transfer. VBlank can skip the banked helper without another HRAM read.
 	ldh a, [hAutoBGTransferEnabled]
 	and 1 << BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER
 	ret z
 	scf
-	ENDC
 	ret
 
 ; Copies [hVBlankCopyBGNumRows] rows from hVBlankCopyBGSource to hVBlankCopyBGDest.
@@ -363,14 +361,18 @@ UpdateMovingBgTiles::
 	and a
 	ret z
 
+	; A bounded Color overlay phase reserves this frame's visible VRAM write.
+	; Defer moving tiles until the overlay closes instead of letting an occasional
+	; water/flower update consume the headroom reserved for OAM and input/audio.
+	ldh a, [hAutoBGTransferEnabled]
+	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
+	ret nz
+
 	ldh a, [rLY]
-	IF DEF(PHASE2_AUDIT)
-		cp $99 ; defer animation work that cannot finish before LY0
-		ret nc
-	ELSE
-		cp $90 ; check if not in vblank period??? (maybe if vblank is too long)
-		ret c
-	ENDC
+	cp $90 ; reject active display after a wrapped, overlong VBlank
+	ret c
+	cp $98 ; reject the final two scanlines: the write cannot finish before LY0
+	ret nc
 
 	ldh a, [hMovingBGTilesCounter1]
 	inc a

@@ -62,11 +62,7 @@ InitFullColorSchedulerSelected::
 	cpl
 	ld [wFullColorCommitBudget], a
 	ld [wFullColorCommitBudget + 1], a
-IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
-	jp InitFullColorProductionLifecycleSelected
-ELSE
 	ret
-ENDC
 
 InitFullColorScheduler::
 	select_renderer_state_e

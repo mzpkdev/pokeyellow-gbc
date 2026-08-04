@@ -34,6 +34,13 @@ cold-boot file to the current attempt's `components/cold-boot-journeys/` root;
 running that file directly preserves its narrow
 `test-results/full-color-cold-boot/` default.
 
+The normal, debug, and VC products all include the saved Color/Yellow toggle
+and bounded Pallet Town/Route 1 passive renderer. Production-linkage proves
+that shared runtime surface while excluding Phase 2-only diagnostics. Natural
+runtime tests select Color and Yellow inside one shipped binary; the
+`PHASE2_AUDIT` product is an additional diagnostic/certification surface, not a
+behavioral variant.
+
 `test-full-color-gate0` builds the debug ROM, then performs two independent
 executions of the complete unit tree (apart from the separately invoked donor
 comparator), baseline discovery, the reviewed

@@ -25,8 +25,13 @@ from tools.rom_tests.full_color.baseline_inventory import (
     _validate_assignment_targets,
 )
 from tools.rom_tests.full_color.discovery_assignment import (
+    DEBUG_PRODUCT,
     DiscoveryAssignmentAuthority,
+    NORMAL_DEBUG_PRODUCT,
+    NORMAL_PRODUCT,
+    PHASE2_AUDIT_PRODUCT,
     StaleDiscoveryAssignmentError,
+    VC_PRODUCT,
 )
 from tools.rom_tests.full_color.discovery_review import source_finding_subject
 from tools.rom_tests.full_color.inventory import (
@@ -74,7 +79,7 @@ def assignments_for_reports(assignments, source, rom_report):
     """Keep assignment evidence current while retaining reviewed subjects."""
     raw = assignments.to_dict()
     for row in raw["rows"]:
-        if row.get("product", "pokeyellow_debug") != "pokeyellow_debug":
+        if row.get("product", NORMAL_DEBUG_PRODUCT) != NORMAL_DEBUG_PRODUCT:
             continue
         row["evidence"].update(
             source_sha256=source.source_sha256,
@@ -104,7 +109,15 @@ def test_canonical_authorities_load_and_round_trip() -> None:
     assert MutationInventory.from_json(mutations.to_json()) == mutations
     assert DiscoveryAssignmentAuthority.from_json(assignments.to_json()) == assignments
     assert len(assignments.for_product().rows) == 8
-    assert len(assignments.for_product("pokeyellow_phase2_audit").rows) == 1379
+    assert {
+        product: len(assignments.for_product(product).rows)
+        for product in (NORMAL_PRODUCT, DEBUG_PRODUCT, VC_PRODUCT, PHASE2_AUDIT_PRODUCT)
+    } == {
+        NORMAL_PRODUCT: 1404,
+        DEBUG_PRODUCT: 1404,
+        VC_PRODUCT: 1404,
+        PHASE2_AUDIT_PRODUCT: 1411,
+    }
 
 
 def test_exact_reviewed_map_entry_tranche() -> None:
@@ -311,7 +324,7 @@ def test_audit_transition_rejects_source_changes_outside_bound_manifest(
     monkeypatch.setattr(baseline_inventory, "_source_path_manifest", changed_manifest)
     with pytest.raises(
         InventoryReconciliationError,
-        match="outside the hash-bound audit-only change set",
+        match="outside the hash-bound reviewed change set",
     ):
         build_progress(
             writers=writers,
@@ -335,20 +348,24 @@ def test_audit_transition_manifest_has_exact_safe_delta_paths(
     text = transition_path.read_text(encoding="utf-8")
     if mode == "duplicate":
         text = text.replace(
-            '"audit_only_paths": {',
-            '"audit_only_paths": {}, "audit_only_paths": {',
+            '"reviewed_delta_paths": {',
+            '"reviewed_delta_paths": {}, "reviewed_delta_paths": {',
             1,
         )
     else:
         raw = json.loads(text)
         if mode == "traversal":
-            raw["audit_only_paths"]["../main.asm"] = raw["audit_only_paths"].pop("main.asm")
+            raw["reviewed_delta_paths"]["../main.asm"] = raw[
+                "reviewed_delta_paths"
+            ].pop("main.asm")
         elif mode == "no-delta":
-            raw["audit_only_paths"]["main.asm"]["reviewed_sha256"] = raw["audit_only_paths"]["main.asm"]["audit_sha256"]
+            raw["reviewed_delta_paths"]["main.asm"]["reviewed_sha256"] = raw[
+                "reviewed_delta_paths"
+            ]["main.asm"]["current_sha256"]
         else:
-            raw["audit_only_paths"]["phantom.asm"] = {
+            raw["reviewed_delta_paths"]["phantom.asm"] = {
                 "reviewed_sha256": None,
-                "audit_sha256": None,
+                "current_sha256": None,
             }
         text = json.dumps(raw)
     changed = tmp_path / "transition.json"
@@ -600,7 +617,7 @@ def test_stale_assignment_source_and_rom_bytes_fail_closed(real_bundle) -> None:
     writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
     stale_raw = assignments.to_dict()
     for row in stale_raw["rows"]:
-        if row.get("product", "pokeyellow_debug") == "pokeyellow_debug":
+        if row.get("product", NORMAL_DEBUG_PRODUCT) == NORMAL_DEBUG_PRODUCT:
             row["evidence"]["source_sha256"] = "0" * 64
     stale_assignments = DiscoveryAssignmentAuthority.from_dict(stale_raw)
     with pytest.raises(
@@ -637,6 +654,41 @@ def test_stale_assignment_source_and_rom_bytes_fail_closed(real_bundle) -> None:
     changed_rom = bytearray(rom)
     changed_rom[0x75] ^= 0xFF
     with pytest.raises(InventoryReconciliationError, match="machine bytes"):
+        build_progress(
+            writers=writers,
+            scenes=scenes,
+            mutations=mutations,
+            assignments=assignments,
+            source_report=source,
+            rom_report=rom_report,
+            rom=bytes(changed_rom),
+        )
+
+    transition = json.loads(
+        (ROOT / baseline_inventory.SOURCE_TRANSITION_PATH).read_text(
+            encoding="utf-8"
+        )
+    )
+    shifted_digest = transition["rom_subject_rebindings"][
+        next(
+            row.subject.sha256
+            for row in assignments.rows
+            if row.id == "AS-MU-YELLOW-MAP-VIEW-INITIAL-ROM"
+        )
+    ]
+    shifted = next(
+        finding
+        for finding in rom_report.findings
+        if baseline_inventory.rom_finding_subject(finding).sha256 == shifted_digest
+    )
+    assert shifted.rom_offset != 0x0F6A
+    changed_rom = bytearray(rom)
+    changed_rom[shifted.rom_offset] ^= 0xFF
+    with pytest.raises(
+        InventoryReconciliationError,
+        match=rf"MU-YELLOW-MAP-VIEW-INITIAL: machine bytes do not match "
+        rf"{shifted.bank:02x}:{shifted.address:04x}",
+    ):
         build_progress(
             writers=writers,
             scenes=scenes,

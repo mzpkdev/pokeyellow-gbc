@@ -33,12 +33,12 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _write_transition(
+def _write_reviewed_transition(
     repository: Path,
     report: SourceDiscoveryReport,
     bindings: dict[str, dict[str, str | None]],
     *,
-    audit_source_sha256: str | None = None,
+    current_source_sha256: str | None = None,
 ) -> None:
     current = {
         relative: _sha256((repository / relative).read_bytes())
@@ -61,15 +61,15 @@ def _write_transition(
     path.write_text(
         json.dumps(
             {
-                "schema": "full-color-phase1-audit-source-transition-v2",
+                "schema": "full-color-production-source-transition-v3",
                 "reviewed_source_sha256": "1" * 64,
-                "audit_source_sha256": (
+                "current_source_sha256": (
                     report.source_sha256
-                    if audit_source_sha256 is None
-                    else audit_source_sha256
+                    if current_source_sha256 is None
+                    else current_source_sha256
                 ),
                 "baseline_manifest_sha256": baseline_sha256,
-                "audit_only_paths": bindings,
+                "reviewed_delta_paths": bindings,
                 "subject_rebindings": {},
                 "rom_subject_rebindings": {},
             }
@@ -157,13 +157,13 @@ def test_baseline_rom_partitions_linked_writers_from_explicit_control_roots(
         (),
         "2" * 64,
     )
-    _write_transition(
+    _write_reviewed_transition(
         tmp_path,
         source_report,
         {
             "a.asm": {
                 "reviewed_sha256": None,
-                "audit_sha256": _sha256(b"audit only\n"),
+                "current_sha256": _sha256(b"audit only\n"),
             }
         },
     )
@@ -223,13 +223,13 @@ def test_baseline_rom_rejects_arbitrary_absent_production_writer(
         (),
         "2" * 64,
     )
-    _write_transition(
+    _write_reviewed_transition(
         tmp_path,
         report,
         {
             "audit.asm": {
                 "reviewed_sha256": None,
-                "audit_sha256": _sha256(b"audit\n"),
+                "current_sha256": _sha256(b"audit\n"),
             }
         },
     )
@@ -244,23 +244,23 @@ def test_baseline_rom_rejects_arbitrary_absent_production_writer(
 
 
 @pytest.mark.parametrize("mismatch", ["source", "path"])
-def test_audit_only_partition_rejects_stale_transition_identity(
+def test_reviewed_delta_partition_rejects_stale_transition_identity(
     tmp_path: Path, mismatch: str
 ) -> None:
     (tmp_path / "audit.asm").write_bytes(b"audit\n")
     report = SourceDiscoveryReport(
         (), (("audit.asm", ()),), (), (), "2" * 64
     )
-    _write_transition(
+    _write_reviewed_transition(
         tmp_path,
         report,
         {
             "audit.asm": {
                 "reviewed_sha256": None,
-                "audit_sha256": _sha256(b"audit\n"),
+                "current_sha256": _sha256(b"audit\n"),
             }
         },
-        audit_source_sha256="3" * 64 if mismatch == "source" else None,
+        current_source_sha256="3" * 64 if mismatch == "source" else None,
     )
     if mismatch == "path":
         (tmp_path / "audit.asm").write_bytes(b"mutated\n")

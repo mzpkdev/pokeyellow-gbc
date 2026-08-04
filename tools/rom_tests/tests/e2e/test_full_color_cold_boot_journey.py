@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import partial
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,7 @@ from tools.rom_tests.scenarios.oaks_lab import (
     complete_oaks_lab_intro,
     walk_from_bedroom_to_oak,
 )
+from tools.rom_tests.scenarios.renderer_mode import select_renderer_mode
 from tools.rom_tests.scenarios.viridian_city import (
     ROUTE_1,
     VIRIDIAN_CITY,
@@ -83,6 +85,7 @@ class JourneyObservation:
     logical_state: tuple[int, ...]
     rng_state: tuple[int, int]
     renderer_state: tuple[int, int]
+    renderer_preference: int
     renderer_generation: tuple[int, ...]
     passive_state: tuple[int, int, int, int]
     lcdc: int
@@ -159,6 +162,14 @@ def _prepare_results(results: Path) -> None:
             artifact.unlink()
 
 
+def _mode_label(product: str, yellow_mode: bool) -> str:
+    return f"{product}-{'yellow' if yellow_mode else 'color'}"
+
+
+def _mode_setup(yellow_mode: bool) -> Callable[[Emulator], None]:
+    return partial(select_renderer_mode, yellow_mode=yellow_mode)
+
+
 def _observe(emulator: Emulator, filename: str) -> JourneyObservation:
     tilemap_base = 0x9C00 if emulator.pyboy.memory[0xFF40] & (1 << 3) else 0x9800
     screen = emulator.capture_screen()
@@ -188,6 +199,7 @@ def _observe(emulator: Emulator, filename: str) -> JourneyObservation:
             emulator.read("wRendererOwner"),
             emulator.read("wRendererPhase"),
         ),
+        renderer_preference=emulator.read("wUnusedObtainedBadges") & 1,
         renderer_generation=tuple(emulator.read_bytes("wRendererGeneration", 4)),
         passive_state=passive_state,
         lcdc=emulator.pyboy.memory[0xFF40],
@@ -247,6 +259,8 @@ def _observe_boundary(
 def _run_pallet_ui_boundary(
     product: str,
     results: Path,
+    *,
+    yellow_mode: bool,
 ) -> dict[str, BoundaryObservation]:
     emulator = Emulator(
         rom=REPOSITORY_ROOT / f"{product}.gbc",
@@ -254,16 +268,20 @@ def _run_pallet_ui_boundary(
         results=results,
         cgb=True,
     )
+    label = _mode_label(product, yellow_mode)
     observations: dict[str, BoundaryObservation] = {}
 
     def observe(name: str) -> None:
         observations[name] = _observe_boundary(
             emulator,
-            f"{product}-{name}.png",
+            f"{label}-{name}.png",
         )
 
     try:
-        complete_oaks_lab_intro(emulator)
+        complete_oaks_lab_intro(
+            emulator,
+            bedroom_setup=_mode_setup(yellow_mode),
+        )
 
         # Use the same repeated-input cadence as the natural Viridian journey.
         # The first post-warp direction can be consumed while Pikachu settles,
@@ -301,7 +319,7 @@ def _run_pallet_ui_boundary(
         walk_from_oaks_lab_to_viridian(emulator, use_debug_repel=True)
         observe("viridian-entry")
     except BaseException:
-        emulator.save_screenshot(f"{product}-boundary-failure.png")
+        emulator.save_screenshot(f"{label}-boundary-failure.png")
         raise
     finally:
         emulator.close()
@@ -314,6 +332,7 @@ def _run_journey(
     results: Path,
     *,
     use_debug_repel: bool,
+    yellow_mode: bool,
 ) -> dict[str, JourneyObservation]:
     emulator = Emulator(
         rom=REPOSITORY_ROOT / f"{product}.gbc",
@@ -321,19 +340,21 @@ def _run_journey(
         results=results,
         cgb=True,
     )
+    label = _mode_label(product, yellow_mode)
     observations: dict[str, JourneyObservation] = {}
 
     def checkpoint(name: str, current: Emulator) -> None:
-        observations[name] = _observe(current, f"{product}-{name}.png")
+        observations[name] = _observe(current, f"{label}-{name}.png")
 
     try:
         reach_viridian_city(
             emulator,
             checkpoint,
             use_debug_repel=use_debug_repel,
+            bedroom_setup=_mode_setup(yellow_mode),
         )
     except BaseException:
-        emulator.save_screenshot(f"{product}-journey-failure.png")
+        emulator.save_screenshot(f"{label}-journey-failure.png")
         failure_state = {
             "frame": emulator.frame,
             "map": emulator.read("wCurMap"),
@@ -343,7 +364,7 @@ def _run_journey(
             "oak_script": emulator.read("wOaksLabCurScript"),
             "in_battle": emulator.read("wIsInBattle"),
         }
-        (results / f"{product}-journey-failure.json").write_text(
+        (results / f"{label}-journey-failure.json").write_text(
             json.dumps(failure_state, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
@@ -352,7 +373,7 @@ def _run_journey(
         emulator.close()
 
     assert tuple(observations) == CHECKPOINTS
-    (results / f"{product}-journey-state.json").write_text(
+    (results / f"{label}-journey-state.json").write_text(
         json.dumps(
             {
                 name: {
@@ -361,6 +382,7 @@ def _run_journey(
                     "passive_state": observation.passive_state,
                     "lcdc": observation.lcdc,
                     "renderer_state": observation.renderer_state,
+                    "renderer_preference": observation.renderer_preference,
                     "renderer_generation": observation.renderer_generation,
                     "rng_state": observation.rng_state,
                     "scroll": observation.scroll,
@@ -379,6 +401,8 @@ def _run_journey(
 def _run_reverse_route1_journey(
     product: str,
     results: Path,
+    *,
+    yellow_mode: bool,
 ) -> dict[str, JourneyObservation]:
     """Play naturally to Viridian, then return through Route 1's ledges."""
     emulator = Emulator(
@@ -387,14 +411,19 @@ def _run_reverse_route1_journey(
         results=results,
         cgb=True,
     )
+    label = _mode_label(product, yellow_mode)
     observations: dict[str, JourneyObservation] = {}
 
     def checkpoint(name: str) -> None:
         emulator.tick(60)
-        observations[name] = _observe(emulator, f"{product}-{name}.png")
+        observations[name] = _observe(emulator, f"{label}-{name}.png")
 
     try:
-        reach_viridian_city(emulator, use_debug_repel=True)
+        reach_viridian_city(
+            emulator,
+            use_debug_repel=True,
+            bedroom_setup=_mode_setup(yellow_mode),
+        )
 
         # Leave Viridian through its south connection. Repel is the only
         # deterministic aid: all map travel, redraws, warps, and jumps run
@@ -422,7 +451,7 @@ def _run_reverse_route1_journey(
         walk_to_value(emulator, "wCurMap", PALLET_TOWN, "down", "Pallet Town")
         checkpoint("pallet-reentry")
     except BaseException:
-        emulator.save_screenshot(f"{product}-reverse-journey-failure.png")
+        emulator.save_screenshot(f"{label}-reverse-journey-failure.png")
         failure_state = {
             "frame": emulator.frame,
             "pc": emulator.pyboy.register_file.PC,
@@ -432,7 +461,7 @@ def _run_reverse_route1_journey(
             "x": emulator.read("wXCoord"),
             "in_battle": emulator.read("wIsInBattle"),
         }
-        (results / f"{product}-reverse-journey-failure.json").write_text(
+        (results / f"{label}-reverse-journey-failure.json").write_text(
             json.dumps(failure_state, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
@@ -447,6 +476,8 @@ def _run_reverse_route1_journey(
 def _run_route1_wild_battle_round_trip(
     product: str,
     results: Path,
+    *,
+    yellow_mode: bool,
 ) -> WildBattleRoundTrip:
     emulator = Emulator(
         rom=REPOSITORY_ROOT / f"{product}.gbc",
@@ -454,6 +485,7 @@ def _run_route1_wild_battle_round_trip(
         results=results,
         cgb=True,
     )
+    label = _mode_label(product, yellow_mode)
     route_steps = 0
     grass_pacing_steps = 0
 
@@ -493,7 +525,10 @@ def _run_route1_wild_battle_round_trip(
         raise AssertionError(f"Timed out walking to {description}")
 
     try:
-        complete_oaks_lab_intro(emulator)
+        complete_oaks_lab_intro(
+            emulator,
+            bedroom_setup=_mode_setup(yellow_mode),
+        )
 
         # Follow the real south-to-north route without suppressing encounters.
         # Reach Route 1's first verified tall-grass corridor if an encounter
@@ -562,7 +597,7 @@ def _run_route1_wild_battle_round_trip(
             description="stable wild battle command screen",
         )
         emulator.tick(2)
-        battle_menu = _observe(emulator, f"{product}-wild-battle-menu.png")
+        battle_menu = _observe(emulator, f"{label}-wild-battle-menu.png")
         battle_state = (
             emulator.read("wBattleType"),
             emulator.read("wEnemyMonSpecies"),
@@ -599,8 +634,8 @@ def _run_route1_wild_battle_round_trip(
             "fixed post-battle Route 1 column",
         )
         emulator.tick(120)
-        restored_route = _observe(emulator, f"{product}-route1-restored.png")
-        (results / f"{product}-wild-battle-steps.json").write_text(
+        restored_route = _observe(emulator, f"{label}-route1-restored.png")
+        (results / f"{label}-wild-battle-steps.json").write_text(
             json.dumps(
                 {
                     "grass_pacing_steps": grass_pacing_steps,
@@ -613,7 +648,7 @@ def _run_route1_wild_battle_round_trip(
             encoding="utf-8",
         )
     except BaseException:
-        emulator.save_screenshot(f"{product}-wild-battle-failure.png")
+        emulator.save_screenshot(f"{label}-wild-battle-failure.png")
         state = {
             "frame": emulator.frame,
             "pc": emulator.pyboy.register_file.PC,
@@ -628,7 +663,7 @@ def _run_route1_wild_battle_round_trip(
             "grass_pacing_steps": grass_pacing_steps,
             "route_steps_to_encounter": route_steps,
         }
-        (results / f"{product}-wild-battle-failure.json").write_text(
+        (results / f"{label}-wild-battle-failure.json").write_text(
             json.dumps(state, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
@@ -647,6 +682,8 @@ def _run_route1_wild_battle_round_trip(
 def _run_pallet_save_continue_round_trip(
     product: str,
     results: Path,
+    *,
+    yellow_mode: bool,
 ) -> SaveContinueRoundTrip:
     """Save in Pallet, soft-reset, Continue, and resume natural movement."""
     emulator = Emulator(
@@ -655,12 +692,16 @@ def _run_pallet_save_continue_round_trip(
         results=results,
         cgb=True,
     )
+    label = _mode_label(product, yellow_mode)
 
     def save_ui(filename: str) -> None:
-        emulator.save_screenshot(f"{product}-{filename}.png")
+        emulator.save_screenshot(f"{label}-{filename}.png")
 
     try:
-        complete_oaks_lab_intro(emulator)
+        complete_oaks_lab_intro(
+            emulator,
+            bedroom_setup=_mode_setup(yellow_mode),
+        )
         walk_to_value(emulator, "wXCoord", 8, "left", "west side of Oak's Lab")
         walk_to_value(emulator, "wXCoord", 7, "left", "Pallet sign column")
         walk_to_value(emulator, "wYCoord", 10, "up", "Pallet sign row")
@@ -680,7 +721,7 @@ def _run_pallet_save_continue_round_trip(
         save_ui("game-saved")
         emulator.press("b")
         emulator.tick(120)
-        before_reset = _observe(emulator, f"{product}-before-reset.png")
+        before_reset = _observe(emulator, f"{label}-before-reset.png")
 
         # Yellow's documented A+B+Start+Select soft-reset path keeps the SRAM
         # created above while rebuilding all volatile renderer state.
@@ -721,16 +762,16 @@ def _run_pallet_save_continue_round_trip(
         assert emulator.read("wCurMap") == PALLET_TOWN
         assert emulator.read("wStatusFlags6") & 1
         emulator.tick(120)
-        restored = _observe(emulator, f"{product}-continued-pallet.png")
+        restored = _observe(emulator, f"{label}-continued-pallet.png")
 
         # A plausible restored frame isn't enough: make Yellow accept movement
         # in both directions, then compare the same settled saved coordinate.
         walk_to_value(emulator, "wXCoord", 8, "right", "continued east step")
         walk_to_value(emulator, "wXCoord", 7, "left", "continued saved position")
         emulator.tick(120)
-        playable = _observe(emulator, f"{product}-continued-playable.png")
+        playable = _observe(emulator, f"{label}-continued-playable.png")
     except BaseException:
-        emulator.save_screenshot(f"{product}-save-continue-failure.png")
+        emulator.save_screenshot(f"{label}-save-continue-failure.png")
         failure_state = {
             "frame": emulator.frame,
             "pc": emulator.pyboy.register_file.PC,
@@ -740,7 +781,7 @@ def _run_pallet_save_continue_round_trip(
             "x": emulator.read("wXCoord"),
             "save_status": emulator.read("wSaveFileStatus"),
         }
-        (results / f"{product}-save-continue-failure.json").write_text(
+        (results / f"{label}-save-continue-failure.json").write_text(
             json.dumps(failure_state, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
@@ -754,6 +795,8 @@ def _run_pallet_save_continue_round_trip(
 def _run_pallet_house_round_trip(
     product: str,
     results: Path,
+    *,
+    yellow_mode: bool,
 ) -> PalletHouseRoundTrip:
     """Enter Red's house from Pallet and return through its natural warp."""
     emulator = Emulator(
@@ -762,21 +805,25 @@ def _run_pallet_house_round_trip(
         results=results,
         cgb=True,
     )
+    label = _mode_label(product, yellow_mode)
 
     try:
-        complete_oaks_lab_intro(emulator)
+        complete_oaks_lab_intro(
+            emulator,
+            bedroom_setup=_mode_setup(yellow_mode),
+        )
         walk_to_value(emulator, "wXCoord", 8, "left", "west side of Oak's Lab")
         walk_to_value(emulator, "wYCoord", 6, "up", "Red's house row")
         walk_to_value(emulator, "wXCoord", 5, "left", "Red's house door")
         walk_to_value(emulator, "wCurMap", 0x25, "up", "Red's house 1F")
         emulator.tick(120)
-        interior = _observe(emulator, f"{product}-reds-house-1f.png")
+        interior = _observe(emulator, f"{label}-reds-house-1f.png")
 
         walk_to_value(emulator, "wCurMap", PALLET_TOWN, "down", "Pallet Town")
         emulator.tick(120)
-        restored_pallet = _observe(emulator, f"{product}-pallet-restored.png")
+        restored_pallet = _observe(emulator, f"{label}-pallet-restored.png")
     except BaseException:
-        emulator.save_screenshot(f"{product}-pallet-house-failure.png")
+        emulator.save_screenshot(f"{label}-pallet-house-failure.png")
         failure_state = {
             "frame": emulator.frame,
             "pc": emulator.pyboy.register_file.PC,
@@ -786,7 +833,7 @@ def _run_pallet_house_round_trip(
             "x": emulator.read("wXCoord"),
             "in_battle": emulator.read("wIsInBattle"),
         }
-        (results / f"{product}-pallet-house-failure.json").write_text(
+        (results / f"{label}-pallet-house-failure.json").write_text(
             json.dumps(failure_state, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
@@ -800,6 +847,8 @@ def _run_pallet_house_round_trip(
 def _run_oak_capture_sequence(
     product: str,
     results: Path,
+    *,
+    yellow_mode: bool,
 ) -> OakCaptureSequence:
     """Play Oak's scripted Pikachu capture and retain its visual milestones."""
     emulator = Emulator(
@@ -808,6 +857,7 @@ def _run_oak_capture_sequence(
         results=results,
         cgb=True,
     )
+    label = _mode_label(product, yellow_mode)
     observations: dict[str, JourneyObservation] = {}
     event_states: dict[str, tuple[int, ...]] = {}
 
@@ -827,7 +877,7 @@ def _run_oak_capture_sequence(
         )
 
     def checkpoint(name: str) -> None:
-        observations[name] = _observe(emulator, f"{product}-{name}.png")
+        observations[name] = _observe(emulator, f"{label}-{name}.png")
         event_states[name] = event_state()
 
     def advance_framewise(
@@ -848,6 +898,7 @@ def _run_oak_capture_sequence(
 
     try:
         reach_bedroom_overworld(emulator)
+        select_renderer_mode(emulator, yellow_mode=yellow_mode)
         walk_from_bedroom_to_oak(emulator)
         checkpoint("oak-capture-oak-dialogue")
         advance_framewise(
@@ -924,14 +975,14 @@ def _run_oak_capture_sequence(
         emulator.tick(60)
         checkpoint("oak-capture-lab-transition")
     except BaseException:
-        emulator.save_screenshot(f"{product}-oak-capture-failure.png")
+        emulator.save_screenshot(f"{label}-oak-capture-failure.png")
         failure_state = {
             "frame": emulator.frame,
             "pc": emulator.pyboy.register_file.PC,
             "sp": emulator.pyboy.register_file.SP,
             "event_state": event_state(),
         }
-        (results / f"{product}-oak-capture-failure.json").write_text(
+        (results / f"{label}-oak-capture-failure.json").write_text(
             json.dumps(failure_state, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
@@ -1068,12 +1119,13 @@ def test_scenario_setup_removes_stale_failure_evidence() -> None:
     assert not tuple(results.iterdir())
 
 
-def test_stock_debug_cold_boot_reaches_viridian_without_state_injection() -> None:
-    _prepare_results(RESULTS_ROOT / "stock-natural")
+def test_production_cold_boot_reaches_viridian_without_state_injection() -> None:
+    _prepare_results(RESULTS_ROOT / "production-natural")
     observations = _run_journey(
-        "pokeyellow_debug",
-        RESULTS_ROOT / "stock-natural",
+        "pokeyellow",
+        RESULTS_ROOT / "production-natural",
         use_debug_repel=False,
+        yellow_mode=False,
     )
 
     assert observations["bedroom"].logical_state[:3] == (0x26, 6, 3)
@@ -1081,30 +1133,32 @@ def test_stock_debug_cold_boot_reaches_viridian_without_state_injection() -> Non
     assert observations["viridian-entry"].logical_state[3] == 1
 
 
-def test_audit_cold_boot_changes_only_color_state_in_the_slice() -> None:
-    results = RESULTS_ROOT / "paired-audit"
+def test_production_cold_boot_changes_only_color_state_between_modes() -> None:
+    results = RESULTS_ROOT / "paired-production"
     _prepare_results(results)
-    vanilla = _run_journey(
-        "pokeyellow_debug",
+    yellow = _run_journey(
+        "pokeyellow",
         results,
-        use_debug_repel=True,
+        use_debug_repel=False,
+        yellow_mode=True,
     )
-    audit = _run_journey(
-        "pokeyellow_phase2_audit",
+    color = _run_journey(
+        "pokeyellow",
         results,
-        use_debug_repel=True,
+        use_debug_repel=False,
+        yellow_mode=False,
     )
 
     expected_palettes = _linked_bytes(
-        "pokeyellow_phase2_audit", "FullColorOverworldBGPalettes", 64
+        "pokeyellow", "FullColorOverworldBGPalettes", 64
     )
     expected_attributes = _linked_bytes(
-        "pokeyellow_phase2_audit", "FullColorOverworldTileAttributes", 256
+        "pokeyellow", "FullColorOverworldTileAttributes", 256
     )
     diagnostics = {}
     for name in CHECKPOINTS:
-        baseline = vanilla[name]
-        candidate = audit[name]
+        baseline = yellow[name]
+        candidate = color[name]
         visible_pairs = _visible_attribute_pairs(candidate)
         candidate_visible_indices = _visible_indices(candidate)
         baseline_visible_indices = _visible_indices(baseline)
@@ -1198,10 +1252,13 @@ def test_audit_cold_boot_changes_only_color_state_in_the_slice() -> None:
 
     color_difference_seen = False
     for name in CHECKPOINTS:
-        baseline = vanilla[name]
-        candidate = audit[name]
+        baseline = yellow[name]
+        candidate = color[name]
         assert candidate.logical_state == baseline.logical_state, name
         assert candidate.renderer_state == (0, 0), name
+        assert baseline.renderer_preference == 1, name
+        assert candidate.renderer_preference == 0, name
+        assert baseline.passive_state[:3] == (0, 0, 0), name
         _assert_visible_bg_parity(candidate, baseline, name)
 
         if name in COLOR_CHECKPOINTS:
@@ -1236,26 +1293,30 @@ def test_audit_cold_boot_changes_only_color_state_in_the_slice() -> None:
 
         _assert_oam_semantics(candidate, baseline, name)
 
-    assert color_difference_seen, "audit ROM never exposed the guarded color slice"
+    assert color_difference_seen, "Color mode never exposed the guarded color slice"
 
 
 def test_reverse_route1_ledges_preserve_yellow_and_passive_color_state() -> None:
     results = RESULTS_ROOT / "paired-reverse-route1"
     _prepare_results(results)
-    vanilla = _run_reverse_route1_journey("pokeyellow_debug", results)
-    audit = _run_reverse_route1_journey("pokeyellow_phase2_audit", results)
+    yellow = _run_reverse_route1_journey(
+        "pokeyellow_debug", results, yellow_mode=True
+    )
+    color = _run_reverse_route1_journey(
+        "pokeyellow_debug", results, yellow_mode=False
+    )
 
     expected_palettes = _linked_bytes(
-        "pokeyellow_phase2_audit", "FullColorOverworldBGPalettes", 64
+        "pokeyellow_debug", "FullColorOverworldBGPalettes", 64
     )
     expected_attributes = _linked_bytes(
-        "pokeyellow_phase2_audit", "FullColorOverworldTileAttributes", 256
+        "pokeyellow_debug", "FullColorOverworldTileAttributes", 256
     )
     diagnostics = {}
 
     for name in REVERSE_CHECKPOINTS:
-        baseline = vanilla[name]
-        candidate = audit[name]
+        baseline = yellow[name]
+        candidate = color[name]
         visible_mismatches = [
             {
                 "visible_index": index,
@@ -1288,6 +1349,9 @@ def test_reverse_route1_ledges_preserve_yellow_and_passive_color_state() -> None
 
         assert candidate.logical_state == baseline.logical_state, name
         assert candidate.renderer_state == (0, 0), name
+        assert baseline.renderer_preference == 1, name
+        assert candidate.renderer_preference == 0, name
+        assert baseline.passive_state[:3] == (0, 0, 0), name
         _assert_visible_bg_parity(candidate, baseline, name)
         _assert_oam_semantics(candidate, baseline, name)
 
@@ -1306,8 +1370,8 @@ def test_reverse_route1_ledges_preserve_yellow_and_passive_color_state() -> None
             assert candidate.attributes == baseline.attributes, name
             assert candidate.bg_palettes[:8] == baseline.bg_palettes[:8], name
 
-    assert audit["route1-reentry"].logical_state[:3] == (ROUTE_1, 0, 10)
-    assert audit["pallet-reentry"].logical_state[:3] == (PALLET_TOWN, 0, 10)
+    assert color["route1-reentry"].logical_state[:3] == (ROUTE_1, 0, 10)
+    assert color["pallet-reentry"].logical_state[:3] == (PALLET_TOWN, 0, 10)
     (results / "paired-reverse-diagnostics.json").write_text(
         json.dumps(diagnostics, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -1317,30 +1381,37 @@ def test_reverse_route1_ledges_preserve_yellow_and_passive_color_state() -> None
 def test_pallet_house_round_trip_restores_passive_color_slice() -> None:
     results = RESULTS_ROOT / "paired-pallet-house"
     _prepare_results(results)
-    vanilla = _run_pallet_house_round_trip("pokeyellow_debug", results)
-    audit = _run_pallet_house_round_trip("pokeyellow_phase2_audit", results)
+    yellow = _run_pallet_house_round_trip(
+        "pokeyellow", results, yellow_mode=True
+    )
+    color = _run_pallet_house_round_trip(
+        "pokeyellow", results, yellow_mode=False
+    )
 
     expected_palettes = _linked_bytes(
-        "pokeyellow_phase2_audit", "FullColorOverworldBGPalettes", 64
+        "pokeyellow", "FullColorOverworldBGPalettes", 64
     )
     expected_attributes = _linked_bytes(
-        "pokeyellow_phase2_audit", "FullColorOverworldTileAttributes", 256
+        "pokeyellow", "FullColorOverworldTileAttributes", 256
     )
 
-    baseline_inside = vanilla.interior
-    candidate_inside = audit.interior
+    baseline_inside = yellow.interior
+    candidate_inside = color.interior
     assert candidate_inside.logical_state == baseline_inside.logical_state
     assert candidate_inside.logical_state == (0x25, 7, 2, 1, 22, 0)
     assert candidate_inside.passive_state[:3] == (0, 0, 0)
     assert candidate_inside.renderer_state == (0, 0)
+    assert baseline_inside.renderer_preference == 1
+    assert candidate_inside.renderer_preference == 0
+    assert baseline_inside.passive_state[:3] == (0, 0, 0)
     _assert_visible_bg_parity(candidate_inside, baseline_inside, "reds-house-1f")
     _assert_oam_semantics(candidate_inside, baseline_inside, "reds-house-1f")
     assert candidate_inside.attributes == baseline_inside.attributes
     assert candidate_inside.bg_palettes[:8] == baseline_inside.bg_palettes[:8]
     assert candidate_inside.screen.tobytes() == baseline_inside.screen.tobytes()
 
-    baseline_outside = vanilla.restored_pallet
-    candidate_outside = audit.restored_pallet
+    baseline_outside = yellow.restored_pallet
+    candidate_outside = color.restored_pallet
     visible_mismatches = [
         {
             "visible_index": index,
@@ -1401,6 +1472,9 @@ def test_pallet_house_round_trip_restores_passive_color_slice() -> None:
         candidate_outside.renderer_generation[0],
     )
     assert candidate_outside.renderer_state == (0, 0)
+    assert baseline_outside.renderer_preference == 1
+    assert candidate_outside.renderer_preference == 0
+    assert baseline_outside.passive_state[:3] == (0, 0, 0)
     _assert_visible_bg_parity(candidate_outside, baseline_outside, "restored-pallet")
     _assert_oam_semantics(candidate_outside, baseline_outside, "restored-pallet")
     assert candidate_outside.bg_palettes == expected_palettes
@@ -1411,35 +1485,42 @@ def test_oak_scripted_pikachu_capture_preserves_yellow_visuals_and_completes() -
     """Cover the historic battle-over-overworld corruption from a cold boot."""
     results = RESULTS_ROOT / "paired-oak-capture"
     _prepare_results(results)
-    vanilla = _run_oak_capture_sequence("pokeyellow_debug", results)
-    audit = _run_oak_capture_sequence("pokeyellow_phase2_audit", results)
+    yellow = _run_oak_capture_sequence(
+        "pokeyellow", results, yellow_mode=True
+    )
+    color = _run_oak_capture_sequence(
+        "pokeyellow", results, yellow_mode=False
+    )
 
     expected_palettes = _linked_bytes(
-        "pokeyellow_phase2_audit", "FullColorOverworldBGPalettes", 64
+        "pokeyellow", "FullColorOverworldBGPalettes", 64
     )
     expected_attributes = _linked_bytes(
-        "pokeyellow_phase2_audit", "FullColorOverworldTileAttributes", 256
+        "pokeyellow", "FullColorOverworldTileAttributes", 256
     )
     checkpoints = {
-        "oak_dialogue": (vanilla.oak_dialogue, audit.oak_dialogue),
+        "oak_dialogue": (yellow.oak_dialogue, color.oak_dialogue),
         "battle_presentation": (
-            vanilla.battle_presentation,
-            audit.battle_presentation,
+            yellow.battle_presentation,
+            color.battle_presentation,
         ),
-        "ball_animation": (vanilla.ball_animation, audit.ball_animation),
-        "post_capture": (vanilla.post_capture, audit.post_capture),
-        "lab_transition": (vanilla.lab_transition, audit.lab_transition),
+        "ball_animation": (yellow.ball_animation, color.ball_animation),
+        "post_capture": (yellow.post_capture, color.post_capture),
+        "lab_transition": (yellow.lab_transition, color.lab_transition),
     }
     diagnostics = {}
     for name, (baseline, candidate) in checkpoints.items():
         assert candidate.logical_state == baseline.logical_state, name
         assert candidate.renderer_state == (0, 0), name
+        assert baseline.renderer_preference == 1, name
+        assert candidate.renderer_preference == 0, name
+        assert baseline.passive_state[:3] == (0, 0, 0), name
         _assert_visible_bg_parity(candidate, baseline, name)
         _assert_oam_semantics(candidate, baseline, name)
         diagnostics[name] = {
             "frame": candidate.frame,
             "baseline_frame": baseline.frame,
-            "event_state": audit.event_states[
+            "event_state": color.event_states[
                 {
                     "oak_dialogue": "oak-capture-oak-dialogue",
                     "battle_presentation": "oak-capture-battle",
@@ -1458,24 +1539,24 @@ def test_oak_scripted_pikachu_capture_preserves_yellow_visuals_and_completes() -
             "screen_equal": candidate.screen.tobytes() == baseline.screen.tobytes(),
         }
 
-    assert audit.event_states == vanilla.event_states
-    assert audit.event_states["oak-capture-script-ready"][1:4] == (
+    assert color.event_states == yellow.event_states
+    assert color.event_states["oak-capture-script-ready"][1:4] == (
         SCRIPT_PALLETTOWN_PIKACHU_BATTLE,
         0,
         0,
     )
     for name in ("oak-capture-battle", "oak-capture-ball-animation"):
-        assert audit.event_states[name][2] == BATTLE_TYPE_PIKACHU, name
-        assert audit.event_states[name][3] != 0, name
-        assert audit.event_states[name][4:7] == (PIKACHU, 5, PIKACHU), name
-    assert audit.event_states["oak-capture-ball-animation"][9] in CAPTURE_ANIMATION_IDS
-    assert audit.event_states["oak-capture-post-battle"][0:4] == (
+        assert color.event_states[name][2] == BATTLE_TYPE_PIKACHU, name
+        assert color.event_states[name][3] != 0, name
+        assert color.event_states[name][4:7] == (PIKACHU, 5, PIKACHU), name
+    assert color.event_states["oak-capture-ball-animation"][9] in CAPTURE_ANIMATION_IDS
+    assert color.event_states["oak-capture-post-battle"][0:4] == (
         PALLET_TOWN,
         SCRIPT_PALLETTOWN_AFTER_PIKACHU_BATTLE,
         0,
         0,
     )
-    assert audit.event_states["oak-capture-lab-transition"][0] == OAKS_LAB
+    assert color.event_states["oak-capture-lab-transition"][0] == OAKS_LAB
 
     for name in ("oak_dialogue", "post_capture"):
         baseline, candidate = checkpoints[name]
@@ -1490,7 +1571,7 @@ def test_oak_scripted_pikachu_capture_preserves_yellow_visuals_and_completes() -
             assert attribute == expected_attributes[tile], name
 
     # Battles and interiors remain wholly stock-owned. At these visual
-    # checkpoints the audit ROM must be pixel-identical, including the real
+    # checkpoints the two modes must be pixel-identical, including the real
     # transient Poké Ball toss that the old harness skipped completely.
     for name in ("battle_presentation", "ball_animation", "lab_transition"):
         baseline, candidate = checkpoints[name]
@@ -1520,8 +1601,12 @@ def test_oak_scripted_pikachu_capture_preserves_yellow_visuals_and_completes() -
 def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> None:
     results = RESULTS_ROOT / "pallet-ui-boundary"
     _prepare_results(results)
-    vanilla = _run_pallet_ui_boundary("pokeyellow_debug", results)
-    audit = _run_pallet_ui_boundary("pokeyellow_phase2_audit", results)
+    yellow = _run_pallet_ui_boundary(
+        "pokeyellow_debug", results, yellow_mode=True
+    )
+    color = _run_pallet_ui_boundary(
+        "pokeyellow_debug", results, yellow_mode=False
+    )
 
     expected_names = (
         "stable-overworld",
@@ -1534,54 +1619,42 @@ def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> 
         "restored-overworld",
         "viridian-entry",
     )
-    assert tuple(vanilla) == expected_names
-    assert tuple(audit) == expected_names
+    assert tuple(yellow) == expected_names
+    assert tuple(color) == expected_names
 
     expected_palettes = _linked_bytes(
-        "pokeyellow_phase2_audit", "FullColorOverworldBGPalettes", 64
+        "pokeyellow_debug", "FullColorOverworldBGPalettes", 64
     )
     expected_attributes = _linked_bytes(
-        "pokeyellow_phase2_audit", "FullColorOverworldTileAttributes", 256
+        "pokeyellow_debug", "FullColorOverworldTileAttributes", 256
     )
-    expected_free_descriptors = b"".join(bytes((0xF0,)) + bytes(19) for _ in range(8))
-    expected_dormant_scheduler: tuple[object, ...] = (
-        0xFF,
-        expected_free_descriptors,
-        bytes(160),
-        0,
-        0,
-        bytes((0x3F, 0)),
-        bytes((0xFF, 0xFF)),
-        0,
-        0,
-        0,
-        bytes(8),
-        bytes(2),
-    )
-
-    initial_generation = audit["stable-overworld"].journey.renderer_generation
+    initial_generation = color["stable-overworld"].journey.renderer_generation
     for name in expected_names:
-        baseline = vanilla[name]
-        candidate = audit[name]
+        baseline = yellow[name]
+        candidate = color[name]
         assert candidate.journey.logical_state == baseline.journey.logical_state, name
         assert candidate.menu_state == baseline.menu_state, name
         assert candidate.input_state == baseline.input_state, name
         assert candidate.journey.renderer_state == (0, 0), name
+        assert baseline.journey.renderer_preference == 1, name
+        assert candidate.journey.renderer_preference == 0, name
+        assert baseline.journey.passive_state[:3] == (0, 0, 0), name
         assert candidate.journey.renderer_generation == initial_generation, name
-        assert candidate.scheduler_state == expected_dormant_scheduler, name
+        # Shipped products omit the audit-only retained scheduler diagnostics.
+        assert candidate.scheduler_state == baseline.scheduler_state == (), name
         _assert_visible_bg_parity(candidate.journey, baseline.journey, name)
         _assert_oam_semantics(candidate.journey, baseline.journey, name)
 
-    stable = audit["stable-overworld"].journey
-    restored = audit["restored-overworld"].journey
+    stable = color["stable-overworld"].journey
+    restored = color["restored-overworld"].journey
     assert stable.logical_state == (0, 10, 7, 1, 22, 0)
     assert restored.logical_state == stable.logical_state
-    assert audit["stable-overworld"].input_state == (0, 0, 0)
-    assert audit["restored-overworld"].input_state == (0, 0, 0)
+    assert color["stable-overworld"].input_state == (0, 0, 0)
+    assert color["restored-overworld"].input_state == (0, 0, 0)
 
-    assert audit["start-menu"].menu_state[:3] == (0, 6, 0xCB)
-    assert audit["party"].menu_state[:5] == (0, 0, 0x03, 2, 0)
-    assert audit["returned-start-menu"].menu_state[:3] == (0, 6, 0xCB)
+    assert color["start-menu"].menu_state[:3] == (0, 6, 0xCB)
+    assert color["party"].menu_state[:5] == (0, 0, 0x03, 2, 0)
+    assert color["returned-start-menu"].menu_state[:3] == (0, 6, 0xCB)
 
     assert stable.passive_state == (1, 0, 0, initial_generation[0])
     assert restored.passive_state == stable.passive_state
@@ -1603,7 +1676,7 @@ def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> 
                 "expected": expected_attributes[tile],
             }
             for visible_index, (tile, attribute) in enumerate(
-                _visible_attribute_pairs(audit[name].journey)
+                _visible_attribute_pairs(color[name].journey)
             )
             if attribute != expected_attributes[tile]
         ]
@@ -1620,7 +1693,7 @@ def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> 
     assert not boundary_diagnostics["restored-overworld"]["mismatches"]
     _assert_visible_bg_parity(restored, stable, "restored-overworld")
 
-    assert audit["viridian-entry"].journey.logical_state[:4] == (
+    assert color["viridian-entry"].journey.logical_state[:4] == (
         VIRIDIAN_CITY,
         35,
         20,
@@ -1631,26 +1704,30 @@ def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> 
 def test_route1_wild_battle_round_trip_restores_passive_color_slice() -> None:
     results = RESULTS_ROOT / "route1-wild-battle"
     _prepare_results(results)
-    vanilla = _run_route1_wild_battle_round_trip("pokeyellow_debug", results)
-    audit = _run_route1_wild_battle_round_trip("pokeyellow_phase2_audit", results)
-    for journey in (vanilla, audit):
+    yellow = _run_route1_wild_battle_round_trip(
+        "pokeyellow", results, yellow_mode=True
+    )
+    color = _run_route1_wild_battle_round_trip(
+        "pokeyellow", results, yellow_mode=False
+    )
+    for journey in (yellow, color):
         route_steps, grass_pacing_steps = journey.encounter_steps
         assert route_steps > 0
         assert 0 <= grass_pacing_steps <= 256
 
     expected_palettes = _linked_bytes(
-        "pokeyellow_phase2_audit", "FullColorOverworldBGPalettes", 64
+        "pokeyellow", "FullColorOverworldBGPalettes", 64
     )
     expected_attributes = _linked_bytes(
-        "pokeyellow_phase2_audit", "FullColorOverworldTileAttributes", 256
+        "pokeyellow", "FullColorOverworldTileAttributes", 256
     )
 
-    battle = audit.battle_menu
-    baseline_battle = vanilla.battle_menu
-    assert audit.battle_state[0] == vanilla.battle_state[0] == 0
-    assert audit.battle_state[1] != 0 and vanilla.battle_state[1] != 0
-    assert audit.battle_state[2] != 0 and vanilla.battle_state[2] != 0
-    assert audit.battle_state[3:] == vanilla.battle_state[3:]
+    battle = color.battle_menu
+    baseline_battle = yellow.battle_menu
+    assert color.battle_state[0] == yellow.battle_state[0] == 0
+    assert color.battle_state[1] != 0 and yellow.battle_state[1] != 0
+    assert color.battle_state[2] != 0 and yellow.battle_state[2] != 0
+    assert color.battle_state[3:] == yellow.battle_state[3:]
     assert battle.logical_state[0] == baseline_battle.logical_state[0] == 0x0C
     assert battle.logical_state[2:5] == baseline_battle.logical_state[2:5]
     assert battle.logical_state[-1] == baseline_battle.logical_state[-1] == 1
@@ -1658,6 +1735,9 @@ def test_route1_wild_battle_round_trip_restores_passive_color_slice() -> None:
     # active for the eventual return. No pending passive write may survive.
     assert battle.passive_state[1:3] == (0, 0)
     assert battle.renderer_state == (0, 0)
+    assert baseline_battle.renderer_preference == 1
+    assert battle.renderer_preference == 0
+    assert baseline_battle.passive_state[:3] == (0, 0, 0)
     # Wild species, levels, and Pikachu's naturally generated DVs legitimately
     # follow DIV cadence, so combatants and HP digits can differ. The stable
     # battle command UI must remain exact Yellow pixels, and no passive CGB
@@ -1674,8 +1754,8 @@ def test_route1_wild_battle_round_trip_restores_passive_color_slice() -> None:
     assert battle.hardware_oam == baseline_battle.hardware_oam
     assert battle.shadow_oam == baseline_battle.shadow_oam
 
-    restored = audit.restored_route
-    baseline_restored = vanilla.restored_route
+    restored = color.restored_route
+    baseline_restored = yellow.restored_route
     assert restored.logical_state == baseline_restored.logical_state
     assert restored.logical_state[0] == 0x0C
     assert restored.logical_state[-1] == 0
@@ -1686,6 +1766,9 @@ def test_route1_wild_battle_round_trip_restores_passive_color_slice() -> None:
         restored.renderer_generation[0],
     )
     assert restored.renderer_state == (0, 0)
+    assert baseline_restored.renderer_preference == 1
+    assert restored.renderer_preference == 0
+    assert baseline_restored.passive_state[:3] == (0, 0, 0)
     _assert_visible_bg_parity(restored, baseline_restored, "post-wild-battle-route1")
     _assert_oam_semantics(restored, baseline_restored, "post-wild-battle-route1")
     assert restored.bg_palettes == expected_palettes
@@ -1696,20 +1779,24 @@ def test_route1_wild_battle_round_trip_restores_passive_color_slice() -> None:
 def test_pallet_save_reset_continue_restores_playable_color_slice() -> None:
     results = RESULTS_ROOT / "pallet-save-continue"
     _prepare_results(results)
-    vanilla = _run_pallet_save_continue_round_trip("pokeyellow_debug", results)
-    audit = _run_pallet_save_continue_round_trip("pokeyellow_phase2_audit", results)
+    yellow = _run_pallet_save_continue_round_trip(
+        "pokeyellow", results, yellow_mode=True
+    )
+    color = _run_pallet_save_continue_round_trip(
+        "pokeyellow", results, yellow_mode=False
+    )
 
     expected_palettes = _linked_bytes(
-        "pokeyellow_phase2_audit", "FullColorOverworldBGPalettes", 64
+        "pokeyellow", "FullColorOverworldBGPalettes", 64
     )
     expected_attributes = _linked_bytes(
-        "pokeyellow_phase2_audit", "FullColorOverworldTileAttributes", 256
+        "pokeyellow", "FullColorOverworldTileAttributes", 256
     )
     diagnostics = {}
 
     for name in ("before_reset", "restored", "playable"):
-        baseline = getattr(vanilla, name)
-        candidate = getattr(audit, name)
+        baseline = getattr(yellow, name)
+        candidate = getattr(color, name)
         visible_mismatches = [
             {
                 "visible_index": index,
@@ -1743,6 +1830,9 @@ def test_pallet_save_reset_continue_restores_playable_color_slice() -> None:
 
         assert candidate.logical_state == baseline.logical_state, name
         assert candidate.renderer_state == (0, 0), name
+        assert baseline.renderer_preference == 1, name
+        assert candidate.renderer_preference == 0, name
+        assert baseline.passive_state[:3] == (0, 0, 0), name
         assert candidate.passive_state == (
             1,
             0,
@@ -1754,11 +1844,11 @@ def test_pallet_save_reset_continue_restores_playable_color_slice() -> None:
         _assert_visible_bg_parity(candidate, baseline, name)
         _assert_oam_semantics(candidate, baseline, name)
 
-    assert audit.before_reset.logical_state == (PALLET_TOWN, 10, 7, 1, 22, 0)
-    assert audit.restored.logical_state == audit.before_reset.logical_state
-    assert audit.playable.logical_state == audit.before_reset.logical_state
-    assert audit.before_reset.renderer_generation != audit.restored.renderer_generation
-    assert audit.restored.renderer_generation == audit.playable.renderer_generation
+    assert color.before_reset.logical_state == (PALLET_TOWN, 10, 7, 1, 22, 0)
+    assert color.restored.logical_state == color.before_reset.logical_state
+    assert color.playable.logical_state == color.before_reset.logical_state
+    assert color.before_reset.renderer_generation != color.restored.renderer_generation
+    assert color.restored.renderer_generation == color.playable.renderer_generation
     (results / "paired-save-continue-diagnostics.json").write_text(
         json.dumps(diagnostics, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

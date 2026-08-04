@@ -1,9 +1,14 @@
-"""Exact measured Phase 2 address and product-exclusion checks."""
+"""Exact audit layout and shipped passive-renderer layout checks."""
 
 import re
 from pathlib import Path
 
+import pytest
+
 from tools.rom_tests.tests.conftest import REPOSITORY_ROOT
+
+
+PRODUCTS = ("pokeyellow", "pokeyellow_debug", "pokeyellow_vc")
 
 
 def symbols(product: str) -> dict[str, tuple[int, int]]:
@@ -36,3 +41,18 @@ def test_phase2_rom_window_is_exact_and_normal_products_exclude_audit_surface() 
         for suffix in (".sym", ".map", ".gbc"):
             blob = Path(REPOSITORY_ROOT / f"{product}{suffix}").read_bytes()
             assert not any(marker in blob for marker in forbidden)
+
+
+@pytest.mark.parametrize("product", PRODUCTS)
+def test_shipped_products_keep_passive_state_outside_audit_allocation(
+    product: str,
+) -> None:
+    linked = symbols(product)
+    assert linked["wRendererStateStart"] == (2, 0xD000)
+    assert linked["wRendererStateEnd"] == (2, 0xD00D)
+    assert linked["wPassiveFullColorStateStart"] == (2, 0xD800)
+    assert linked["wPassiveFullColorStateEnd"] == (2, 0xD96C)
+    assert linked["RouteRendererOwnershipVBlank"] == (0x3B, 0x44AC)
+    assert linked["FullColorOverworldBGPalettes"] == (0x3B, 0x452B)
+    assert "wFullColorPhase2StateStart" not in linked
+    assert "InitFullColorSchedulerSelected" not in linked

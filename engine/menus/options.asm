@@ -5,12 +5,8 @@
 	const OPT_BATTLE_STYLE ; 2
 	const OPT_SOUND        ; 3
 	const OPT_PRINTER      ; 4
-IF DEF(PHASE2_AUDIT)
 	const OPT_COLOR_MODE   ; 5
 	const_skip             ; 6
-ELSE
-	const_skip 2
-ENDC
 	const OPT_CANCEL       ; 7
 DEF NUM_OPTIONS EQU const_value ; 8
 
@@ -52,11 +48,7 @@ OptionMenuJumpTable:
 	dw OptionsMenu_BattleStyle
 	dw OptionsMenu_SpeakerSettings
 	dw OptionsMenu_GBPrinterBrightness
-IF DEF(PHASE2_AUDIT)
 	dw OptionsMenu_ColorMode
-ELSE
-	dw OptionsMenu_Dummy
-ENDC
 	dw OptionsMenu_Dummy
 	dw OptionsMenu_Cancel
 
@@ -380,18 +372,17 @@ GetGBPrinterBrightness:
 	lb de, PRINTER_BRIGHTNESS_DARKER, PRINTER_BRIGHTNESS_LIGHTEST
 	ret
 
-IF DEF(PHASE2_AUDIT)
 OptionsMenu_ColorMode:
 	ldh a, [hJoy5]
 	and PAD_LEFT | PAD_RIGHT
 	jr z, .display
 	ld hl, wUnusedObtainedBadges
-	ld a, 1 << BIT_PHASE2_AUDIT_YELLOW_MODE
+	ld a, 1 << BIT_FULL_COLOR_YELLOW_MODE
 	xor [hl]
 	ld [hl], a
 .display
 	ld a, [wUnusedObtainedBadges]
-	and 1 << BIT_PHASE2_AUDIT_YELLOW_MODE
+	and 1 << BIT_FULL_COLOR_YELLOW_MODE
 	ld bc, 0
 	jr z, .place
 	inc c
@@ -413,7 +404,6 @@ OptionsMenu_ColorMode:
 
 .Color:  db "COLOR @"
 .Yellow: db "YELLOW@"
-ENDC
 
 OptionsMenu_Dummy:
 	and a ; clear carry flag
@@ -448,15 +438,9 @@ OptionsControl:
 	scf
 	ret
 .doNotWrap
-	IF DEF(PHASE2_AUDIT)
 	cp OPT_COLOR_MODE
 	jr c, .increase
 	ld [hl], OPT_CANCEL - 1 ; Cancel is after Color Mode and one dummy slot
-	ELSE
-	cp OPT_PRINTER ; skip the next two dummy options
-	jr c, .increase
-	ld [hl], OPT_CANCEL - 1 ; Cancel is after Print
-	ENDC
 .increase
 	inc [hl]
 	scf
@@ -464,15 +448,9 @@ OptionsControl:
 
 .pressedUp
 	ld a, [hl]
-	IF DEF(PHASE2_AUDIT)
 	cp OPT_CANCEL ; skip the dummy option before Cancel
 	jr nz, .doNotSkip
 	ld [hl], OPT_COLOR_MODE
-	ELSE
-	cp OPT_CANCEL ; skip the previous two dummy options
-	jr nz, .doNotSkip
-	ld [hl], OPT_PRINTER ; Print is before Cancel
-	ENDC
 	scf
 	ret
 .doNotSkip
@@ -512,11 +490,7 @@ InitOptionsMenu:
 	call PlaceString
 	xor a
 	ld [wOptionsCursorLocation], a
-	IF DEF(PHASE2_AUDIT)
-	ld c, 6 ; five Yellow options plus the audit-only renderer preference
-	ELSE
-	ld c, 5 ; the number of options to loop through
-	ENDC
+	ld c, 6 ; five Yellow options plus the renderer preference
 .loop
 	push bc
 	call GetOptionPointer ; updates the next option
@@ -527,25 +501,17 @@ InitOptionsMenu:
 	jr nz, .loop
 	xor a
 	ld [wOptionsCursorLocation], a
-	IF DEF(PHASE2_AUDIT)
 	farcall PassiveFullColorShouldColorOverlay
 	jr nc, .yellowInitialCursor
 	call OptionsMenu_UpdateCursorPosition
 	farcall PassiveFullColorPrepareMenuOverlay
 .yellowInitialCursor
-	ENDC
-	IF DEF(PHASE2_AUDIT)
 	ldh a, [hAutoBGTransferEnabled]
 	or 1
-	ELSE
-	inc a
-	ENDC
 	ldh [hAutoBGTransferEnabled], a
 	call Delay3
-	IF DEF(PHASE2_AUDIT)
 	xor a
 	ldh [hWY], a
-	ENDC
 	ret
 
 AllOptionsText:
@@ -554,11 +520,7 @@ AllOptionsText:
 	next "BATTLESTYLE:"
 	next "SOUND:"
 	next "PRINT:"
-IF DEF(PHASE2_AUDIT)
 	next "COLOR MODE:@"
-ELSE
-	db "@"
-ENDC
 
 OptionMenuCancelText:
 	db "CANCEL@"

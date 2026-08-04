@@ -115,28 +115,35 @@ Classify first; debug second:
 Diagnostic output is evidence, not source. Preserve failed and successful
 attempts separately. Regenerate checked-in evidence only through its documented
 producer and review the semantic diff, not merely the exit code.
+Ordinary `measure-full-color-*` commands stop before that acceptance boundary:
+they write unreviewed proposals under `test-results/full-color-proposals/` and
+never update checked-in authority or evidence. A human review must explicitly
+incorporate accepted authority changes before generating reviewed evidence.
 
 ## Current playable full-color loop
 
-The playable color implementation is currently the **Phase 2 audit product**,
-`pokeyellow_phase2_audit.gbc`. It passively colors Pallet Town and Route 1.
-Interiors, menus, battles, cutscenes, sprites, animation, and maps outside that
-slice retain Pokemon Yellow's existing visual behavior.
+The normal, debug, and VC products all ship the same saved Color/Yellow toggle
+and bounded passive renderer. Color passively colors Pallet Town and Route 1.
+Yellow mode, interiors, menus, battles, cutscenes, sprites, animation, and maps
+outside that slice retain Pokemon Yellow's existing visual behavior.
 
-The normal release, debug, and VC products deliberately do not expose this
-audit runtime. The audit ROM is a playable canary and evidence product, not yet
-the release ROM. Read [Architecture](ARCHITECTURE.md) for the ownership contract
-and [Adding content](ADDING_CONTENT.md) before adding a map or palette.
+`pokeyellow_phase2_audit.gbc` adds diagnostic and certification surfaces to the
+same behavior. `PHASE2_AUDIT` does not gate the toggle or renderer. Read
+[Architecture](ARCHITECTURE.md) for the ownership contract and
+[Adding content](ADDING_CONTENT.md) before adding a map or palette.
 
-Set up the pinned Python environment once per checkout, then build paired ROMs:
+Set up the pinned Python environment once per checkout, then build the shipped
+normal and debug ROMs used by the natural journeys. Build the audit ROM as well
+when running its diagnostic verifier:
 
 ```console
 make test-full-color-setup
-make yellow_debug yellow_phase2_audit
+make yellow yellow_debug yellow_phase2_audit
 ```
 
-Use `pokeyellow_phase2_audit.gbc` for color review and
-`pokeyellow_debug.gbc` as its Yellow reference, built from the same revision.
+Use `pokeyellow.gbc` for ordinary Color and Yellow review, changing the saved
+option inside the game. The debug ROM is for journeys that need debug controls;
+it is not a separate Yellow baseline.
 Run checks from fast to slow:
 
 ```console
@@ -146,7 +153,7 @@ make verify-full-color-phase2-audit
 make test-full-color-smoke
 make test-full-color-renderer-conformance
 make test-full-color-renderer-runtime
-make yellow_debug yellow_phase2_audit
+make yellow yellow_debug
 .venv/bin/python -m pytest tools/rom_tests/tests/e2e/test_full_color_cold_boot_journey.py -q
 make test-full-color-gate0
 make test-full-color-all
@@ -167,7 +174,8 @@ return, and no seams or one-frame palette swaps.
 ### Full-color-specific triage
 
 - A white screen or progression stop is a control-flow failure, not a palette
-  problem. Narrow the first audit-only entry reached before the stall.
+  problem. Narrow the first renderer entry reached before the stall; inspect
+  audit-only entries only when the failing product is the audit ROM.
 - Corrupt tiles or cutscene graphics drawn over an overworld mean tile bytes,
   indices, attribute coordinates, VRAM banks, wrapping, or cleanup are wrong.
   Stop palette tuning until geometry matches the debug ROM.
@@ -177,9 +185,10 @@ return, and no seams or one-frame palette swaps.
 - For flicker or seams, assume scheduling until disproved. Yellow's redraw and
   animation work retains priority; passive work must defer or clear in bounded
   chunks.
-- Audit-only entries in a normal product are a release-boundary regression.
-  Stop feature work and run `make verify-full-color-phase2-audit`; do not weaken
-  reachability, identity, or provenance checks.
+- Audit-only diagnostics in a shipped product are a release-boundary
+  regression. The toggle and passive renderer themselves are required there.
+  Stop feature work and run the product-linkage and Phase 2 audit checks; do not
+  weaken reachability, identity, or provenance assertions.
 
 Full-color artifacts currently land in:
 

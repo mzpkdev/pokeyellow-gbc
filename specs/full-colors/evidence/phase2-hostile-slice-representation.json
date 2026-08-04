@@ -1,60 +1,68 @@
 {
   "activation": {
-    "audit_guard": "PHASE2_AUDIT",
-    "normal_rom_reachable": false
+    "audit_diagnostics": {
+      "guard": "PHASE2_AUDIT",
+      "product": "pokeyellow_phase2_audit"
+    },
+    "normal_rom_reachable": true,
+    "production_products": [
+      "pokeyellow",
+      "pokeyellow_debug",
+      "pokeyellow_vc"
+    ]
   },
   "inputs": {
     "pokeyellow.gbc": {
       "path": "pokeyellow.gbc",
-      "sha256": "69d3f6dd44b99525ee2c68d0506bc9f0d7a0983813cfe8aa3a4a9ff9bcb53e62"
+      "sha256": "2583ea2111d7a0af4bb28e01e2bacd10e096908971fdb912b2099ba5e5b43d3f"
     },
     "pokeyellow.map": {
       "path": "pokeyellow.map",
-      "sha256": "722194d959488f5cc51c8b984e3ade001f114bd53f61530376fb23ced122bb83"
+      "sha256": "702734456480abbcca0252b520d9d4af02b38f77ac833307e2ea481350dc3f2a"
     },
     "pokeyellow.sym": {
       "path": "pokeyellow.sym",
-      "sha256": "d4883662c0ff8cee51a6083449b25e60b6645157450ada256708de99bf99cef0"
+      "sha256": "0593b8b7df0d5a64aa36fe1dc038704207bd099a0e0d71f5c03afae678b3b7aa"
     },
     "pokeyellow_debug.gbc": {
       "path": "pokeyellow_debug.gbc",
-      "sha256": "60fcf230262d88a8e25edb44c08127fae68935016d3abdbfbb2f0c07f87d4d47"
+      "sha256": "1320e0270d3d380ad813ebdd00aa95d4f1b923496882e09354aec8672c22250c"
     },
     "pokeyellow_debug.map": {
       "path": "pokeyellow_debug.map",
-      "sha256": "0de2ed929e4906491f0a13758919f13455379ce1df03f182bc7224df228e32e7"
+      "sha256": "489d9dca79941eb8951db5da0100af116078a917b5ad53bd329878b85233b9ec"
     },
     "pokeyellow_debug.sym": {
       "path": "pokeyellow_debug.sym",
-      "sha256": "33104efc62dead4f91dc9b05234e2182e02b7b2dae0f9942a812f19d0326d5c7"
+      "sha256": "7d554e4f1280b63bdd9a3be2f92076e5e72836dc15f8f6452b54cbc80b2742e4"
     },
     "pokeyellow_phase2_audit.gbc": {
       "path": "pokeyellow_phase2_audit.gbc",
-      "sha256": "40b0a702c94ebddeb3fd26202c10a60b6dd00b66a392da7ab9598d61c092dcd6"
+      "sha256": "895025b92b2c45a6466562748dd6ecf1920beafffa4f8f35ae4929b5090552fb"
     },
     "pokeyellow_phase2_audit.map": {
       "path": "pokeyellow_phase2_audit.map",
-      "sha256": "f6c9ca2f315bed0432e4e6964377262ccd0202f2674eeaf584cffdd387b53f25"
+      "sha256": "d81c06c3a8ab6495c1e46dcbfaa56fba6f4a292014ef15fdb6f062a67e2f946b"
     },
     "pokeyellow_phase2_audit.sym": {
       "path": "pokeyellow_phase2_audit.sym",
-      "sha256": "11c50853e72e28fdff47b721ac0cf6f5fe14396b311a59d9b993fc5ef2b619d3"
+      "sha256": "14b78a0f9d7901855c6012ada26240065270df8f6f3bd3e9edd17b52ea96d0f8"
     },
     "pokeyellow_vc.gbc": {
       "path": "pokeyellow_vc.gbc",
-      "sha256": "0bbf8f8e980b97657481a7323270bb1a6057db425d5a82ea414c547d55d9fd17"
+      "sha256": "be45845c9966941999cbceed2b2842a945d9a59adaed157cef25d5f971f96e8b"
     },
     "pokeyellow_vc.map": {
       "path": "pokeyellow_vc.map",
-      "sha256": "195b4dd0acfd6f2517d4fdf0f66ee18f54e72b83bb3128d99850f176b60d8638"
+      "sha256": "2aae1a8fc0485f22fb9562dd160d124639678f6a669a3daf0ff3e5a47f8ce8e5"
     },
     "pokeyellow_vc.sym": {
       "path": "pokeyellow_vc.sym",
-      "sha256": "7eaf28a626b184367849b2b667cfa049840e4dd78e573c1912c2268e6d4aa3bc"
+      "sha256": "6467655e50c7e98a1cb4ff3594f8c5aca4352f674f2ecca660a22c6d09a868ec"
     },
     "specs/full-colors/definitions/phase1-audit-source-transition.json": {
       "path": "specs/full-colors/definitions/phase1-audit-source-transition.json",
-      "sha256": "f0be312988f9d72e5baf364047b59f3a7fd00f09f540e778ec756334b90a5797"
+      "sha256": "1a840de64ece5bce1e526a19112e3e5ced8889a0ab9ea5329c1595460f9097ba"
     },
     "specs/full-colors/definitions/phase2-hostile-slice-representation.json": {
       "path": "specs/full-colors/definitions/phase2-hostile-slice-representation.json",
@@ -66,19 +74,19 @@
     },
     "specs/full-colors/inventory/assignments.json": {
       "path": "specs/full-colors/inventory/assignments.json",
-      "sha256": "1cd8ca1985aa45044bd1575c3302f78b70071641e32252fa573550324f5b62ac"
+      "sha256": "3a6acf655f6f0ba30ce8e0ca15458858c04a3c550460a6856c5dd5150d882757"
     },
     "specs/full-colors/inventory/mutations.json": {
       "path": "specs/full-colors/inventory/mutations.json",
-      "sha256": "c4d00eaad6ff15f3829cd76ce1be156096a10e3d76ff0764857a77ed602d5a23"
+      "sha256": "ffe52393df5ff0565d41f3976d2fbb42982d381ded5bbc8f6d73358a54080652"
     },
     "specs/full-colors/inventory/scenes.json": {
       "path": "specs/full-colors/inventory/scenes.json",
-      "sha256": "28a36c92b24dc8a28d42c2a2e2ef16e697a05a25b3916a7b21e9dcf7d2cf9f90"
+      "sha256": "3041fedc6b32a659f82ba8123bacb7fe9eed5e405e69fb04f87190c69f202872"
     },
     "specs/full-colors/inventory/writers.json": {
       "path": "specs/full-colors/inventory/writers.json",
-      "sha256": "10b7f558742312139fe9ea2b889014651d268e7aedb0659bce4563696f25c756"
+      "sha256": "649e885fe08b180901af93e2af2524a1a3b2969d0e4921543ebdc9ca24715790"
     }
   },
   "inventory_audit": {
@@ -89,17 +97,29 @@
       "NORTH"
     ],
     "coverage": "SCOPED_DESCENDANT_CLOSURE",
+    "diagnostic_product": "pokeyellow_phase2_audit",
     "guard": "PHASE2_AUDIT",
     "guarded_root_count": 32,
-    "inventory_state": "audit-closed",
-    "normal_rom_reachable": false,
-    "planned_assignment_count": 1379,
+    "inventory_state": "production-closed",
+    "normal_rom_reachable": true,
+    "planned_assignment_count": 5663,
     "planned_row_count": 0,
-    "rom_candidate_subject_count": 184,
-    "rom_subject_count": 948,
+    "product_assignment_counts": {
+      "pokeyellow": 1414,
+      "pokeyellow_debug": 1414,
+      "pokeyellow_phase2_audit": 1421,
+      "pokeyellow_vc": 1414
+    },
+    "production_products": [
+      "pokeyellow",
+      "pokeyellow_debug",
+      "pokeyellow_vc"
+    ],
+    "rom_candidate_subject_count": 190,
+    "rom_subject_count": 983,
     "rom_unlisted_subject_count": 0,
     "rom_unresolved_disposition_count": 238,
-    "source_subject_count": 247,
+    "source_subject_count": 248,
     "source_unlisted_subject_count": 0
   },
   "ownership_abi": {
@@ -799,9 +819,9 @@
   },
   "rom": {
     "bank": 59,
-    "end": 27379,
+    "end": 27864,
     "reserved_bytes": 4096,
-    "start": 23284
+    "start": 23769
   },
   "schema": "full-color-phase2-hostile-slice-representation-v1",
   "scratch": {
@@ -848,7 +868,7 @@
   },
   "wram": {
     "bank": 2,
-    "end": 55963,
-    "start": 54996
+    "end": 54228,
+    "start": 53261
   }
 }

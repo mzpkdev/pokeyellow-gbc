@@ -124,20 +124,29 @@ flags:
 
 | Target | Defining flags | Purpose |
 | --- | --- | --- |
-| `make yellow` | none | normal ROM |
-| `make yellow_debug` | `_DEBUG` | debug ROM |
-| `make yellow_vc` | `_YELLOW_VC` | Virtual Console patch product |
-| `make yellow_phase2_audit` | `_DEBUG`, `PHASE2_AUDIT` | experimental renderer audit ROM |
+| `make yellow` | none | normal ROM with the bounded Color/Yellow mode |
+| `make yellow_debug` | `_DEBUG` | debug ROM with the same bounded mode |
+| `make yellow_vc` | `_YELLOW_VC` | Virtual Console product with the same bounded mode |
+| `make yellow_phase2_audit` | `_DEBUG`, `PHASE2_AUDIT` | debug-derived ROM with extra Phase 2 diagnostics |
 
-Conditional source changes layout and reachability independently for each
-product. Experimental runtime belongs behind an explicit product flag until
-its release migration is approved. Normal, debug, and VC builds must not gain
-an experimental path merely because its module is present in source.
+The Color/Yellow toggle and passive Pallet Town/Route 1 renderer are linked and
+reachable in all three shipped products. `PHASE2_AUDIT` adds diagnostic
+mailboxes, callable roots, trace carriers, and certification metadata only; it
+MUST NOT select, enable, disable, or otherwise alter player-visible renderer
+behavior. Runtime preference and map eligibility are the behavior gates.
+
+Conditional source still changes layout and reachability independently for
+each product. Experimental diagnostics and proposed renderer machinery belong
+behind explicit partitions until their migrations are approved. Normal,
+debug, and VC builds must not gain those surfaces merely because their modules
+are present in source.
 
 Product isolation is broader than color. Future experiments should follow the
 same pattern: a named build, an explicit inclusion guard, fail-closed runtime
-activation, and checks proving ordinary products remain unaffected. The
-release ROM's reproducibility check remains load-bearing whenever the project
+activation, and checks proving ordinary products remain unaffected. A product
+flag cannot substitute for a player-visible option once behavior is approved
+for shipment. The release ROM's reproducibility check remains load-bearing
+whenever the project
 still claims fidelity to the base disassembly.
 
 ## Runtime integration boundaries

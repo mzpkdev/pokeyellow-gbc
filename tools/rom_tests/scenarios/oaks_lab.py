@@ -16,6 +16,7 @@ SCRIPT_OAKSLAB_RIVAL_CHALLENGES_PLAYER = 12
 SCRIPT_OAKSLAB_NOOP = 22
 
 JourneyCheckpoint = Callable[[str, Emulator], None]
+BedroomSetup = Callable[[Emulator], None]
 
 
 def _advance_to_value(
@@ -129,9 +130,13 @@ def finish_rival_battle_and_leave_lab(emulator: Emulator) -> None:
 def complete_oaks_lab_intro(
     emulator: Emulator,
     checkpoint: JourneyCheckpoint | None = None,
+    *,
+    bedroom_setup: BedroomSetup | None = None,
 ) -> None:
     """Start a new game, receive Pikachu, battle the rival, and leave the lab."""
     reach_bedroom_overworld(emulator)
+    if bedroom_setup is not None:
+        bedroom_setup(emulator)
     if checkpoint is not None:
         checkpoint("bedroom", emulator)
     walk_from_bedroom_to_oak(emulator, checkpoint)

@@ -15,6 +15,9 @@ def _recipes() -> dict[str, str]:
     names = (
         "test-full-color-setup",
         "measure-full-color-phase1",
+        "measure-full-color-source-transition",
+        "measure-full-color-audit-evidence-identities",
+        "measure-full-color-phase2-audit",
         "verify-full-color-phase2-audit",
         "test-full-color-gate0",
         "test-full-color-renderer-conformance",
@@ -165,9 +168,141 @@ def test_phase1_measurement_has_a_stable_build_dependent_command() -> None:
         in target
     )
     assert (
-        "--output specs/full-colors/evidence/phase1-ownership-placement.json"
+        '--output "$(FULL_COLOR_PROPOSALS)/phase1-ownership-placement.proposal.json"'
         in target
     )
+
+
+def test_measurement_make_graph_emits_only_disposable_unreviewed_proposals(
+    tmp_path: Path,
+) -> None:
+    proposal_root = tmp_path / "proposals with spaces"
+    completed = subprocess.run(
+        (
+            "make",
+            "-n",
+            "-B",
+            "measure-full-color-phase2-audit",
+            "PYTHON=/proposal-python",
+            f"FULL_COLOR_PROPOSALS={proposal_root}",
+        ),
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    commands = [
+        line
+        for line in completed.stdout.splitlines()
+        if "tools.rom_tests.full_color" in line
+        and any(
+            module in line
+            for module in (
+                "source_transition",
+                "audit_evidence_identities",
+                "phase2_measurements",
+            )
+        )
+    ]
+    assert [line.split(" -m ", 1)[1].split()[0] for line in commands] == [
+        "tools.rom_tests.full_color.source_transition",
+        "tools.rom_tests.full_color.audit_evidence_identities",
+        "tools.rom_tests.full_color.phase2_measurements",
+    ]
+    assert f'--proposal-output "{proposal_root}/phase1-source-transition.proposal.json"' in commands[0]
+    assert f'--transition-proposal "{proposal_root}/phase1-source-transition.proposal.json"' in commands[1]
+    assert f'--proposal-output "{proposal_root}/audit-evidence-identities.proposal.json"' in commands[1]
+    assert f'--proposal-output "{proposal_root}/phase2-subjects.proposal.json"' in commands[2]
+    assert all("specs/full-colors" not in line for line in commands)
+
+
+def test_actual_measurement_make_graph_preserves_all_reviewed_files(
+    tmp_path: Path,
+) -> None:
+    reviewed = (
+        ROOT / "specs/full-colors/definitions/phase1-audit-source-transition.json",
+        ROOT / "specs/full-colors/inventory/assignments.json",
+        ROOT / "specs/full-colors/inventory/mutations.json",
+        ROOT / "specs/full-colors/inventory/scenes.json",
+        ROOT / "specs/full-colors/inventory/writers.json",
+        ROOT / "specs/full-colors/evidence/phase1-ownership-placement.json",
+        ROOT / "specs/full-colors/evidence/phase2-hostile-slice-representation.json",
+    )
+    before = {path: path.read_bytes() for path in reviewed}
+    proposal_root = tmp_path / "proposal-root"
+    log = tmp_path / "producer.log"
+    producer = tmp_path / "proposal-python"
+    producer.write_text(
+        "#!/bin/sh\n"
+        "set -eu\n"
+        "printf '%s\\n' \"$*\" >> \"$MEASURE_LOG\"\n"
+        "while [ \"$#\" -gt 0 ]; do\n"
+        "  case \"$1\" in\n"
+        "    --output|--proposal-output)\n"
+        "      shift\n"
+        "      mkdir -p \"$(dirname \"$1\")\"\n"
+        "      printf '{}\\n' > \"$1\"\n"
+        "      ;;\n"
+        "  esac\n"
+        "  shift\n"
+        "done\n",
+        encoding="utf-8",
+    )
+    producer.chmod(0o755)
+    environment = os.environ.copy()
+    environment["MEASURE_LOG"] = str(log)
+    completed = subprocess.run(
+        (
+            "make",
+            "--old-file=pokeyellow.gbc",
+            "--old-file=pokeyellow_debug.gbc",
+            "--old-file=pokeyellow.patch",
+            "--old-file=pokeyellow_phase2_audit.gbc",
+            "measure-full-color-phase1",
+            "measure-full-color-phase2-audit",
+            f"PYTHON={producer}",
+            f"FULL_COLOR_PROPOSALS={proposal_root}",
+        ),
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert {path: path.read_bytes() for path in reviewed} == before
+    expected = {
+        "phase1-ownership-placement.proposal.json",
+        "phase1-source-transition.proposal.json",
+        "audit-evidence-identities.proposal.json",
+        "phase2-subjects.proposal.json",
+    }
+    assert {path.name for path in proposal_root.iterdir()} == expected
+    invoked = log.read_text(encoding="utf-8")
+    assert invoked.index("phase1_measurements") < invoked.index("source_transition")
+    assert invoked.index("source_transition") < invoked.index("audit_evidence_identities")
+    assert invoked.index("audit_evidence_identities") < invoked.index("phase2_measurements")
+
+
+def test_phase2_verify_make_graph_is_read_only() -> None:
+    completed = subprocess.run(
+        ("make", "-n", "-B", "verify-full-color-phase2-audit", "PYTHON=/verify-python"),
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    command = next(
+        line
+        for line in completed.stdout.splitlines()
+        if "tools.rom_tests.full_color.phase2_measurements" in line
+    )
+    assert "--verify" in command
+    assert "--proposal-output" not in command
+    assert "--authority-reviewed" not in command
+    assert "specs/full-colors/evidence/phase2-hostile-slice-representation.json" in command
 
 
 def test_cgb_only_link_allows_measured_switchable_wram_bank() -> None:

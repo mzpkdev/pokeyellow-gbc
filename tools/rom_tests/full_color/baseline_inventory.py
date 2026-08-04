@@ -13,8 +13,10 @@ from typing import Any, Sequence
 from .baseline_discovery import discover_baseline_rom, discover_baseline_sources
 from .discovery_assignment import (
     DiscoveryAssignmentAuthority,
+    GATE0_BASELINE_ASSIGNMENT_IDS,
     NORMAL_DEBUG_PRODUCT,
     PHASE2_AUDIT_PRODUCT,
+    PRODUCTION_PRODUCTS,
     StaleDiscoveryAssignmentError,
 )
 from .discovery_review import rom_finding_subject, source_finding_subject
@@ -25,6 +27,7 @@ from .inventory import (
     WriterInventory,
     reconcile,
 )
+from .source_transition import _rebound_rom_finding, _rebound_source_finding
 
 PROGRESS_SCHEMA = "full-color-inventory-progress-v2"
 REVIEWED_SLICE = "initial-map-entry-v1"
@@ -150,8 +153,10 @@ def _reviewed_source_view(
     source_report: Any,
     repository: Path,
 ) -> tuple[Any, dict[str, Any] | None]:
-    """Verify and apply the explicit audit-only source-hash transition."""
-    assignments = assignments.for_product(NORMAL_DEBUG_PRODUCT)
+    """Verify and apply the explicit reviewed source-hash transition."""
+    assignments = DiscoveryAssignmentAuthority(tuple(
+        row for row in assignments.rows if row.id in GATE0_BASELINE_ASSIGNMENT_IDS
+    ))
     reviewed_hashes = {row.evidence.source_sha256 for row in assignments.rows}
     if len(reviewed_hashes) != 1:
         raise StaleDiscoveryAssignmentError(
@@ -170,21 +175,21 @@ def _reviewed_source_view(
             "reviewed source hash changed without a valid audit-only transition"
         ) from exc
     expected_keys = {
-        "schema", "reviewed_source_sha256", "audit_source_sha256",
-        "baseline_manifest_sha256", "audit_only_paths", "subject_rebindings",
+        "schema", "reviewed_source_sha256", "current_source_sha256",
+        "baseline_manifest_sha256", "reviewed_delta_paths", "subject_rebindings",
         "rom_subject_rebindings",
     }
     if set(transition) != expected_keys or transition["schema"] != (
-        "full-color-phase1-audit-source-transition-v2"
+        "full-color-production-source-transition-v3"
     ):
         raise InventoryReconciliationError("malformed audit-only source transition")
-    if transition["audit_source_sha256"] != source_report.source_sha256:
+    if transition["current_source_sha256"] != source_report.source_sha256:
         if source_report.source_sha256 == evidence_hash:
             return source_report, None
-        raise InventoryReconciliationError("audit transition does not bind current source hash")
+        raise InventoryReconciliationError("source transition does not bind current source hash")
     if evidence_hash not in {
         transition["reviewed_source_sha256"],
-        transition["audit_source_sha256"],
+        transition["current_source_sha256"],
     }:
         raise InventoryReconciliationError(
             "assignment rows have stale baseline evidence: audit transition does not "
@@ -194,21 +199,21 @@ def _reviewed_source_view(
         repository, (path for path, _ in source_report.include_graph)
     )
     baseline_manifest = dict(current_manifest)
-    for relative, binding in transition["audit_only_paths"].items():
+    for relative, binding in transition["reviewed_delta_paths"].items():
         relative = _transition_path(relative)
-        if set(binding) != {"reviewed_sha256", "audit_sha256"}:
+        if set(binding) != {"reviewed_sha256", "current_sha256"}:
             raise InventoryReconciliationError(
-                f"malformed audit-only transition path binding: {relative}"
+                f"malformed reviewed transition path binding: {relative}"
             )
         actual = current_manifest.get(relative)
-        audit = binding["audit_sha256"]
-        if not _sha256_text(audit):
+        current = binding["current_sha256"]
+        if not _sha256_text(current):
             raise InventoryReconciliationError(
                 f"malformed audit path hash: {relative}"
             )
-        if actual != audit:
+        if actual != current:
             raise InventoryReconciliationError(
-                f"audit-only transition path changed: {relative}"
+                f"reviewed transition path changed: {relative}"
             )
         reviewed = binding["reviewed_sha256"]
         if reviewed is None:
@@ -218,9 +223,9 @@ def _reviewed_source_view(
                 )
             baseline_manifest.pop(relative, None)
         elif _sha256_text(reviewed):
-            if reviewed == audit:
+            if reviewed == current:
                 raise InventoryReconciliationError(
-                    f"audit-only transition path has no actual delta: {relative}"
+                    f"reviewed transition path has no actual delta: {relative}"
                 )
             baseline_manifest[relative] = reviewed
         else:
@@ -229,7 +234,7 @@ def _reviewed_source_view(
             )
     if _manifest_sha256(baseline_manifest) != transition["baseline_manifest_sha256"]:
         raise InventoryReconciliationError(
-            "current source changed outside the hash-bound audit-only change set"
+            "current source changed outside the hash-bound reviewed change set"
         )
     source_rows = {
         row.subject.sha256: row
@@ -242,7 +247,7 @@ def _reviewed_source_view(
     }
     if set(transition["subject_rebindings"]) != set(source_rows):
         raise InventoryReconciliationError(
-            "audit-only transition does not enumerate reviewed semantic subjects"
+            "source transition does not enumerate reviewed semantic subjects"
         )
     translated: dict[str, Any] = {}
     for old_sha, new_sha in transition["subject_rebindings"].items():
@@ -252,7 +257,9 @@ def _reviewed_source_view(
             raise InventoryReconciliationError(
                 f"audit-only transition target subject is absent: {new_sha}"
             )
-        rebound = replace(finding, symbol=row.subject.metadata["symbol"])
+        rebound = _rebound_source_finding(
+            repository, transition["reviewed_delta_paths"], finding, row
+        )
         if source_finding_subject(rebound) != row.subject:
             raise InventoryReconciliationError(
                 f"audit-only transition changes reviewed subject semantics: {old_sha}"
@@ -270,7 +277,9 @@ def _reviewed_rom_view(
     rom_report: Any,
     transition: dict[str, Any] | None,
 ) -> Any:
-    assignments = assignments.for_product(NORMAL_DEBUG_PRODUCT)
+    assignments = DiscoveryAssignmentAuthority(tuple(
+        row for row in assignments.rows if row.id in GATE0_BASELINE_ASSIGNMENT_IDS
+    ))
     if transition is None:
         return rom_report
     rows = {
@@ -284,7 +293,7 @@ def _reviewed_rom_view(
     bindings = transition["rom_subject_rebindings"]
     if set(bindings) != set(rows):
         raise InventoryReconciliationError(
-            "audit-only transition does not enumerate reviewed ROM subjects"
+            "source transition does not enumerate reviewed ROM subjects"
         )
     translated: dict[str, Any] = {}
     for old_sha, new_sha in bindings.items():
@@ -294,11 +303,7 @@ def _reviewed_rom_view(
             raise InventoryReconciliationError(
                 f"audit-only transition ROM target subject is absent: {new_sha}"
             )
-        rebound = replace(
-            finding,
-            root=row.subject.metadata["root"],
-            call_path=tuple(row.subject.metadata["call_path"]),
-        )
+        rebound = _rebound_rom_finding(finding, row)
         if rom_finding_subject(rebound) != row.subject:
             raise InventoryReconciliationError(
                 f"audit-only transition changes reviewed ROM semantics: {old_sha}"
@@ -309,6 +314,138 @@ def _reviewed_rom_view(
         for finding in rom_report.findings
     )
     return replace(rom_report, findings=findings)
+
+
+def _current_rom_layouts(
+    assignments: DiscoveryAssignmentAuthority,
+    rom_report: Any,
+    transition: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Resolve each reviewed ROM assignment to one current-layout finding."""
+    if transition is None:
+        return {}
+    rows = {
+        row.subject.sha256: row
+        for row in assignments.rows
+        if row.subject.kind.value == "ROM_FINDING"
+    }
+    current: dict[str, Any] = {}
+    for finding in rom_report.findings:
+        digest = rom_finding_subject(finding).sha256
+        if digest in current:
+            raise InventoryReconciliationError(
+                f"duplicate current ROM transition subject: {digest}"
+            )
+        current[digest] = finding
+    bindings = transition["rom_subject_rebindings"]
+    if set(bindings) != set(rows):
+        raise InventoryReconciliationError(
+            "source transition does not enumerate reviewed ROM subjects"
+        )
+    layouts: dict[str, Any] = {}
+    claimed: set[str] = set()
+    for old_sha, new_sha in bindings.items():
+        finding = current.get(new_sha)
+        if finding is None:
+            raise InventoryReconciliationError(
+                f"audit-only transition ROM target subject is absent: {new_sha}"
+            )
+        row = rows[old_sha]
+        if rom_finding_subject(_rebound_rom_finding(finding, row)) != row.subject:
+            raise InventoryReconciliationError(
+                f"audit-only transition changes reviewed ROM semantics: {old_sha}"
+            )
+        if new_sha in claimed:
+            raise InventoryReconciliationError(
+                "reviewed ROM subjects do not map uniquely to current findings"
+            )
+        claimed.add(new_sha)
+        layouts[old_sha] = finding
+    return layouts
+
+
+def _restore_current_rom_report(rom_report: Any, layouts: dict[str, Any]) -> Any:
+    """Restore current coordinates after reviewed assignment consumption."""
+    if not layouts:
+        return rom_report
+    restored = []
+    consumed: set[str] = set()
+    for finding in rom_report.findings:
+        digest = rom_finding_subject(finding).sha256
+        current = layouts.get(digest)
+        if current is None:
+            restored.append(finding)
+            continue
+        if digest in consumed:
+            raise InventoryReconciliationError(
+                f"reviewed ROM layout restored more than once: {digest}"
+            )
+        consumed.add(digest)
+        restored.append(replace(current, category=finding.category))
+    missing = sorted(set(layouts) - consumed)
+    if missing:
+        raise InventoryReconciliationError(
+            "reviewed ROM layout was not projected before restoration: "
+            + ", ".join(missing)
+        )
+    return replace(rom_report, findings=tuple(restored))
+
+
+def _restore_current_inventory_layout(
+    document: Any,
+    assignments: DiscoveryAssignmentAuthority,
+    layouts: dict[str, Any],
+) -> Any:
+    """Move reviewed machine sites to current coordinates without changing bytes."""
+    if not layouts:
+        return document
+    raw = json.loads(document.to_json())
+    rows = {row["id"]: row for row in raw["rows"]}
+    for assignment in assignments.rows:
+        if assignment.subject.kind.value != "ROM_FINDING":
+            continue
+        current = layouts[assignment.subject.sha256]
+        target = rows.get(assignment.row_id)
+        if target is None:
+            continue
+        reviewed = assignment.subject.metadata
+        matches = [
+            site
+            for site in target.get("machine_sites", ())
+            if (
+                site["bank"],
+                site["address"],
+                site["rom_offset"],
+                site["bytes"],
+            )
+            == (
+                reviewed["bank"],
+                reviewed["address"],
+                reviewed["rom_offset"],
+                reviewed["bytes"],
+            )
+        ]
+        if len(matches) != 1:
+            raise InventoryReconciliationError(
+                f"{assignment.row_id}: reviewed ROM machine site has "
+                f"{len(matches)} exact inventory matches; expected one"
+            )
+        site = matches[0]
+        if current.bytes != site["bytes"]:
+            raise InventoryReconciliationError(
+                f"{assignment.row_id}: current ROM layout changes reviewed bytes"
+            )
+        site.update(
+            bank=current.bank,
+            address=current.address,
+            rom_offset=current.rom_offset,
+        )
+    for row in raw["rows"]:
+        row["machine_sites"] = sorted(
+            row.get("machine_sites", ()),
+            key=lambda site: (site["bank"], site["address"]),
+        )
+    return type(document).from_dict(raw)
 
 
 def _partition_authority(document: Any) -> tuple[Any, tuple[dict[str, Any], ...]]:
@@ -338,7 +475,7 @@ def _phase2_transition_state(
     mutations: MutationInventory,
     assignments: DiscoveryAssignmentAuthority,
 ) -> str:
-    """Require the hostile tranche to be wholly planned or wholly audit-closed."""
+    """Require the hostile tranche to be wholly planned or production-closed."""
     rows = {
         row["id"]: row
         for document in (writers, scenes, mutations)
@@ -350,31 +487,49 @@ def _phase2_transition_state(
             "planned Phase 2 row IDs must be the exact closed set; "
             f"missing={sorted(PHASE2_PLANNED_ROW_IDS - set(rows))}"
         )
+    partitions = {
+        product: assignments.for_product(product) for product in PRODUCTION_PRODUCTS
+    }
     audit = assignments.for_product(PHASE2_AUDIT_PRODUCT)
-    audit_targets = {row.row_id for row in audit.rows}
+    assigned = tuple(
+        row for authority in partitions.values() for row in authority.rows
+        if row.row_id in PHASE2_PLANNED_ROW_IDS
+    )
+    audit_phase2 = tuple(
+        row for row in audit.rows if row.row_id in PHASE2_PLANNED_ROW_IDS
+    )
     planned = {row_id for row_id, row in rows.items() if row["planned"]}
     reviewed = {
         row_id for row_id, row in rows.items() if row["evidence"]["reviewed"]
     }
-    if planned == PHASE2_PLANNED_ROW_IDS and not reviewed and not audit.rows:
+    if planned == PHASE2_PLANNED_ROW_IDS and not reviewed and not assigned and not audit_phase2:
         return "planned"
     if planned == PHASE2_PLANNED_ROW_IDS and reviewed:
         raise InventoryReconciliationError(
             "planned row cannot claim reviewed evidence"
         )
-    if planned == PHASE2_PLANNED_ROW_IDS and audit.rows:
+    if planned == PHASE2_PLANNED_ROW_IDS and (assigned or audit_phase2):
         raise InventoryReconciliationError(
             "planned hostile rows consume closure assignments"
         )
     if (
         not planned
         and reviewed == PHASE2_PLANNED_ROW_IDS
-        and audit_targets == PHASE2_PLANNED_ROW_IDS
+        and all(
+            {
+                row.row_id for row in authority.rows
+                if row.row_id in PHASE2_PLANNED_ROW_IDS
+            } == PHASE2_PLANNED_ROW_IDS
+            for authority in partitions.values()
+        )
+        and {
+            row.row_id for row in audit.rows if row.row_id in PHASE2_PLANNED_ROW_IDS
+        } == PHASE2_PLANNED_ROW_IDS
     ):
-        return "audit-closed"
+        return "production-closed"
     raise InventoryReconciliationError(
         "Phase 2 closure must transition all 18 rows atomically from "
-        "planned/unreviewed/unassigned to reviewed audit assignments"
+        "planned/unreviewed/unassigned to reviewed production and diagnostic assignments"
     )
 
 
@@ -470,6 +625,8 @@ def _assert_no_unlisted_slice_findings(
     assignments: DiscoveryAssignmentAuthority,
     source_report: Any,
     rom_report: Any,
+    *,
+    rebound_rom_sites: set[tuple[int, int]] = frozenset(),
 ) -> None:
     """Fail closed for new subjects within the reviewed map-entry slice."""
     source_subjects = {
@@ -486,7 +643,7 @@ def _assert_no_unlisted_slice_findings(
         (row.subject.metadata["bank"], row.subject.metadata["address"])
         for row in assignments.rows
         if row.subject.kind.value == "ROM_FINDING"
-    }
+    } | set(rebound_rom_sites)
     source_roots = {
         (row.subject.metadata["category"], row.subject.metadata["symbol"])
         for row in assignments.rows
@@ -744,13 +901,34 @@ def build_progress(
     phase2_state = _phase2_transition_state(
         writers=writers, scenes=scenes, mutations=mutations, assignments=assignments
     )
-    normal_assignments = assignments.for_product(NORMAL_DEBUG_PRODUCT)
+    normal_assignments = DiscoveryAssignmentAuthority(tuple(
+        row for row in assignments.rows if row.id in GATE0_BASELINE_ASSIGNMENT_IDS
+    ))
     _validate_assignment_targets(normal_assignments, writers, scenes, mutations)
     reviewed_source, source_transition = _reviewed_source_view(
         normal_assignments, source_report, repository_path
     )
+    rebound_rom_sites = set()
+    if source_transition is not None:
+        current_by_subject = {
+            rom_finding_subject(finding).sha256: finding
+            for finding in rom_report.findings
+        }
+        rebound_rom_sites = {
+            (current_by_subject[digest].bank, current_by_subject[digest].address)
+            for digest in source_transition["rom_subject_rebindings"].values()
+            if digest in current_by_subject
+        }
     reviewed_rom = _reviewed_rom_view(normal_assignments, rom_report, source_transition)
-    _assert_no_unlisted_slice_findings(normal_assignments, reviewed_source, reviewed_rom)
+    current_rom_layouts = _current_rom_layouts(
+        normal_assignments, rom_report, source_transition
+    )
+    _assert_no_unlisted_slice_findings(
+        normal_assignments,
+        reviewed_source,
+        reviewed_rom,
+        rebound_rom_sites=rebound_rom_sites,
+    )
     matcher = normal_assignments.matcher(
         source_sha256=reviewed_source.source_sha256,
         rom_sha256=rom_report.rom_sha256,
@@ -760,6 +938,9 @@ def build_progress(
     )
     projected_source, projected_rom, source_rows, rom_rows = _project_assignments(
         normal_assignments, reviewed_source, reviewed_rom, matcher=matcher
+    )
+    projected_rom = _restore_current_rom_report(
+        projected_rom, current_rom_layouts
     )
     if phase2_state == "planned":
         planned = _validate_planned_rows(
@@ -778,6 +959,15 @@ def build_progress(
     writers = _select_inventory_rows(writers, normal_row_ids)
     scenes = _select_inventory_rows(scenes, normal_row_ids)
     mutations = _select_inventory_rows(mutations, normal_row_ids)
+    writers = _restore_current_inventory_layout(
+        writers, normal_assignments, current_rom_layouts
+    )
+    scenes = _restore_current_inventory_layout(
+        scenes, normal_assignments, current_rom_layouts
+    )
+    mutations = _restore_current_inventory_layout(
+        mutations, normal_assignments, current_rom_layouts
+    )
     report = reconcile(
         writers,
         scenes,

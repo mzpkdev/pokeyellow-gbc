@@ -20,7 +20,15 @@ from .inventory import MutationInventory, SceneInventory, WriterInventory
 from .rom_discovery import load_map
 
 
-AUDIT_ROM_SHA256 = "40b0a702c94ebddeb3fd26202c10a60b6dd00b66a392da7ab9598d61c092dcd6"
+HASH_FIELDS = ("source_sha256", "rom_sha256", "map_sha256", "sym_sha256")
+REVIEWED_AUDIT_HASHES = {
+    "source_sha256": "dac0a562119587880e788fef2c82c34a8e63faa88f9d5ac178e1a5334015fbfc",
+    "rom_sha256": "40b0a702c94ebddeb3fd26202c10a60b6dd00b66a392da7ab9598d61c092dcd6",
+    "map_sha256": "295370b4901d952b3601574157333eac52786922890d3e60e2d080e9ea5436b5",
+    "sym_sha256": "11c50853e72e28fdff47b721ac0cf6f5fe14396b311a59d9b993fc5ef2b619d3",
+}
+# Retain the public name used by focused guard tests and downstream readers.
+AUDIT_ROM_SHA256 = REVIEWED_AUDIT_HASHES["rom_sha256"]
 REVIEWED_SOURCE_SHA256 = (
     "9b12281f62023dbd80e64ed17d684aaae5754d787166163f213fe21e4ca2ff7f"
 )
@@ -31,6 +39,11 @@ NORMAL_DEBUG_ARTIFACTS = {
     "rom_sha256": Path("pokeyellow_debug.gbc"),
     "map_sha256": Path("pokeyellow_debug.map"),
     "sym_sha256": Path("pokeyellow_debug.sym"),
+}
+AUDIT_ARTIFACTS = {
+    "rom_sha256": Path("pokeyellow_phase2_audit.gbc"),
+    "map_sha256": Path("pokeyellow_phase2_audit.map"),
+    "sym_sha256": Path("pokeyellow_phase2_audit.sym"),
 }
 NORMAL_DEBUG_ASSIGNMENT_IDS = frozenset(
     {
@@ -51,6 +64,38 @@ NORMAL_DEBUG_INVENTORY_IDS = {
         {"WR-YELLOW-LCDC-DISABLE", "WR-YELLOW-MAP-VIEW-TILE-COPY"}
     ),
 }
+AUDIT_INVENTORY_IDS = {
+    "mutations.json": frozenset(
+        {
+            "MU-P2-ANIMATED-TERRAIN",
+            "MU-P2-DIALOGUE-OVERLAY",
+            "MU-P2-MAP-CONNECTION-NORTH",
+            "MU-P2-MAP-RECONSTRUCTION",
+            "MU-P2-MOVEMENT-HORIZONTAL",
+            "MU-P2-MOVEMENT-VERTICAL",
+            "MU-P2-OAM-FOLLOWER-NPC",
+            "MU-P2-PALETTE-PAYLOADS",
+            "MU-P2-START-MENU-OVERLAY",
+        }
+    ),
+    "scenes.json": frozenset(
+        {
+            "SC-P2-PALLET-ROUTE1-NORTH",
+            "SC-P2-PARTY-ENTRY",
+            "SC-P2-PARTY-RETURN",
+        }
+    ),
+    "writers.json": frozenset(
+        {
+            "WR-P2-YELLOW-ANIMATION-TILES",
+            "WR-P2-YELLOW-BG-PALETTE",
+            "WR-P2-YELLOW-MAP-STREAM",
+            "WR-P2-YELLOW-OAM-BUILD",
+            "WR-P2-YELLOW-OAM-DMA",
+            "WR-P2-YELLOW-OVERLAY-TRANSFER",
+        }
+    ),
+}
 TRANSITION_PATH = Path(
     "specs/full-colors/definitions/phase1-audit-source-transition.json"
 )
@@ -60,6 +105,7 @@ DOCUMENTS = {
     Path("specs/full-colors/inventory/scenes.json"): SceneInventory,
     Path("specs/full-colors/inventory/writers.json"): WriterInventory,
 }
+PROPOSAL_SCHEMA = "full-color-audit-evidence-identities-proposal-v1"
 
 
 class AuditEvidenceIdentityError(RuntimeError):
@@ -72,16 +118,18 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _normal_debug_hashes(root: Path, source_sha256: str) -> dict[str, str]:
+def _artifact_hashes(
+    root: Path, source_sha256: str, artifacts: dict[str, Path]
+) -> dict[str, str]:
     hashes = {
         "source_sha256": source_sha256,
         **{
             name: _sha256(root / relative)
-            for name, relative in NORMAL_DEBUG_ARTIFACTS.items()
+            for name, relative in artifacts.items()
             if name != "map_sha256"
         },
     }
-    map_path = root / NORMAL_DEBUG_ARTIFACTS["map_sha256"]
+    map_path = root / artifacts["map_sha256"]
     if not map_path.is_file():
         raise AuditEvidenceIdentityError(
             f"required build artifact is missing: {map_path}"
@@ -90,12 +138,37 @@ def _normal_debug_hashes(root: Path, source_sha256: str) -> dict[str, str]:
     return hashes
 
 
+def _normal_debug_hashes(root: Path, source_sha256: str) -> dict[str, str]:
+    return _artifact_hashes(root, source_sha256, NORMAL_DEBUG_ARTIFACTS)
+
+
+def _audit_hashes(root: Path, source_sha256: str) -> dict[str, str]:
+    return _artifact_hashes(root, source_sha256, AUDIT_ARTIFACTS)
+
+
+def _evidence_hashes(evidence: Any) -> dict[str, str]:
+    if isinstance(evidence, dict):
+        return {name: evidence.get(name) for name in HASH_FIELDS}
+    return {name: getattr(evidence, name) for name in HASH_FIELDS}
+
+
+def _require_reviewed_audit_hashes(
+    evidence: Any, audit_hashes: dict[str, str], identifier: object
+) -> None:
+    hashes = _evidence_hashes(evidence)
+    if hashes not in (REVIEWED_AUDIT_HASHES, audit_hashes):
+        raise AuditEvidenceIdentityError(
+            f"audit row has changed artifact authority: {identifier}"
+        )
+
+
 def _updated_assignments(
     authority: DiscoveryAssignmentAuthority,
     source_sha256: str,
     normal_hashes: dict[str, str],
+    audit_hashes: dict[str, str],
 ) -> DiscoveryAssignmentAuthority:
-    normal = tuple(row for row in authority.rows if row.product == NORMAL_DEBUG_PRODUCT)
+    normal = tuple(row for row in authority.rows if row.id in NORMAL_DEBUG_ASSIGNMENT_IDS)
     normal_ids = frozenset(row.id for row in normal)
     if normal_ids != NORMAL_DEBUG_ASSIGNMENT_IDS or len(normal) != len(
         NORMAL_DEBUG_ASSIGNMENT_IDS
@@ -104,22 +177,17 @@ def _updated_assignments(
             "normal-debug assignment scope changed: expected the eight reviewed "
             "initial-map-entry assignments"
         )
-    audit = tuple(row for row in authority.rows if row.product == PHASE2_AUDIT_PRODUCT)
-    if not audit:
-        raise AuditEvidenceIdentityError("Phase 2 audit assignment scope is empty")
-    if any(row.evidence.rom_sha256 != AUDIT_ROM_SHA256 for row in audit):
-        raise AuditEvidenceIdentityError("Phase 2 audit assignment ROM authority changed")
-
+    if any(row.product != NORMAL_DEBUG_PRODUCT for row in normal):
+        raise AuditEvidenceIdentityError(
+            "Gate 0 baseline assignments changed link product"
+        )
     rows = []
     for row in authority.rows:
         if row.product == NORMAL_DEBUG_PRODUCT:
             evidence = replace(row.evidence, **normal_hashes)
-        elif row.product == PHASE2_AUDIT_PRODUCT:
-            evidence = replace(row.evidence, source_sha256=source_sha256)
-        else:  # The model rejects this too; retain an explicit producer scope guard.
-            raise AuditEvidenceIdentityError(
-                f"assignment product is outside producer scope: {row.product!r}"
-            )
+        else:
+            # Phase 2's producer owns all product-specific slice assignments.
+            evidence = row.evidence
         rows.append(replace(row, evidence=evidence))
     return DiscoveryAssignmentAuthority(tuple(rows))
 
@@ -141,7 +209,7 @@ def _assert_assignment_delta(
         allowed = (
             {"source_sha256", "rom_sha256", "map_sha256", "sym_sha256"}
             if old.product == NORMAL_DEBUG_PRODUCT
-            else {"source_sha256"}
+            else set(HASH_FIELDS)
         )
         for key in set(old_evidence) | set(new_evidence):
             if key not in allowed and old_evidence.get(key) != new_evidence.get(key):
@@ -155,6 +223,7 @@ def _updated_document(
     raw: dict[str, Any],
     source_sha256: str,
     normal_hashes: dict[str, str],
+    audit_hashes: dict[str, str],
 ) -> Any:
     normal_ids = NORMAL_DEBUG_INVENTORY_IDS.get(relative.name, frozenset())
     found_normal_ids = frozenset(
@@ -171,52 +240,57 @@ def _updated_document(
         if row.get("id") in normal_ids:
             evidence.update(normal_hashes)
             continue
-        is_audit = (
-            row.get("product") == "pokeyellow_phase2_audit"
-            if relative.name == "assignments.json"
-            else evidence.get("rom_sha256") == AUDIT_ROM_SHA256
-        )
-        if not is_audit:
-            continue
-        if evidence.get("rom_sha256") != AUDIT_ROM_SHA256:
-            raise AuditEvidenceIdentityError(
-                f"audit row has changed ROM authority: {row.get('id')}"
-            )
-        evidence["source_sha256"] = source_sha256
+        # Phase 2 rows are refreshed by phase2_measurements for all products.
     return raw
 
 
-def update(root: Path) -> None:
-    transition_path = root / TRANSITION_PATH
-    transition = json.loads(transition_path.read_text(encoding="utf-8"))
+def propose(root: Path, transition_proposal: Path) -> dict[str, object]:
+    """Return hash-only, explicitly unreviewed inventory edits.
+
+    Reviewer names and review flags are deliberately absent.  This producer
+    can describe mechanical identity changes, but it cannot approve them or
+    write any checked-in authority.
+    """
+    transition_path = (
+        transition_proposal
+        if transition_proposal.is_absolute()
+        else root / transition_proposal
+    )
+    envelope = json.loads(transition_path.read_text(encoding="utf-8"))
+    if set(envelope) != {"schema", "reviewed", "authority_path", "proposal"} or (
+        envelope.get("schema") != source_transition.PROPOSAL_SCHEMA
+        or envelope.get("reviewed") is not False
+        or envelope.get("authority_path") != str(TRANSITION_PATH)
+        or not isinstance(envelope.get("proposal"), dict)
+    ):
+        raise AuditEvidenceIdentityError("source-transition proposal is malformed")
+    transition = envelope["proposal"]
     if set(transition) != {
         "schema",
         "reviewed_source_sha256",
-        "audit_source_sha256",
+        "current_source_sha256",
         "baseline_manifest_sha256",
-        "audit_only_paths",
+        "reviewed_delta_paths",
         "subject_rebindings",
         "rom_subject_rebindings",
     } or transition["schema"] != source_transition.SCHEMA:
         raise AuditEvidenceIdentityError("source-transition authority is malformed")
-    source_sha256 = transition["audit_source_sha256"]
+    source_sha256 = transition["current_source_sha256"]
     if (
         not isinstance(source_sha256, str)
         or len(source_sha256) != 64
         or any(character not in "0123456789abcdef" for character in source_sha256)
     ):
         raise AuditEvidenceIdentityError(
-            "source-transition audit identity is not a lowercase SHA-256"
+            "source-transition current identity is not a lowercase SHA-256"
         )
     current_source_sha256 = discover_baseline_sources(root).source_sha256
     if source_sha256 != current_source_sha256:
         raise AuditEvidenceIdentityError(
-            "source-transition audit identity does not match current baseline discovery"
+            "source-transition identity does not match current baseline discovery"
         )
     try:
-        canonical_transition = source_transition.generate(
-            root, authority_path=transition_path
-        )
+        canonical_transition = source_transition.generate(root)
     except source_transition.SourceTransitionError as exc:
         raise AuditEvidenceIdentityError(
             "source-transition authority failed canonical recomputation"
@@ -228,29 +302,62 @@ def update(root: Path) -> None:
             "source-transition authority does not match canonical recomputation"
         )
     normal_hashes = _normal_debug_hashes(root, source_sha256)
-    rendered: dict[Path, str] = {}
+    audit_hashes = _audit_hashes(root, source_sha256)
+    documents: dict[str, object] = {}
     for relative, document_type in DOCUMENTS.items():
         path = root / relative
         raw = json.loads(path.read_text(encoding="utf-8"))
+        before_by_id = {
+            row["id"]: json.loads(json.dumps(row)) for row in raw["rows"]
+        }
         if relative.name == "assignments.json":
             before = DiscoveryAssignmentAuthority.from_dict(raw)
-            document = _updated_assignments(before, source_sha256, normal_hashes)
+            document = _updated_assignments(
+                before, source_sha256, normal_hashes, audit_hashes
+            )
             _assert_assignment_delta(before, document)
         else:
             document = document_type.from_dict(
-                _updated_document(relative, raw, source_sha256, normal_hashes)
+                _updated_document(
+                    relative, raw, source_sha256, normal_hashes, audit_hashes
+                )
             )
-        rendered[path] = document.to_json()
-    for path, content in rendered.items():
-        path.write_text(content, encoding="utf-8")
+        proposed = json.loads(document.to_json())
+        changes = []
+        for row in proposed["rows"]:
+            before = before_by_id[row["id"]]
+            current_hashes = _evidence_hashes(before.get("evidence", {}))
+            proposed_hashes = _evidence_hashes(row.get("evidence", {}))
+            if current_hashes != proposed_hashes:
+                changes.append(
+                    {
+                        "id": row["id"],
+                        "current": current_hashes,
+                        "proposed": proposed_hashes,
+                    }
+                )
+        documents[relative.as_posix()] = {"changes": changes}
+    return {
+        "schema": PROPOSAL_SCHEMA,
+        "reviewed": False,
+        "source_transition_proposal": str(transition_proposal),
+        "documents": documents,
+    }
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
+    parser.add_argument("--transition-proposal", type=Path, required=True)
+    parser.add_argument("--proposal-output", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        update(args.root)
+        proposal = propose(args.root, args.transition_proposal)
+        args.proposal_output.parent.mkdir(parents=True, exist_ok=True)
+        args.proposal_output.write_text(
+            json.dumps(proposal, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
     except (OSError, ValueError, AuditEvidenceIdentityError) as exc:
         parser.error(str(exc))
     return 0

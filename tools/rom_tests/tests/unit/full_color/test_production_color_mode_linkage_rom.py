@@ -1,42 +1,38 @@
-"""Production-linkage quarantine checks for the bounded Color substrate."""
+"""Product-matrix linkage and reachability proofs for bounded Color mode."""
 
 from __future__ import annotations
 
-import hashlib
-import json
-from pathlib import Path
 import re
 
 import pytest
 
 from tools.rom_tests.emulator import Emulator
 from tools.rom_tests.tests.conftest import REPOSITORY_ROOT, result_directory
+from tools.rom_tests.tests.unit.full_color.test_phase2_scheduler_rom import (
+    Phase2Rom,
+    numeric_symbols,
+)
 
 
 PRODUCTS = ("pokeyellow", "pokeyellow_debug", "pokeyellow_vc")
-PRODUCTION_SUBSTRATE = frozenset(
+PRODUCTION_RENDERER_SURFACE = frozenset(
     {
         "RouteRendererOwnershipVBlank",
-        "RunFullColorOwnershipVBlank",
-        "InitFullColorSchedulerSelected",
-        "CancelFullColorSchedulerSelected",
-        "PrepareFullColorVisibleUnitSelected",
-        "CommitFullColorVisibleUnitSelected",
-        "PrepareFullColorPairedTransferSelected",
-        "CommitFullColorPairedTransferSelected",
-        "MapFullColorOAMAttribute",
+        "OptionsMenu_ColorMode",
         "FullColorOverworldBGPalettes",
+        "FullColorOverworldBGPalettesEnd",
         "FullColorOverworldTileAttributes",
-        "InitFullColorProductionLifecycleSelected",
-        "SnapshotFullColorMapAuthority",
-        "PoisonLegacyVideoRequests",
-        "BeginFullColorMapEntry",
-        "CompleteFullColorMapReconstruction",
-        "wFullColorProductionSchedulerStateStart",
-        "wFullColorProductionSchedulerStateEnd",
-        "wFullColorProductionLifecycleStateStart",
-        "wFullColorProductionReconstructionBarrier",
-        "wFullColorProductionLifecycleStateEnd",
+        "FullColorOverworldTileAttributesEnd",
+        "PassiveFullColorApplyMap",
+        "PassiveFullColorHandleConnection",
+        "PassiveFullColorPrepareRedrawAttributes",
+        "PassiveFullColorPrepareColumnAttributes",
+        "PassiveFullColorPrepareMenuOverlay",
+        "PassiveFullColorRestoreAfterMenu",
+        "PassiveFullColorPrepareBattleHandoff",
+        "PassiveFullColorVBlank",
+        "wPassiveFullColorStateStart",
+        "wPassiveFullColorStateEnd",
     }
 )
 FORBIDDEN_PRODUCTION_MARKERS = (
@@ -46,30 +42,24 @@ FORBIDDEN_PRODUCTION_MARKERS = (
     "SnapshotFullColorPhase2DebugSelected",
     "wFullColorPhase2Debug",
     "wFullColorDebugCarrier",
-    "wPassiveFullColor",
-    "PassiveFullColor",
     "FullColorCanary",
+    "InitFullColorScheduler",
+    "BeginFullColorMapEntry",
+    "FullColorProductionLifecycle",
+    "FullColorProductionScheduler",
 )
-REQUIRED_COLOR_WRITERS_AND_ACTIVATION = frozenset(
+REQUIRED_REACHABLE_RENDERER = frozenset(
     {
-        "ActivateFullColorOwnerForDiagnostic",
-        "SelectFullColorOwnerForDiagnostic",
-        "BeginFullColorMapEntry",
-        "CompleteFullColorMapReconstruction",
-        "ReconstructFullColorMapEntry",
-        "RunFullColorOwnershipVBlank",
-        "PrepareFullColorVisibleUnitSelected",
-        "CommitFullColorVisibleUnitSelected",
-        "CommitFullColorBGPaletteSelected",
-        "CommitFullColorOBJPaletteSelected",
-        "CommitFullColorPairedTransferSelected",
-        "CommitFullColorAnimationReplacementSelected",
-        "CommitFullColorOAMBatchSelected",
-        "FullColorVBlankOwnerConsumed",
-        "EnqueueFullColorCurrentTileMapOverlayFar",
-        "EnqueueFullColorWindowTileMapOverlayFar",
-        "MapFullColorOAMAttributeFar",
-        "EnqueueFullColorOAMBatchFar",
+        "PassiveFullColorApplyMap",
+        "PassiveFullColorPrepareRedrawAttributes",
+        "PassiveFullColorPrepareColumnAttributes",
+        "PassiveFullColorPrepareMenuHandoff",
+        "PassiveFullColorRestoreAfterMenu",
+        "PassiveFullColorPrepareBattleHandoff",
+        "PassiveFullColorShouldColorOverlay",
+        "PassiveFullColorPrepareMenuOverlay",
+        "PassiveFullColorAutoBgMapTransfer",
+        "PassiveFullColorVBlank",
     }
 )
 PRODUCTION_ROOTS = (
@@ -79,6 +69,8 @@ PRODUCTION_ROOTS = (
     "ResetRendererOwnership",
     "SoftResetRendererOwnership",
     "OverworldLoop",
+    "LoadMapData",
+    "ScheduleSouthRowRedraw",
     "DisplayStartMenu",
     "DisplayPartyMenu",
     "InitBattle",
@@ -118,23 +110,10 @@ def _symbols(product: str) -> tuple[dict[str, tuple[int, int]], dict[tuple[int, 
     return by_name, by_address
 
 
-def _constants(product: str) -> dict[str, int]:
-    result: dict[str, int] = {}
-    for line in (REPOSITORY_ROOT / f"{product}.sym").read_text(encoding="utf-8").splitlines():
-        match = re.fullmatch(r"([0-9a-fA-F]+) (\S+)", line)
-        if match is not None:
-            result[match.group(2)] = int(match.group(1), 16)
-    return result
-
-
 @pytest.mark.parametrize("product", PRODUCTS)
-def test_production_products_link_only_the_allowlisted_substrate(product: str) -> None:
+def test_shipped_products_link_renderer_and_exclude_audit_machinery(product: str) -> None:
     symbols, _ = _symbols(product)
-    assert PRODUCTION_SUBSTRATE <= symbols.keys()
-    assert {
-        "FULL_COLOR_FLAG_OAM_FINISHED": 4,
-        "FULL_COLOR_FLAG_MOVEMENT_STRIP": 8,
-    }.items() <= _constants(product).items()
+    assert PRODUCTION_RENDERER_SURFACE <= symbols.keys()
     assert not {
         name
         for name in symbols
@@ -143,13 +122,14 @@ def test_production_products_link_only_the_allowlisted_substrate(product: str) -
 
     assert symbols["wRendererStateStart"] == (2, 0xD000)
     assert symbols["wRendererStateEnd"] == (2, 0xD00D)
-    assert symbols["wFullColorProductionSchedulerStateStart"] == (2, 0xD00D)
-    assert symbols["wFullColorProductionSchedulerStateEnd"] == (2, 0xD3D5)
-    assert symbols["wFullColorProductionLifecycleStateStart"] == (2, 0xD3D5)
-    timing = symbols["wFullColorTimingState"][1]
-    barrier = symbols["wFullColorProductionReconstructionBarrier"][1]
-    lifecycle_end = symbols["wFullColorProductionLifecycleStateEnd"][1]
-    assert timing + 4 <= barrier < lifecycle_end < 0xD800
+    assert symbols["wPassiveFullColorStateStart"] == (2, 0xD800)
+    assert symbols["wPassiveFullColorStateEnd"] == (2, 0xD96C)
+    assert symbols["FullColorOverworldBGPalettesEnd"][1] - symbols[
+        "FullColorOverworldBGPalettes"
+    ][1] == 64
+    assert symbols["FullColorOverworldTileAttributesEnd"][1] - symbols[
+        "FullColorOverworldTileAttributes"
+    ][1] == 256
 
 
 def _read_wram2(emulator: Emulator, start: int, end: int) -> bytes:
@@ -159,61 +139,6 @@ def _read_wram2(emulator: Emulator, start: int, end: int) -> bytes:
         return bytes(emulator.pyboy.memory[address] for address in range(start, end))
     finally:
         emulator.pyboy.memory[0xFF70] = prior
-
-
-def _visible_resources(emulator: Emulator) -> tuple[bytes, ...]:
-    return (
-        emulator.read_vram_bank(0, 0x8000, 0x2000),
-        emulator.read_vram_bank(1, 0x8000, 0x2000),
-        emulator.read_palette_ram(),
-        emulator.read_palette_ram(object_palettes=True),
-        emulator.read_memory(0xFE00, 160),
-        emulator.read_bytes("wShadowOAM", 160),
-    )
-
-
-def _authoritative_color_boundaries(product: str) -> frozenset[str]:
-    symbols, _ = _symbols(product)
-    prefixes = (
-        "ActivateFullColor",
-        "SelectFullColor",
-        "BeginFullColor",
-        "CompleteFullColor",
-        "ReconstructFullColor",
-        "RunFullColor",
-        "PrepareFullColor",
-        "CommitFullColor",
-        "EnqueueFullColor",
-        "MapFullColorOAM",
-        "FullColorVBlankOwnerConsumed",
-    )
-    linked_family = {name for name in symbols if name.startswith(prefixes)}
-    inventory = json.loads(
-        (REPOSITORY_ROOT / "specs/full-colors/inventory/writers.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    inventory_family = {
-        site["symbol"].split(".", 1)[0]
-        for row in inventory["rows"]
-        if row["owner"] != "RENDERER_YELLOW"
-        for site in row["source_sites"]
-        if site["symbol"].split(".", 1)[0] in symbols
-    }
-    boundaries = frozenset(linked_family | inventory_family)
-    assert REQUIRED_COLOR_WRITERS_AND_ACTIVATION <= boundaries
-    return boundaries
-
-
-def _write_wram2(emulator: Emulator, symbol: str, data: bytes) -> None:
-    prior = emulator.pyboy.memory[RSVBK]
-    emulator.pyboy.memory[RSVBK] = 2
-    try:
-        address = emulator.symbols[symbol]
-        for offset, value in enumerate(data):
-            emulator.pyboy.memory[address + offset] = value
-    finally:
-        emulator.pyboy.memory[RSVBK] = prior
 
 
 def _run_complete_vblank(
@@ -285,9 +210,9 @@ def _run_complete_vblank(
 
 
 @pytest.mark.parametrize("product", PRODUCTS)
-@pytest.mark.parametrize("hostile", (False, True), ids=("yellow", "hostile-color"))
-def test_complete_production_vblank_is_forced_yellow_and_color_inert(
-    request: pytest.FixtureRequest, product: str, hostile: bool
+@pytest.mark.parametrize("yellow_mode", (False, True), ids=("color", "yellow"))
+def test_complete_product_vblank_reaches_passive_renderer_and_preserves_yellow(
+    request: pytest.FixtureRequest, product: str, yellow_mode: bool
 ) -> None:
     emulator = Emulator(
         rom=REPOSITORY_ROOT / f"{product}.gbc",
@@ -296,41 +221,41 @@ def test_complete_production_vblank_is_forced_yellow_and_color_inert(
         cgb=True,
     )
     try:
-        for _ in range(180):
-            emulator.tick()
-            if emulator.read_bytes("wRendererGeneration", 4) == b"\x01\x00\x00\x00":
-                break
-        else:
-            raise AssertionError("hard boot did not initialize renderer ownership")
-        assert emulator.read("wRendererOwner") == 0
-        assert emulator.read("wRendererPhase") == 0
-        assert emulator.read("wRendererAdmissionOpen") == 1
-        assert emulator.read("wRendererJobState") == 0xFF
-        assert emulator.read("wFullColorRequestCount") == 0
-        assert emulator.read("wFullColorProducerPending") == 0
-
-        symbols, _ = _symbols(product)
-        start = symbols["wRendererStateStart"][1]
-        end = symbols["wFullColorProductionLifecycleStateEnd"][1]
-        if hostile:
-            _write_wram2(emulator, "wRendererOwner", b"\x01")
-            _write_wram2(emulator, "wRendererPhase", b"\x03")
-            _write_wram2(emulator, "wRendererGeneration", b"\xef\xbe\xad\xde")
-            _write_wram2(emulator, "wRendererAdmissionOpen", b"\x01")
-            _write_wram2(emulator, "wRendererJobState", b"\x02")
-            _write_wram2(emulator, "wFullColorRequestCount", b"\xff")
-            _write_wram2(emulator, "wFullColorProducerPending", b"\x01")
-            assert emulator.read("wRendererOwner") == 1
-            assert emulator.read_bytes("wRendererGeneration", 4) == b"\xef\xbe\xad\xde"
-            assert emulator.read("wFullColorRequestCount") == 0xFF
-            assert emulator.read("wFullColorProducerPending") == 1
-        state_before = _read_wram2(emulator, start, end)
-        yellow_calls, color_calls = _run_complete_vblank(
-            emulator, _authoritative_color_boundaries(product)
+        rom = Phase2Rom(emulator, numeric_symbols(REPOSITORY_ROOT / f"{product}.sym"))
+        dma_stub = bytes(
+            (0x3E, 0xC3, 0xE0, 0x46, 0x3E, 0x28, 0x3D, 0x20, 0xFD, 0xC9)
         )
-        assert color_calls == ()
+        for offset, value in enumerate(dma_stub):
+            emulator.pyboy.memory[0xFF80 + offset] = value
+        rom.call("InitRendererOwnership")
+        emulator.pyboy.memory[RSVBK] = 1
+        emulator.pyboy.memory[emulator.symbols["wCurMap"]] = 0
+        emulator.pyboy.memory[emulator.symbols["wUnusedObtainedBadges"]] = int(
+            yellow_mode
+        )
+        emulator.pyboy.memory[0xFF40] &= 0x7F
+        rom.call("PassiveFullColorApplyMap")
+        if not yellow_mode:
+            rom.write_wram2("wPassiveFullColorPalettePending", 1)
+        owner_state = _read_wram2(
+            emulator,
+            emulator.symbols["wRendererStateStart"],
+            emulator.symbols["wRendererStateEnd"],
+        )
+        yellow_calls, color_calls = _run_complete_vblank(
+            emulator, frozenset({"PassiveFullColorVBlank"})
+        )
+        assert color_calls == ("PassiveFullColorVBlank",)
         assert set(YELLOW_VBLANK_CALLS) <= set(yellow_calls)
-        assert _read_wram2(emulator, start, end) == state_before
+        assert _read_wram2(
+            emulator,
+            emulator.symbols["wRendererStateStart"],
+            emulator.symbols["wRendererStateEnd"],
+        ) == owner_state
+        assert rom.read_wram2("wPassiveFullColorActive") == bytes(
+            (not yellow_mode,)
+        )
+        assert rom.read_wram2("wPassiveFullColorPalettePending") == b"\x00"
     finally:
         emulator.close()
 
@@ -399,7 +324,9 @@ def _reachable_symbols(
 
 
 @pytest.mark.parametrize("product", PRODUCTS)
-def test_static_production_roots_cannot_reach_color_writers_or_activation(product: str) -> None:
+def test_static_production_roots_reach_bounded_renderer_not_audit_pipeline(
+    product: str,
+) -> None:
     symbols, _ = _symbols(product)
     bank, address = symbols["RouteRendererOwnershipVBlank"]
     offset = bank * 0x4000 + address - 0x4000
@@ -408,19 +335,13 @@ def test_static_production_roots_cannot_reach_color_writers_or_activation(produc
     assert "PollFullColorDebugCommand" not in symbols
     assert set(PRODUCTION_ROOTS) <= symbols.keys()
     reached = _reachable_symbols(product, PRODUCTION_ROOTS)
-    assert reached.isdisjoint(_authoritative_color_boundaries(product))
-
-
-def test_audit_identity_and_surface_are_unchanged() -> None:
-    expected = {
-        "pokeyellow_phase2_audit.gbc": "40b0a702c94ebddeb3fd26202c10a60b6dd00b66a392da7ab9598d61c092dcd6",
-        "pokeyellow_phase2_audit.map": "f6c9ca2f315bed0432e4e6964377262ccd0202f2674eeaf584cffdd387b53f25",
-        "pokeyellow_phase2_audit.sym": "11c50853e72e28fdff47b721ac0cf6f5fe14396b311a59d9b993fc5ef2b619d3",
+    assert REQUIRED_REACHABLE_RENDERER <= reached
+    assert not {
+        name for name in reached if any(marker in name for marker in FORBIDDEN_PRODUCTION_MARKERS)
     }
-    assert {
-        name: hashlib.sha256((REPOSITORY_ROOT / name).read_bytes()).hexdigest()
-        for name in expected
-    } == expected
+
+
+def test_audit_adds_diagnostics_without_changing_renderer_payload() -> None:
     audit, _ = _symbols("pokeyellow_phase2_audit")
     assert {
         "PollFullColorPhase2DebugCommand",
@@ -430,7 +351,21 @@ def test_audit_identity_and_surface_are_unchanged() -> None:
         "FullColorCanaryBGPalettes",
         "FullColorCanaryOBJPalettes",
         "FullColorCanaryOverworldTileClasses",
+        "OptionsMenu_ColorMode",
+        "FullColorOverworldBGPalettes",
+        "FullColorOverworldTileAttributes",
     } <= audit.keys()
-    assert audit["RouteRendererOwnershipVBlank"] == (0x3B, 0x452B)
-    assert audit["wFullColorPhase2StateStart"] == (2, 0xD00D)
-    assert audit["wFullColorPhase2LifecycleStateEnd"] == (2, 0xD7FA)
+    audit_rom = (REPOSITORY_ROOT / "pokeyellow_phase2_audit.gbc").read_bytes()
+    for product in PRODUCTS:
+        symbols, _ = _symbols(product)
+        rom = (REPOSITORY_ROOT / f"{product}.gbc").read_bytes()
+        for start, end in (
+            ("FullColorOverworldBGPalettes", "FullColorOverworldBGPalettesEnd"),
+            ("FullColorOverworldTileAttributes", "FullColorOverworldTileAttributesEnd"),
+        ):
+            audit_offset = audit[start][0] * 0x4000 + audit[start][1] - 0x4000
+            product_offset = symbols[start][0] * 0x4000 + symbols[start][1] - 0x4000
+            size = audit[end][1] - audit[start][1]
+            assert audit_rom[audit_offset : audit_offset + size] == rom[
+                product_offset : product_offset + size
+            ]

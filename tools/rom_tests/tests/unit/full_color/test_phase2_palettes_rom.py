@@ -2,8 +2,17 @@
 
 from pathlib import Path
 
+import pytest
+
 from tools.rom_tests.tests.conftest import REPOSITORY_ROOT
-from tools.rom_tests.tests.unit.full_color.test_phase2_scheduler_rom import Phase2Rom, phase2_rom
+from tools.rom_tests.tests.unit.full_color.test_phase2_scheduler_rom import (
+    Phase2Rom,
+    phase2_rom,
+)
+from tools.rom_tests.tests.unit.full_color.test_phase2_layout import symbols
+
+
+PRODUCTS = ("pokeyellow", "pokeyellow_debug", "pokeyellow_vc")
 
 
 def _transformed(payload: bytes) -> bytes:
@@ -25,10 +34,22 @@ def test_base_is_immutable_and_full_transform_commits(phase2_rom: Phase2Rom) -> 
     assert phase2_rom.emulator.read_palette_ram() == _transformed(payload)
 
 
-def test_normal_products_exclude_canary_palette_authority() -> None:
+@pytest.mark.parametrize("product", PRODUCTS)
+def test_shipped_products_link_authored_bg_palette_and_exclude_canaries(
+    product: str,
+) -> None:
     audit = (REPOSITORY_ROOT / "pokeyellow_phase2_audit.sym").read_text(encoding="utf-8")
     assert "FullColorCanaryBGPalettes" in audit and "FullColorCanaryOBJPalettes" in audit
-    for product in ("pokeyellow", "pokeyellow_debug", "pokeyellow_vc"):
-        normal = (REPOSITORY_ROOT / f"{product}.sym").read_text(encoding="utf-8")
-        assert "FullColorCanaryBGPalettes" not in normal
-        assert "FullColorCanaryOBJPalettes" not in normal
+    sym = REPOSITORY_ROOT / f"{product}.sym"
+    normal = sym.read_text(encoding="utf-8")
+    assert "FullColorCanaryBGPalettes" not in normal
+    assert "FullColorCanaryOBJPalettes" not in normal
+
+    linked = symbols(product)
+    bank, start = linked["FullColorOverworldBGPalettes"]
+    end_bank, end = linked["FullColorOverworldBGPalettesEnd"]
+    assert end_bank == bank and end - start == 64
+    offset = bank * 0x4000 + start - 0x4000
+    payload = (REPOSITORY_ROOT / f"{product}.gbc").read_bytes()[offset : offset + 64]
+    assert len(payload) == 64
+    assert len(set(payload)) > 8

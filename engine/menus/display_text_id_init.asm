@@ -70,7 +70,6 @@ DisplayTextIDInit::
 
 	ld b, HIGH(vBGMap1)
 	call CopyScreenTileBufferToVRAM ; transfer background in WRAM to VRAM
-	IF DEF(PHASE2_AUDIT)
 	; Every window starts with stale bank-1 attributes. Color dialogue can stage
 	; its finalized border immediately; Start waits for its later menu and cursor.
 	farcall PassiveFullColorShouldColorOverlay
@@ -93,7 +92,6 @@ DisplayTextIDInit::
 	ldh [hAutoBGTransferEnabled], a
 	ret
 .revealWindow
-	ENDC
 	xor a
 	ldh [hWY], a ; put the window on the screen
 	call LoadFontTilePatterns

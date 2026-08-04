@@ -107,9 +107,7 @@ CloseTextDisplay::
 	ld a, $90
 	ldh [hWY], a ; move the window off the screen
 	call DelayFrame
-	IF DEF(PHASE2_AUDIT)
 	farcall PassiveFullColorPrepareMenuHandoff
-	ENDC
 	call LoadGBPal
 	xor a
 	ldh [hAutoBGTransferEnabled], a ; disable continuous WRAM to VRAM transfer each V-blank
@@ -132,17 +130,13 @@ CloseTextDisplay::
 	bit BIT_FLY_WARP, a
 	call z, LoadPlayerSpriteGraphics
 	call LoadCurrentMapView
-IF DEF(PHASE2_AUDIT)
 	farcall PassiveFullColorRestoreAfterMenu
-ENDC
 	pop af
 	call BankswitchCommon
 	jp UpdateSprites
 
-IF DEF(PHASE2_AUDIT)
 PrintFullColorTextAndEnqueue:
 	jp PrintText_NoCreatingTextBox
-ENDC
 
 DisplayPokemartDialogue::
 	push hl

@@ -285,7 +285,7 @@ hTileAnimations:: db
 
 hMovingBGTilesCounter1:: db
 
-	ds 1
+hPassiveFullColorVBlankSavedSVBK:: db
 
 hCurrentSpriteOffset:: db ; multiple of $10
 
@@ -410,11 +410,6 @@ hPikachuSpriteVRAMOffset:: db
 IF DEF(_DEBUG)
 ; SRAM mailbox producer writes its command first, then arms this byte. VBlank
 ; consumes and clears the trigger before it touches the cartridge RAM gates.
-IF DEF(PHASE2_AUDIT)
-; The legacy debug reader is absent in the audit build, so this byte safely
-; carries the interrupted WRAM bank across nested renderer-state helpers.
-hPassiveFullColorVBlankSavedSVBK::
-ENDC
 hFullColorDebugCommandPending:: db
 ELSE
 	ds 1

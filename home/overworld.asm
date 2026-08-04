@@ -46,14 +46,12 @@ OverworldLoopLessDelay::
 	call DelayFrame
 	call IsSurfingPikachuInParty
 	call LoadGBPal
-IF DEF(PHASE2_AUDIT)
 	; Yellow's fade and menu restoration stay authoritative.
 	; Probe donor state afterward; publication stays VBlank-deferred.
-	; Hardware access remains isolated in the audit-only passive module.
+	; Hardware access remains isolated in the passive module.
 	; Prep helpers derive their extents after the farcall bank switch.
 	; Keep this hook line-neutral with frozen Yellow writer coordinates.
 	farcall PassiveFullColorRefreshAfterLoadGBPal
-ENDC
 	call HandleMidJump
 	ld a, [wWalkCounter]
 	and a
@@ -658,33 +656,27 @@ CheckMapConnections::
 	ld [wPikachuSpawnState], a
 	call LoadMapHeader
 	call PlayDefaultMusicFadeOutCurrent
-IF DEF(PHASE2_AUDIT)
 	; Pallet and Route 1 share one authored Color authority. Preserve that live
 	; plane across their seamless connection instead of flashing the LCD off or
 	; letting Yellow's palette command replace it between visible frames.
 	farcall PassiveFullColorShouldColorOverlay
 	jr c, .loadPassiveSliceConnection
-	; Other audit connections retain the complete atomic handoff used when the
+	; Other connections retain the complete atomic handoff used when the
 	; selected renderer or supported-map boundary actually changes.
 	call DisableLCD
-ENDC
 	ld b, SET_PAL_OVERWORLD
 	call RunPaletteCommand
 ; Since the sprite set shouldn't change, this will just update VRAM slots at
 ; x#SPRITESTATEDATA2_IMAGEBASEOFFSET without loading any tile patterns.
 	call InitMapSprites
 	call LoadTileBlockMap
-IF DEF(PHASE2_AUDIT)
 	farcall PassiveFullColorApplyMap
 	call EnableLCD
-ENDC
 	jp OverworldLoopLessDelay
-IF DEF(PHASE2_AUDIT)
 .loadPassiveSliceConnection
 	call InitMapSprites
 	call LoadTileBlockMap
 	jp OverworldLoopLessDelay
-ENDC
 .didNotEnterConnectedMap
 	jp OverworldLoop
 ; function to play a sound when changing maps
@@ -1471,9 +1463,7 @@ ScheduleNorthRowRedraw::
 	ldh [hRedrawRowOrColumnDest], a
 	ld a, [wMapViewVRAMPointer + 1]
 	ldh [hRedrawRowOrColumnDest + 1], a
-IF DEF(PHASE2_AUDIT)
 	farcall PassiveFullColorPrepareRedrawAttributes
-ENDC
 	ld a, REDRAW_ROW
 	ldh [hRedrawRowOrColumnMode], a
 	ret
@@ -1502,9 +1492,7 @@ ScheduleSouthRowRedraw::
 	ldh [hRedrawRowOrColumnDest + 1], a
 	ld a, l
 	ldh [hRedrawRowOrColumnDest], a
-IF DEF(PHASE2_AUDIT)
 	farcall PassiveFullColorPrepareRedrawAttributes
-ENDC
 	ld a, REDRAW_ROW
 	ldh [hRedrawRowOrColumnMode], a
 	ret
@@ -1522,9 +1510,7 @@ ScheduleEastColumnRedraw::
 	ldh [hRedrawRowOrColumnDest], a
 	ld a, [wMapViewVRAMPointer + 1]
 	ldh [hRedrawRowOrColumnDest + 1], a
-IF DEF(PHASE2_AUDIT)
 	farcall PassiveFullColorPrepareColumnAttributes
-ENDC
 	ld a, REDRAW_COL
 	ldh [hRedrawRowOrColumnMode], a
 	ret
@@ -1554,9 +1540,7 @@ ScheduleWestColumnRedraw::
 	ldh [hRedrawRowOrColumnDest], a
 	ld a, [wMapViewVRAMPointer + 1]
 	ldh [hRedrawRowOrColumnDest + 1], a
-IF DEF(PHASE2_AUDIT)
 	farcall PassiveFullColorPrepareColumnAttributes
-ENDC
 	ld a, REDRAW_COL
 	ldh [hRedrawRowOrColumnMode], a
 	ret
@@ -1969,7 +1953,6 @@ LoadMapData::
 	call CopyMapViewToVRAM
 	ld a, $01
 	ld [wUpdateSpritesEnabled], a
-IF DEF(PHASE2_AUDIT)
 	; Yellow owns its complete map palette command, including its bank-1
 	; attribute translation. Publish the donor planes only after that command
 	; has finished, while the LCD is still safely disabled.
@@ -1977,11 +1960,6 @@ IF DEF(PHASE2_AUDIT)
 	call RunPaletteCommand
 	farcall PassiveFullColorApplyMap
 	call EnableLCD
-ELSE
-	call EnableLCD
-	ld b, SET_PAL_OVERWORLD
-	call RunPaletteCommand
-ENDC
 	call LoadPlayerSpriteGraphics
 	ld a, [wStatusFlags6]
 	and 1 << BIT_DUNGEON_WARP | 1 << BIT_FLY_WARP
