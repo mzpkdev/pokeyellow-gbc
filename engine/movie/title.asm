@@ -94,6 +94,10 @@ DisplayTitleScreen:
 	; batch now exist in the hidden destination. Cross exactly one presentation
 	; barrier at the natural final reveal point.
 	farcall RecordAndCompleteYellowPresentationRoot
+	; Hard and soft reset share the same natural hidden-title completion edge;
+	; hSoftReset identifies which admission root reached it.
+.fullColorProductionHardResetTransitionComplete
+.fullColorProductionSoftResetTransitionComplete
 	call EnableLCD
 	ENDC
 

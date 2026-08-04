@@ -171,6 +171,10 @@ ENDC
 ; Input: A = HANDOFF_TO_OVERWORLD or HANDOFF_TO_YELLOW.
 BeginRendererHandoff::
 	IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
+	; Retain reviewed source-discovery writer roots at the production wrapper;
+	; linked discovery follows this jump into the fixed-bank implementation.
+.set_phase
+.assert
 	jp BeginRendererHandoffBanked
 	ELSE
 	ld c, a

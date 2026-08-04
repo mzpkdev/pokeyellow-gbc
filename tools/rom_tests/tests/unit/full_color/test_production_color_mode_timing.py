@@ -12,6 +12,8 @@ from tools.rom_tests.full_color.production_timing import (
     REQUIRED_TIMING_KEYS,
     Span,
     _equation,
+    _measure_yellow_transition_edges,
+    _timed_rom_root_to_barrier,
     enqueue_timing_producer,
     measure_rows,
     render_evidence,
@@ -67,9 +69,39 @@ def test_required_linked_rows_are_complete_numeric_and_deterministic() -> None:
         REPOSITORY_ROOT / "constants/full_color_timing_constants.asm"
     ).read_text(encoding="utf-8")
     for row in first.values():
-        assert 0 < row.worst_cycles == row.defer_threshold < 0xFFFF
+        limit = 0xFFFFFF if row.key.startswith("TIME-ENTER-") else 0xFFFF
+        assert 0 < row.worst_cycles == row.defer_threshold <= limit
         assert row.worst_cycles + row.guard_cycles <= row.deadline_cycles
         assert row.terms and len(row.linked_sha256) == 64
+
+
+def test_exact_fit_transition_budgets_reach_every_real_completion_barrier() -> None:
+    constants = _generated_constants()
+    budget_names = {
+        "TIME-ENTER-YELLOW-MAP": "FULL_COLOR_TRANSITION_MAP_BUDGET",
+        "TIME-ENTER-YELLOW-MENU": "FULL_COLOR_TRANSITION_MENU_BUDGET",
+        "TIME-ENTER-YELLOW-DIALOGUE": "FULL_COLOR_TRANSITION_DIALOGUE_BUDGET",
+        "TIME-ENTER-YELLOW-BATTLE": "FULL_COLOR_TRANSITION_BATTLE_BUDGET",
+        "TIME-ENTER-YELLOW-HARD-RESET": "FULL_COLOR_TRANSITION_HARD_RESET_BUDGET",
+        "TIME-ENTER-YELLOW-SOFT-RESET": "FULL_COLOR_TRANSITION_SOFT_RESET_BUDGET",
+        "TIME-ENTER-COLOR-MAP": "FULL_COLOR_TRANSITION_COLOR_MAP_BUDGET",
+    }
+    completed = _measure_yellow_transition_edges(
+        REPOSITORY_ROOT,
+        transition_budgets={
+            key: constants[name]
+            for key, name in budget_names.items()
+        },
+    )
+    assert set(completed) == {
+        "TIME-ENTER-YELLOW-MAP",
+        "TIME-ENTER-YELLOW-MENU",
+        "TIME-ENTER-YELLOW-DIALOGUE",
+        "TIME-ENTER-YELLOW-BATTLE",
+        "TIME-ENTER-YELLOW-HARD-RESET",
+        "TIME-ENTER-YELLOW-SOFT-RESET",
+        "TIME-ENTER-COLOR-MAP",
+    }
 
 
 def test_linked_opcode_mutation_changes_timing_authority() -> None:
@@ -90,8 +122,11 @@ def test_linked_opcode_mutation_changes_timing_authority() -> None:
 def test_generated_production_budgets_are_finite_and_class_specific() -> None:
     constants = _generated_constants()
     assert constants
-    assert all(0 < value < 0xFFFF for value in constants.values())
-    assert 0xFFFF not in constants.values()
+    assert all(0 < value <= 0xFFFFFF for value in constants.values())
+    assert all(
+        value <= (0xFFFFFF if name.startswith("FULL_COLOR_TRANSITION_") else 0xFFFF)
+        for name, value in constants.items()
+    )
     assert len({
         constants["FULL_COLOR_PRODUCTION_PALETTE_RESERVATION"],
         constants["FULL_COLOR_PRODUCTION_ANIMATION_RESERVATION"],
@@ -204,7 +239,7 @@ def test_yellow_transition_budget_rejects_plus_one_before_any_lifecycle_mutation
     rom.write_wram2("wFullColorProductionReturnContext", bytes((rom.constants[context],)))
     rom.write_wram2(
         "wFullColorTransitionBudget",
-        (constants[budget_name] + threshold_delta).to_bytes(2, "little"),
+        (constants[budget_name] + threshold_delta).to_bytes(3, "little"),
     )
     state_names = (
         "wRendererOwner", "wRendererPhase", "wRendererGeneration",
@@ -242,7 +277,7 @@ def test_color_map_transition_budget_is_checked_before_authority_snapshot(
     rom.write_wram2("wRendererAdmissionOpen", b"\x01")
     rom.write_wram2(
         "wFullColorTransitionBudget",
-        (constants["FULL_COLOR_TRANSITION_COLOR_MAP_BUDGET"] + threshold_delta).to_bytes(2, "little"),
+        (constants["FULL_COLOR_TRANSITION_COLOR_MAP_BUDGET"] + threshold_delta).to_bytes(3, "little"),
     )
     before = rom.read_wram2("wFullColorAuthoritySnapshot", 16)
     _, flags = rom.call("BeginFullColorMapEntry")
@@ -255,26 +290,20 @@ def test_color_map_transition_budget_is_checked_before_authority_snapshot(
         assert rom.read_wram2("wFullColorAuthoritySnapshot", 16) == before
 
 
-@pytest.mark.parametrize(
-    ("soft_reset", "budget_name"),
-    (
-        (0, "FULL_COLOR_TRANSITION_HARD_RESET_BUDGET"),
-        (1, "FULL_COLOR_TRANSITION_SOFT_RESET_BUDGET"),
-    ),
-)
 @pytest.mark.parametrize("threshold_delta", (0, 1))
-def test_reset_transition_budget_rejects_plus_one_before_lifecycle_mutation(
+def test_soft_reset_transition_budget_rejects_plus_one_before_lifecycle_mutation(
     timing_rom: Phase2Rom,
-    soft_reset: int,
-    budget_name: str,
     threshold_delta: int,
 ) -> None:
     rom = timing_rom
     constants = _generated_constants()
-    rom.emulator.pyboy.memory[rom.emulator.symbols["hSoftReset"]] = soft_reset
+    rom.emulator.pyboy.memory[rom.emulator.symbols["hSoftReset"]] = 1
     rom.write_wram2(
         "wFullColorTransitionBudget",
-        (constants[budget_name] + threshold_delta).to_bytes(2, "little"),
+        (
+            constants["FULL_COLOR_TRANSITION_SOFT_RESET_BUDGET"]
+            + threshold_delta
+        ).to_bytes(3, "little"),
     )
     state_names = (
         "wRendererOwner", "wRendererPhase", "wRendererGeneration",
@@ -298,6 +327,47 @@ def test_reset_transition_budget_rejects_plus_one_before_lifecycle_mutation(
         assert after == before
         assert rom.emulator.read_palette_ram() == before_palette
         assert rom.emulator.read_vram_bank(0, 0x9800, 0x400) == before_vram
+
+
+def test_hard_reset_plus_one_rejects_at_real_root_before_hidden_mutation(
+    timing_rom: Phase2Rom,
+) -> None:
+    rom = timing_rom
+    constants = _generated_constants()
+    state_names = (
+        "wRendererOwner", "wRendererPhase", "wRendererGeneration",
+        "wRendererAdmissionOpen", "wRendererJobState",
+        "wFullColorProductionTransitionStatus",
+        "wFullColorProductionReconstructionLedger",
+    )
+    sizes = {"wRendererGeneration": 4, "wFullColorProductionReconstructionLedger": 2}
+    before = tuple(rom.read_wram2(name, sizes.get(name, 1)) for name in state_names)
+    before_palette = rom.emulator.read_palette_ram()
+    before_vram0 = rom.emulator.read_vram_bank(0, 0x8000, 0x2000)
+    before_vram1 = rom.emulator.read_vram_bank(1, 0x8000, 0x2000)
+    before_oam = bytes(rom.emulator.pyboy.memory[0xFE00:0xFEA0])
+
+    def inject_plus_one() -> None:
+        rom.write_wram2(
+            "wFullColorTransitionBudget",
+            (
+                constants["FULL_COLOR_TRANSITION_HARD_RESET_BUDGET"] + 1
+            ).to_bytes(3, "little"),
+        )
+
+    _timed_rom_root_to_barrier(
+        rom,
+        "Init",
+        "Init.hardResetBudgetRejected",
+        observations={"CheckFullColorHardResetTransitionBudget": inject_plus_one},
+    )
+
+    after = tuple(rom.read_wram2(name, sizes.get(name, 1)) for name in state_names)
+    assert after == before
+    assert rom.emulator.read_palette_ram() == before_palette
+    assert rom.emulator.read_vram_bank(0, 0x8000, 0x2000) == before_vram0
+    assert rom.emulator.read_vram_bank(1, 0x8000, 0x2000) == before_vram1
+    assert bytes(rom.emulator.pyboy.memory[0xFE00:0xFEA0]) == before_oam
 
 
 def test_exact_descriptor_authority_rejects_cancelling_field_mutations(

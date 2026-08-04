@@ -32,6 +32,7 @@ RedisplayStartMenu_DoNotDrawStartMenu::
 	; The closed Yellow route cannot service auto-BG requests. The completion
 	; adapter synchronously publishes this finished 20x18 menu to bank-0 BG1.
 	farcall RecordAndCompleteYellowPresentationRoot
+.fullColorProductionMenuTransitionComplete
 	ENDC
 .loop
 	IF DEF(PHASE2_AUDIT)

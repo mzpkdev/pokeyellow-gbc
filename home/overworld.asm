@@ -662,7 +662,7 @@ IF FULL_COLOR_PRODUCTION_ACTIVATED
 	; The destination header is now authoritative. Hide presentation and resolve
 	; ownership before either renderer's first destination palette writer.
 	farcall BeginOrdinaryMapPresentationRoot
-	jr nc, .skipYellowConnectionPalette
+	jr nc, :+
 ENDC
 IF DEF(PHASE2_AUDIT)
 	; Yellow's palette command also translates its SGB block packet into CGB
@@ -673,7 +673,7 @@ ENDC
 	ld b, SET_PAL_OVERWORLD
 	call RunPaletteCommand
 IF FULL_COLOR_PRODUCTION_ACTIVATED
-.skipYellowConnectionPalette
+:
 ENDC
 ; Since the sprite set shouldn't change, this will just update VRAM slots at
 ; x#SPRITESTATEDATA2_IMAGEBASEOFFSET without loading any tile patterns.
@@ -1972,8 +1972,8 @@ CopySignData::
 	jr nz, .signcopyloop
 	ret
 ; function to load map data
-LoadMapData::
 	IF FULL_COLOR_PRODUCTION_ACTIVATED
+LoadMapData::
 	ldh a, [hLoadedROMBank]
 	push af
 	farcall BeginOrdinaryMapPresentationRoot
@@ -1985,8 +1985,7 @@ LoadMapData::
 	farcall IsFullColorOverworldOwnerFar
 	jr c, .fullColorYellow
 	farcall CompleteOrdinaryMapPresentationRoot
-	call EnableLCD
-	jr .fullColorMusic
+	jr .fullColorPresentationComplete
 .fullColorYellow
 	call CopyMapViewToVRAM
 	ld a, 1
@@ -1996,6 +1995,8 @@ LoadMapData::
 	call LoadPlayerSpriteGraphics
 	call UpdateSprites
 	farcall RecordAndCompleteYellowPresentationRoot
+.fullColorPresentationComplete
+.fullColorProductionMapTransitionComplete
 	call EnableLCD
 .fullColorMusic
 	ld a, [wStatusFlags6]
@@ -2011,6 +2012,7 @@ LoadMapData::
 	call BankswitchCommon
 	ret
 	ELSE
+LoadMapData::
 	ldh a, [hLoadedROMBank]
 	push af
 	call DisableLCD

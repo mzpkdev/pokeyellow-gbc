@@ -66,9 +66,11 @@ ENDC
 	call VBlankCopyDouble
 	call UpdateMovingBgTiles
 	call hDMARoutine
+	IF !FULL_COLOR_PRODUCTION_ACTIVATED
 	ld a, BANK(PrepareOAMData)
 	call BankswitchCommon
 	call PrepareOAMData
+	ENDC
 
 IF FULL_COLOR_PRODUCTION_ACTIVATED
 .visibleRouteComplete
@@ -81,11 +83,8 @@ ENDC
 	; Build and freeze the next Color OAM unit only after the hardware-visible
 	; route has crossed its deadline. This mirrors Yellow's next-frame OAM build:
 	; producer work may extend into the visible period, hardware writes may not.
-	ld a, e
-	cp VBLANK_ROUTE_COLOR
-	jr nz, .visiblePreparationComplete
-	farcall PrepareFullColorProductionOAMForOwnedVBlank
-.visiblePreparationComplete
+	ld c, e
+	farcall PrepareFullColorProductionPostVisibleRoute
 	ENDC
 :
 	; VBlank-sensitive operations end.

@@ -52,6 +52,17 @@ def _unique_rebindings(
             for finding in current
             if subject(rebound(finding, row)).sha256 == row.subject.sha256
         ]
+        if len(matches) > 1 and kind in {"source", "ROM"}:
+            coordinate = "line" if kind == "source" else "address"
+            reviewed_location = row.subject.metadata.get(coordinate)
+            if isinstance(reviewed_location, int):
+                distances = [
+                    abs(getattr(finding, coordinate) - reviewed_location)
+                    for finding in matches
+                ]
+                nearest = min(distances)
+                if distances.count(nearest) == 1:
+                    matches = [matches[distances.index(nearest)]]
         if len(matches) != 1:
             raise SourceTransitionError(
                 f"reviewed {kind} subject {row.subject.sha256} has "
@@ -65,6 +76,37 @@ def _unique_rebindings(
         claimed.add(current_sha)
         result[row.subject.sha256] = current_sha
     return dict(sorted(result.items()))
+
+
+def _reviewed_source_location(finding: Any, row: Any) -> Any:
+    """Rebase unstable source coordinates while retaining semantic authority."""
+    metadata = row.subject.metadata
+    return replace(
+        finding,
+        symbol=metadata["symbol"],
+        line=metadata["line"],
+        evidence_sha256=metadata["evidence_sha256"],
+        destination_path=metadata["destination_path"],
+        destination_line=metadata["destination_line"],
+    )
+
+
+def _reviewed_rom_location(finding: Any, row: Any) -> Any:
+    """Rebase linked locations while retaining bytes and destination authority."""
+    metadata = row.subject.metadata
+    changes = {
+        "root": metadata["root"],
+        "call_path": tuple(metadata["call_path"]),
+        "bank": metadata["bank"],
+        "address": metadata["address"],
+        "rom_offset": metadata["rom_offset"],
+    }
+    if metadata["resource"] == "CONTROL_FLOW":
+        changes.update(
+            destination_low=metadata["destination_low"],
+            destination_high=metadata["destination_high"],
+        )
+    return replace(finding, **changes)
 
 
 def _raw_baseline_rom(root: Path, source_report: Any) -> Any:
@@ -153,9 +195,7 @@ def generate(root: Path, *, authority_path: Path | None = None) -> dict[str, obj
         source_rows,
         source_report.findings,
         subject=source_finding_subject,
-        rebound=lambda finding, row: replace(
-            finding, symbol=row.subject.metadata["symbol"]
-        ),
+        rebound=_reviewed_source_location,
         kind="source",
     )
     rom_report = _raw_baseline_rom(root, source_report)
@@ -163,11 +203,7 @@ def generate(root: Path, *, authority_path: Path | None = None) -> dict[str, obj
         rom_rows,
         rom_report.findings,
         subject=rom_finding_subject,
-        rebound=lambda finding, row: replace(
-            finding,
-            root=row.subject.metadata["root"],
-            call_path=tuple(row.subject.metadata["call_path"]),
-        ),
+        rebound=_reviewed_rom_location,
         kind="ROM",
     )
     return {

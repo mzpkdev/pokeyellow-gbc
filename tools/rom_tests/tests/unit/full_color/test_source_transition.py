@@ -64,9 +64,7 @@ def test_source_transition_rejects_non_unique_or_changed_subjects(mutation: str)
     matching = next(
         finding
         for finding in report.findings
-        if source_finding_subject(
-            replace(finding, symbol=row.subject.metadata["symbol"])
-        ).sha256
+        if source_finding_subject(source_transition._reviewed_source_location(finding, row)).sha256
         == row.subject.sha256
     )
     findings = [matching]
@@ -81,9 +79,7 @@ def test_source_transition_rejects_non_unique_or_changed_subjects(mutation: str)
             (row,),
             findings,
             subject=source_finding_subject,
-            rebound=lambda finding, authority: replace(
-                finding, symbol=authority.subject.metadata["symbol"]
-            ),
+            rebound=source_transition._reviewed_source_location,
             kind="source",
         )
 

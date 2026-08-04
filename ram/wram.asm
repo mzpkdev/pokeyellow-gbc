@@ -2768,7 +2768,13 @@ wFullColorProductionReturnContext:: db
 wFullColorProductionTransitionStatus:: db
 wFullColorProductionTransitionRoute:: db
 wFullColorProductionSavedLCDC:: db
-wFullColorTransitionBudget:: dw
+wFullColorTransitionBudget::
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
+	ds 3
+ELSE
+	; Preserve the frozen Phase 2 audit layout and product identities.
+	dw
+ENDC
 wFullColorProductionLifecycleStateEnd::
 
 ASSERT wFullColorAuthoritySnapshotEnd - wFullColorAuthoritySnapshot == FULL_COLOR_AUTHORITY_SNAPSHOT_BYTES

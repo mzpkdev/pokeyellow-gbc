@@ -256,6 +256,196 @@ def _timed_rom_call(rom: object, name: str, **registers: int) -> int:
     return elapsed[0] // 4
 
 
+def _timed_rom_root_to_barrier(
+    rom: object,
+    entry: str,
+    barrier: str,
+    *,
+    stubs: dict[str, object] | None = None,
+    observations: dict[str, object] | None = None,
+    maximum_frames: int = 4096,
+) -> int:
+    """Execute a genuine game root until its linked destination barrier."""
+    emulator = rom.emulator
+    registers = emulator.pyboy.register_file
+    memory = emulator.pyboy.memory
+    barrier_bank = emulator.symbol_banks[barrier]
+    elapsed: list[int] = []
+    stub_hooks: list[tuple[int, int]] = []
+    entry_bank = emulator.symbol_banks[entry]
+    entry_address = emulator.symbols[entry]
+    started = emulator.pyboy._cycles()
+
+    def stop(_: object) -> None:
+        elapsed.append(emulator.pyboy._cycles() - started)
+        # The barrier may deliberately leave LCD off. Restore scanline timing
+        # and park the CPU so PyBoy can finish the host frame after recording
+        # the exact pre-display edge.
+        memory[0xFF40] |= 0x80
+        memory[0xC6F0:0xC6F2] = b"\x18\xfe"
+        registers.PC = 0xC6F0
+
+    def return_from_stub(action: object):
+        def callback(_: object) -> None:
+            if callable(action):
+                action()
+            stack = registers.SP
+            registers.PC = memory[stack] | memory[stack + 1] << 8
+            registers.SP = stack + 2
+        return callback
+
+    emulator.pyboy.hook_register(
+        barrier_bank, emulator.symbols[barrier], stop, None,
+    )
+    for symbol, action in (stubs or {}).items():
+        bank = emulator.symbol_banks[symbol]
+        address = emulator.symbols[symbol]
+        emulator.pyboy.hook_register(bank, address, return_from_stub(action), None)
+        stub_hooks.append((bank, address))
+    for symbol, action in (observations or {}).items():
+        bank = emulator.symbol_banks[symbol]
+        address = emulator.symbols[symbol]
+
+        def observe(_: object, callback: object = action) -> None:
+            if callable(callback):
+                callback()
+
+        emulator.pyboy.hook_register(bank, address, observe, None)
+        stub_hooks.append((bank, address))
+    memory[0xFF50] = 1
+    memory[0xFFFF] = 0
+    memory[0xFF0F] = 0
+    registers.SP = 0xDFFF
+    memory[0xDFFF] = 0
+    memory[0xE000] = 1
+    if entry_bank:
+        memory[0x2000] = entry_bank & 0xFF
+        memory[0x3000] = entry_bank >> 8
+        memory[emulator.symbols["hLoadedROMBank"]] = entry_bank & 0xFF
+    registers.PC = entry_address
+    try:
+        for _ in range(maximum_frames):
+            emulator.pyboy.tick(1, render=False, sound=False)
+            if elapsed:
+                break
+    finally:
+        for bank, address in reversed(stub_hooks):
+            emulator.pyboy.hook_deregister(bank, address)
+        emulator.pyboy.hook_deregister(barrier_bank, emulator.symbols[barrier])
+    if not elapsed:
+        raise TimingEvidenceError(
+            f"genuine root {entry} did not reach {barrier} "
+            f"(bank={memory[emulator.symbols['hLoadedROMBank']]:#04x}, "
+            f"PC={registers.PC:#06x}, SP={registers.SP:#06x}, "
+            f"RET={(memory[registers.SP] | memory[(registers.SP + 1) & 0xffff] << 8):#06x}, "
+            f"BC={registers.B:#04x}{registers.C:02x}, "
+            f"DE={registers.D:#04x}{registers.E:02x}, HL={registers.HL:#06x})"
+        )
+    if elapsed[0] % 4:
+        raise TimingEvidenceError(f"{entry} ended off machine-cycle boundary")
+    return elapsed[0] // 4
+
+
+def _timed_game_call(
+    rom: object,
+    name: str,
+    *,
+    stubs: dict[str, object] | None = None,
+    **registers: int,
+) -> int:
+    """Time a complete direct call using the game-root harness ABI."""
+    emulator = rom.emulator
+    register_file = emulator.pyboy.register_file
+    memory = emulator.pyboy.memory
+    hooks: list[tuple[int, int]] = []
+
+    def return_from_stub(action: object):
+        def callback(_: object) -> None:
+            if callable(action):
+                action()
+            stack = register_file.SP
+            register_file.PC = memory[stack] | memory[stack + 1] << 8
+            register_file.SP = stack + 2
+        return callback
+
+    for symbol, action in (stubs or {}).items():
+        bank = emulator.symbol_banks[symbol]
+        address = emulator.symbols[symbol]
+        emulator.pyboy.hook_register(bank, address, return_from_stub(action), None)
+        hooks.append((bank, address))
+    started = rom.emulator.pyboy._cycles()
+    try:
+        try:
+            rom.call(name, **registers)
+        except AssertionError as error:
+            loaded = memory[emulator.symbols["hLoadedROMBank"]]
+            prior_bank = memory[0xFF70]
+            memory[0xFF70] = 2
+            state = {
+                symbol: memory[emulator.symbols[symbol]]
+                for symbol in (
+                    "wRendererOwner", "wRendererPhase",
+                    "wRendererAdmissionOpen", "wFullColorRequestCount",
+                    "wFullColorProductionTransitionStatus",
+                )
+            }
+            memory[0xFF70] = prior_bank
+            raise TimingEvidenceError(
+                f"{name} failed with loaded ROM bank ${loaded:02x}, "
+                f"state={state}: {error}"
+            ) from error
+    finally:
+        for bank, address in reversed(hooks):
+            emulator.pyboy.hook_deregister(bank, address)
+    elapsed = rom.emulator.pyboy._cycles() - started
+    if elapsed <= 0 or elapsed % 4:
+        raise TimingEvidenceError(f"{name} ended off machine-cycle boundary")
+    return elapsed // 4
+
+
+def _timed_home_vblank_to_visible_boundary(rom: object) -> int:
+    """Execute the real interrupt root through its named visible barrier."""
+    emulator = rom.emulator
+    memory = emulator.pyboy.memory
+    registers = emulator.pyboy.register_file
+    program = 0xD100
+    loop = 0xC6F0
+    prior_bank = memory[0xFF70]
+    memory[0xFF70] = 6
+    memory[program : program + 4] = b"\xfb\xc3\x00\x01"  # ei; jp $0100
+    memory[0xFF50] = 1
+    memory[0xFFFF] = 1
+    memory[0xFF0F] = 1
+    registers.PC = program
+    registers.SP = 0xFFFC
+    started: list[int] = []
+    elapsed: list[int] = []
+    vblank = emulator.symbols["VBlank"]
+    boundary = emulator.symbols["FullColorProductionVBlankVisibleRouteComplete"]
+
+    def at_start(_: object) -> None:
+        started.append(emulator.pyboy._cycles())
+
+    def at_boundary(_: object) -> None:
+        if started:
+            elapsed.append(emulator.pyboy._cycles() - started[0])
+        memory[0xFFFF] = 0
+        memory[loop : loop + 2] = b"\x18\xfe"
+        registers.PC = loop
+
+    emulator.pyboy.hook_register(0, vblank, at_start, None)
+    emulator.pyboy.hook_register(0, boundary, at_boundary, None)
+    try:
+        emulator.pyboy.tick(1, render=False, sound=False)
+    finally:
+        emulator.pyboy.hook_deregister(0, vblank)
+        emulator.pyboy.hook_deregister(0, boundary)
+        memory[0xFF70] = prior_bank
+    if not elapsed or elapsed[0] % 4:
+        raise TimingEvidenceError("real VBlank did not reach its visible boundary")
+    return elapsed[0] // 4
+
+
 def enqueue_timing_producer(rom: object, kind: str, source: int) -> tuple[int, int]:
     """Call the concrete production producer represented by a timing row."""
     if kind.startswith("palette-"):
@@ -393,12 +583,35 @@ def _measure_color_vblank_routes(root: Path) -> dict[str, int]:
                     if result != rom.constants["ACCEPTED"]:
                         raise TimingEvidenceError(f"{key}: actual producer did not admit")
                     rom.write_wram2("wFullColorCommitBudget", (0xFFFE).to_bytes(2, "little"))
-                measured[key] = _timed_rom_call(rom, "RunFullColorProductionVBlank")
+                measured[key] = _timed_home_vblank_to_visible_boundary(rom)
                 if rom.read_wram2("wFullColorRequestCount") != b"\x00":
                     raise TimingEvidenceError(f"{key}: visible route did not complete")
             finally:
                 emulator.close()
     return measured
+
+
+def _measure_yellow_vblank(root: Path) -> int:
+    """Execute the active Yellow interrupt route to the same visible barrier."""
+    from tools.rom_tests.emulator import Emulator
+    from tools.rom_tests.tests.unit.full_color.test_phase2_scheduler_rom import (
+        Phase2Rom,
+        numeric_symbols,
+    )
+
+    with tempfile.TemporaryDirectory(prefix="full-color-yellow-vblank-") as directory:
+        emulator = Emulator(
+            root / "pokeyellow.gbc", root / "pokeyellow.sym", Path(directory), cgb=True,
+        )
+        rom = Phase2Rom(emulator, numeric_symbols(root / "pokeyellow.sym"))
+        try:
+            rom.activate()
+            rom.write_wram2("wRendererOwner", rom.constants["RENDERER_YELLOW"])
+            rom.write_wram2("wRendererPhase", rom.constants["YELLOW_ACTIVE"])
+            rom.write_wram2("wRendererAdmissionOpen", 1)
+            return _timed_home_vblank_to_visible_boundary(rom)
+        finally:
+            emulator.close()
 
 
 def _measure_oam_post_boundary(root: Path) -> int:
@@ -426,77 +639,321 @@ def _measure_oam_post_boundary(root: Path) -> int:
             emulator.close()
 
 
-def _measure_yellow_transition_edges(root: Path) -> dict[str, int]:
-    """Measure each actual Yellow admission through its completion barrier."""
+def _measure_yellow_transition_edges(
+    root: Path,
+    *,
+    transition_budgets: dict[str, int] | None = None,
+    yellow_map_id: int = 12,
+    menu_map_id: int = 12,
+    battle_transition_id: int = 0,
+    trainer_class: int = 1,
+    force_story_branch: bool = False,
+    color_map_id: int = 12,
+    only_keys: frozenset[str] | None = None,
+) -> dict[str, int]:
+    """Measure genuine game roots through their natural completion barriers."""
     from tools.rom_tests.emulator import Emulator
-    from tools.rom_tests.tests.unit.full_color.test_phase2_scheduler_rom import (
-        Phase2Rom,
-        numeric_symbols,
+    from tools.rom_tests.tests.unit.full_color.test_production_color_mode_transitions_rom import (
+        TransitionRom,
+        _constants,
     )
 
-    contexts = {
-        "TIME-ENTER-YELLOW-MAP": "RENDERER_CONTEXT_ORDINARY_MAP",
-        "TIME-ENTER-YELLOW-MENU": "RENDERER_CONTEXT_MENU",
-        "TIME-ENTER-YELLOW-DIALOGUE": "RENDERER_CONTEXT_DIALOGUE",
-        "TIME-ENTER-YELLOW-BATTLE": "RENDERER_CONTEXT_BATTLE",
+    def activate(rom: object) -> None:
+        rom.call("InitRendererOwnership")
+        rom.set_owner("RENDERER_FULL_COLOR_OVERWORLD", "OVERWORLD_ACTIVE")
+        rom.emulator.pyboy.memory[0xFF80] = 0xC9
+
+    roots = {
+        "TIME-ENTER-YELLOW-MAP": (
+            "LoadMapData", "LoadMapData.fullColorProductionMapTransitionComplete",
+        ),
+        "TIME-ENTER-YELLOW-MENU": (
+            "DisplayStartMenu",
+            "RedisplayStartMenu_DoNotDrawStartMenu.fullColorProductionMenuTransitionComplete",
+        ),
+        "TIME-ENTER-YELLOW-DIALOGUE": (
+            "DisplayTextID", "DisplayTextID.fullColorProductionDialogueTransitionComplete",
+        ),
+        "TIME-ENTER-YELLOW-BATTLE": (
+            "InitBattleCommon", "_InitBattleCommon.fullColorProductionBattleTransitionComplete",
+        ),
     }
     measured: dict[str, int] = {}
     with tempfile.TemporaryDirectory(prefix="full-color-transition-timing-") as directory:
-        for key, context in contexts.items():
+        for key, (entry, barrier) in roots.items():
+            if only_keys is not None and key not in only_keys:
+                continue
             emulator = Emulator(
                 root / "pokeyellow.gbc", root / "pokeyellow.sym",
                 Path(directory) / key, cgb=True,
             )
-            rom = Phase2Rom(emulator, numeric_symbols(root / "pokeyellow.sym"))
+            rom = TransitionRom(emulator, _constants(root / "pokeyellow.sym"))
             try:
-                rom.activate()
-                emulator.pyboy.memory[0xFF70] = 2
-                rom.write_wram2(
-                    "wFullColorProductionReturnContext",
-                    rom.constants[context],
-                )
-                measured[key] = (
-                    _timed_rom_call(rom, "BeginForcedYellowPresentation")
-                    + _timed_rom_call(rom, "RecordAndCompleteYellowPresentationRoot")
-                )
+                activate(rom)
+                if transition_budgets and key in transition_budgets:
+                    rom.write2(
+                        "wFullColorTransitionBudget",
+                        transition_budgets[key],
+                        3,
+                    )
+                emulator.pyboy.memory[0xFF70] = 1
+                emulator.pyboy.memory[emulator.symbols["hOnCGB"]] = 1
+                emulator.pyboy.memory[emulator.symbols["wOnSGB"]] = 1
+                emulator.pyboy.memory[0xFF50] = 1
+                emulator.pyboy.memory[0xFF40] = 0x11
+                emulator.pyboy.memory[0xFFFF] = 0
+                emulator.pyboy.memory[0xFF0F] = 0
+                current_map = {
+                    "TIME-ENTER-YELLOW-MAP": yellow_map_id,
+                    "TIME-ENTER-YELLOW-MENU": menu_map_id,
+                    "TIME-ENTER-YELLOW-BATTLE": 0x3B if battle_transition_id & 4 else 12,
+                }.get(key, 12)
+                emulator.pyboy.memory[emulator.symbols["wCurMap"]] = current_map
+                emulator.pyboy.memory[emulator.symbols["wUnusedObtainedBadges"]] = 1
+                opponent = 200 + trainer_class if battle_transition_id & 1 else 16
+                emulator.pyboy.memory[emulator.symbols["wEnemyMonSpecies2"]] = opponent
+                emulator.pyboy.memory[emulator.symbols["wCurOpponent"]] = opponent
+                emulator.pyboy.memory[emulator.symbols["wCurEnemyLevel"]] = 5
+                emulator.pyboy.memory[emulator.symbols["wTrainerNo"]] = 1
+                emulator.pyboy.memory[emulator.symbols["wPartyMon1HP"]] = 10
+                emulator.pyboy.memory[emulator.symbols["wPartyMon1Level"]] = 5
+                emulator.pyboy.memory[emulator.symbols["wPartyCount"]] = 1
+                emulator.pyboy.memory[emulator.symbols["wPartySpecies"]] = 25
+                emulator.pyboy.memory[emulator.symbols["wPartySpecies"] + 1] = 0xFF
+                emulator.pyboy.memory[emulator.symbols["wPartyMon1Species"]] = 25
+                emulator.pyboy.memory[emulator.symbols["wPartyMonNicks"]] = 0x50
+                emulator.pyboy.memory[emulator.symbols["wPlayerName"]] = 0x50
+                emulator.pyboy.memory[emulator.symbols["hTextID"]] = 3
+
+                def menu_cancel() -> None:
+                    emulator.pyboy.register_file.A = 1 << 1
+
+                def advance_frame_counter() -> None:
+                    counter = emulator.symbols["hFrameCounter"]
+                    value = emulator.pyboy.memory[counter]
+                    emulator.pyboy.memory[counter] = max(0, value - 1)
+                    emulator.pyboy.memory[emulator.symbols["hJoyPressed"]] = 1
+
+                common = {
+                    "PlaySound": None,
+                    "HandleMenuInput": menu_cancel,
+                    "Joypad": None,
+                    "DelayFrame": None,
+                }
+                if key == "TIME-ENTER-YELLOW-MAP":
+                    stubs = common | {
+                        "DisableLCD": lambda: emulator.pyboy.memory.__setitem__(0xFF40, 0x91),
+                        "EnableLCD": lambda: emulator.pyboy.memory.__setitem__(0xFF40, 0x91),
+                        "UpdateMusic6Times": None,
+                        "PlayDefaultMusicFadeOutCurrent": None,
+                    }
+                elif key == "TIME-ENTER-YELLOW-MENU":
+                    stubs = common
+                elif key == "TIME-ENTER-YELLOW-BATTLE":
+                    battle_events: list[str] = []
+
+                    def select_battle_transition() -> None:
+                        battle_events.append("BattleTransition")
+                        emulator.pyboy.memory[emulator.symbols["wCurOpponent"]] = opponent
+                        emulator.pyboy.memory[emulator.symbols["wCurEnemyLevel"]] = (
+                            20 if battle_transition_id & 2 else 5
+                        )
+                        emulator.pyboy.memory[emulator.symbols["wPartyMon1HP"]] = 10
+                        emulator.pyboy.memory[emulator.symbols["wPartyMon1Level"]] = 5
+
+                    def record_trainer_pic() -> None:
+                        pointer_address = emulator.symbols["wTrainerPicPointer"]
+                        pointer = (
+                            emulator.pyboy.memory[pointer_address]
+                            | emulator.pyboy.memory[pointer_address + 1] << 8
+                        )
+                        trainer_class = emulator.pyboy.memory[emulator.symbols["wTrainerClass"]]
+                        battle_events.append(
+                            f"LoadTrainerPic(class={trainer_class},pointer={pointer:#06x})"
+                        )
+                        if force_story_branch:
+                            emulator.pyboy.memory[emulator.symbols["wLoneAttackNo"]] = 1
+
+                    def record_banked_event(name: str) -> None:
+                        loaded = emulator.pyboy.memory[emulator.symbols["hLoadedROMBank"]]
+                        default_palette = emulator.pyboy.memory[
+                            emulator.symbols["wDefaultPaletteCommand"]
+                        ]
+                        wram_bank = emulator.pyboy.memory[0xFF70] & 7 or 1
+                        battle_events.append(
+                            f"{name}(bank={loaded:#04x},wram={wram_bank},default={default_palette:#04x})"
+                        )
+
+                    stubs = {
+                        "Delay3": None,
+                        "DelayFrame": None,
+                        "Joypad": advance_frame_counter,
+                        "PlaySound": None,
+                        "DisableLCD": lambda: emulator.pyboy.memory.__setitem__(0xFF40, 0x91),
+                        "EnableLCD": lambda: emulator.pyboy.memory.__setitem__(0xFF40, 0x91),
+                        "SetScrollXForSlidingPlayerBodyLeft": None,
+                    }
+                else:
+                    stubs = common
+                observations = None
+                if key == "TIME-ENTER-YELLOW-BATTLE":
+                    observations = {
+                        "GetTrainerInformation": lambda: battle_events.append("GetTrainerInformation"),
+                        "ReadTrainer": lambda: battle_events.append("ReadTrainer"),
+                        "DoBattleTransitionAndInitBattleVariables": lambda: battle_events.append("DoBattleTransition"),
+                        "BattleTransition": select_battle_transition,
+                        "_LoadTrainerPic": record_trainer_pic,
+                        "CopyUncompressedPicToTilemap": lambda: battle_events.append("CopyTrainerTilemap"),
+                        "_InitBattleCommon": lambda: record_banked_event("CommonPresentation"),
+                        "PrintBeginningBattleText": lambda: battle_events.append("PrintBeginningBattleText"),
+                        "PrintText": lambda: battle_events.append("PrintText"),
+                        "RecordAndCompleteYellowPresentationRoot": lambda: record_banked_event("CompleteYellow"),
+                        "CommitYellowPresentationTileMapForContext": lambda: record_banked_event("CommitYellowTilemap"),
+                        "RecordYellowReconstructionComplete": lambda: record_banked_event("RecordYellow"),
+                        "CompleteYellowPresentation": lambda: record_banked_event("ActivateYellow"),
+                    }
+                try:
+                    measured[key] = _timed_rom_root_to_barrier(
+                        rom,
+                        entry,
+                        barrier,
+                        stubs=stubs,
+                        observations=observations,
+                    )
+                except TimingEvidenceError as error:
+                    raise TimingEvidenceError(
+                        f"{key}: events={battle_events}: {error}"
+                    ) from error
+                if rom.read2("wRendererOwner") != rom.constants["RENDERER_YELLOW"]:
+                    raise TimingEvidenceError(f"{key}: root did not finish under Yellow ownership")
+                if rom.read2("wRendererPhase") != rom.constants["YELLOW_ACTIVE"]:
+                    raise TimingEvidenceError(f"{key}: root did not reach Yellow active")
+                if rom.read2("wRendererAdmissionOpen") != 1:
+                    raise TimingEvidenceError(f"{key}: root did not reopen admission")
             finally:
                 emulator.close()
-        for soft, key in (
-            (0, "TIME-ENTER-YELLOW-HARD-RESET"),
-            (1, "TIME-ENTER-YELLOW-SOFT-RESET"),
+        for soft, key, entry, barrier in (
+            (
+                0,
+                "TIME-ENTER-YELLOW-HARD-RESET",
+                "Init",
+                "DisplayTitleScreen.fullColorProductionHardResetTransitionComplete",
+            ),
+            (
+                1,
+                "TIME-ENTER-YELLOW-SOFT-RESET",
+                "SoftResetRendererOwnership",
+                "DisplayTitleScreen.fullColorProductionSoftResetTransitionComplete",
+            ),
         ):
+            if only_keys is not None and key not in only_keys:
+                continue
             emulator = Emulator(
                 root / "pokeyellow.gbc", root / "pokeyellow.sym",
                 Path(directory) / key, cgb=True,
             )
-            rom = Phase2Rom(emulator, numeric_symbols(root / "pokeyellow.sym"))
+            rom = TransitionRom(emulator, _constants(root / "pokeyellow.sym"))
             try:
-                rom.activate()
-                emulator.pyboy.memory[0xFF70] = 2
+                activate(rom)
+                if transition_budgets and key in transition_budgets and soft:
+                    rom.write2(
+                        "wFullColorTransitionBudget",
+                        transition_budgets[key],
+                        3,
+                    )
+                emulator.pyboy.memory[0xFF70] = 1
                 emulator.pyboy.memory[emulator.symbols["hSoftReset"]] = soft
-                rom.write_wram2(
-                    "wFullColorProductionReturnContext",
-                    rom.constants["RENDERER_CONTEXT_BOOT_RESET"],
+                emulator.pyboy.memory[emulator.symbols["hOnCGB"]] = 1
+                emulator.pyboy.memory[0xFF50] = 1
+                emulator.pyboy.memory[0xFF40] = 0x11
+                emulator.pyboy.memory[0xFFFF] = 0
+                emulator.pyboy.memory[0xFF0F] = 0
+
+                def inject_hard_reset_budget() -> None:
+                    if not transition_budgets or key not in transition_budgets:
+                        return
+                    rom.write2(
+                        "wFullColorTransitionBudget",
+                        transition_budgets[key],
+                        3,
+                    )
+
+                measured[key] = _timed_rom_root_to_barrier(
+                    rom,
+                    entry,
+                    barrier,
+                    stubs={
+                        "DelayFrame": None,
+                        "DelayFrames": None,
+                        "Joypad": advance_frame_counter,
+                        "LoadSGB": None,
+                        "PlaySound": None,
+                        "StopAllSounds": None,
+                        "DisableLCD": lambda: emulator.pyboy.memory.__setitem__(0xFF40, 0x11),
+                        "EnableLCD": lambda: emulator.pyboy.memory.__setitem__(0xFF40, 0x91),
+                    },
+                    observations=(
+                        {"CheckFullColorHardResetTransitionBudget": inject_hard_reset_budget}
+                        if not soft
+                        else None
+                    ),
                 )
-                measured[key] = (
-                    _timed_rom_call(rom, "ResetRendererOwnershipForReconstruction")
-                    + _timed_rom_call(rom, "RecordAndCompleteYellowPresentationRoot")
-                )
+                if rom.read2("wRendererOwner") != rom.constants["RENDERER_YELLOW"]:
+                    raise TimingEvidenceError(f"{key}: root did not finish under Yellow ownership")
+                if rom.read2("wRendererPhase") != rom.constants["YELLOW_ACTIVE"]:
+                    raise TimingEvidenceError(f"{key}: root did not reach Yellow active")
+                if rom.read2("wRendererAdmissionOpen") != 1:
+                    raise TimingEvidenceError(f"{key}: root did not reopen admission")
             finally:
                 emulator.close()
         key = "TIME-ENTER-COLOR-MAP"
+        if only_keys is not None and key not in only_keys:
+            return measured
         emulator = Emulator(
             root / "pokeyellow.gbc", root / "pokeyellow.sym",
             Path(directory) / key, cgb=True,
         )
-        rom = Phase2Rom(emulator, numeric_symbols(root / "pokeyellow.sym"))
+        rom = TransitionRom(emulator, _constants(root / "pokeyellow.sym"))
         try:
-            rom.activate()
-            emulator.pyboy.memory[0xFF70] = 2
-            rom.write_wram2("wRendererOwner", rom.constants["RENDERER_YELLOW"])
-            rom.write_wram2("wRendererPhase", rom.constants["YELLOW_ACTIVE"])
-            rom.write_wram2("wRendererAdmissionOpen", 1)
-            measured[key] = _timed_rom_call(rom, "BeginFullColorMapEntry")
+            activate(rom)
+            if transition_budgets and key in transition_budgets:
+                rom.write2(
+                    "wFullColorTransitionBudget",
+                    transition_budgets[key],
+                    3,
+                )
+            emulator.pyboy.memory[0xFF70] = 1
+            rom.write2("wRendererOwner", rom.constants["RENDERER_YELLOW"])
+            rom.write2("wRendererPhase", rom.constants["YELLOW_ACTIVE"])
+            rom.write2("wRendererAdmissionOpen", 1)
+            emulator.pyboy.memory[emulator.symbols["hOnCGB"]] = 1
+            emulator.pyboy.memory[emulator.symbols["wOnSGB"]] = 1
+            emulator.pyboy.memory[0xFF50] = 1
+            emulator.pyboy.memory[0xFF40] = 0x11
+            emulator.pyboy.memory[0xFFFF] = 0
+            emulator.pyboy.memory[0xFF0F] = 0
+            emulator.pyboy.memory[emulator.symbols["wCurMap"]] = color_map_id
+            emulator.pyboy.memory[emulator.symbols["wUnusedObtainedBadges"]] = 0
+            emulator.pyboy.memory[emulator.symbols["wDefaultPaletteCommand"]] = 0x08
+            measured[key] = _timed_rom_root_to_barrier(
+                rom,
+                "LoadMapData",
+                "CompleteOrdinaryMapPresentationRoot.fullColorProductionColorMapTransitionComplete",
+                stubs={
+                    "DisableLCD": lambda: emulator.pyboy.memory.__setitem__(0xFF40, 0x11),
+                    "EnableLCD": lambda: emulator.pyboy.memory.__setitem__(0xFF40, 0x91),
+                    "DelayFrame": None,
+                    "PlaySound": None,
+                    "UpdateMusic6Times": None,
+                    "PlayDefaultMusicFadeOutCurrent": None,
+                },
+            )
+            if rom.read2("wRendererOwner") != rom.constants["RENDERER_FULL_COLOR_OVERWORLD"]:
+                raise TimingEvidenceError(f"{key}: root did not finish under Color ownership")
+            if rom.read2("wRendererPhase") != rom.constants["OVERWORLD_ACTIVE"]:
+                raise TimingEvidenceError(f"{key}: root did not reach Color active")
+            if rom.read2("wRendererAdmissionOpen") != 1:
+                raise TimingEvidenceError(f"{key}: root did not reopen admission")
         finally:
             emulator.close()
     return measured
@@ -728,19 +1185,95 @@ def measure_rows(root: Path) -> dict[str, TimingRow]:
             rom_digest + b"post-boundary-oam" + oam_build_cycles.to_bytes(4, "little")
         ).hexdigest(),
     )
-    for key, cycles in _measure_yellow_transition_edges(root).items():
+    transition_scenarios = (
+        ("route1-normal-id0", dict(yellow_map_id=0x0C, menu_map_id=0x0C, battle_transition_id=0, color_map_id=0x0C)),
+        ("pallet-safari-id1", dict(yellow_map_id=0x00, menu_map_id=0xD9, battle_transition_id=1, color_map_id=0x00)),
+        ("viridian-id2", dict(yellow_map_id=0x01, battle_transition_id=2)),
+        ("route21-id3", dict(yellow_map_id=0x20, battle_transition_id=3)),
+        ("battle-id4", dict(battle_transition_id=4)),
+        ("battle-id5", dict(battle_transition_id=5)),
+        ("battle-id6", dict(battle_transition_id=6)),
+        ("battle-id7", dict(battle_transition_id=7)),
+    )
+    transition_measurements_list: list[tuple[str, dict[str, int]]] = []
+    for name, parameters in transition_scenarios:
+        try:
+            measurement = _measure_yellow_transition_edges(root, **parameters)
+        except TimingEvidenceError as error:
+            raise TimingEvidenceError(f"transition scenario {name}: {error}") from error
+        transition_measurements_list.append((name, measurement))
+    for trainer_class in range(1, 48):
+        if trainer_class in {13, 27}:  # no party data; unreachable classes
+            continue
+        name = f"trainer-class-{trainer_class:02x}"
+        try:
+            measurement = _measure_yellow_transition_edges(
+                root,
+                battle_transition_id=1,
+                trainer_class=trainer_class,
+                only_keys=frozenset({"TIME-ENTER-YELLOW-BATTLE"}),
+            )
+        except TimingEvidenceError as error:
+            raise TimingEvidenceError(f"transition scenario {name}: {error}") from error
+        transition_measurements_list.append((name, measurement))
+    transition_measurements_list.append((
+        "trainer-story-branch",
+        _measure_yellow_transition_edges(
+            root,
+            battle_transition_id=1,
+            trainer_class=1,
+            force_story_branch=True,
+            only_keys=frozenset({"TIME-ENTER-YELLOW-BATTLE"}),
+        ),
+    ))
+    transition_measurements = tuple(transition_measurements_list)
+    for key in (
+        "TIME-ENTER-YELLOW-MAP",
+        "TIME-ENTER-YELLOW-MENU",
+        "TIME-ENTER-YELLOW-DIALOGUE",
+        "TIME-ENTER-YELLOW-BATTLE",
+        "TIME-ENTER-YELLOW-HARD-RESET",
+        "TIME-ENTER-YELLOW-SOFT-RESET",
+        "TIME-ENTER-COLOR-MAP",
+    ):
+        scenario_cycles = tuple(
+            (name, measurements[key])
+            for name, measurements in transition_measurements
+            if key in measurements
+        )
+        scenario_max = max(value for _, value in scenario_cycles)
+        cycles = scenario_max
         prior = rows[key]
-        operation = (
-            "actual-linked-Yellow-to-Color admission control"
-            if key == "TIME-ENTER-COLOR-MAP"
-            else "actual-linked admission through Yellow completion barrier"
+        actual_roots = {
+            "TIME-ENTER-YELLOW-MAP": "LoadMapData..LoadMapData.fullColorProductionMapTransitionComplete",
+            "TIME-ENTER-YELLOW-MENU": "DisplayStartMenu..RedisplayStartMenu_DoNotDrawStartMenu.fullColorProductionMenuTransitionComplete",
+            "TIME-ENTER-YELLOW-DIALOGUE": "DisplayTextID..DisplayTextID.fullColorProductionDialogueTransitionComplete",
+            "TIME-ENTER-YELLOW-BATTLE": "InitBattleCommon.._InitBattleCommon.fullColorProductionBattleTransitionComplete",
+            "TIME-ENTER-YELLOW-HARD-RESET": "Init..DisplayTitleScreen.fullColorProductionHardResetTransitionComplete",
+            "TIME-ENTER-YELLOW-SOFT-RESET": "SoftResetRendererOwnership..DisplayTitleScreen.fullColorProductionSoftResetTransitionComplete",
+            "TIME-ENTER-COLOR-MAP": "LoadMapData..CompleteOrdinaryMapPresentationRoot.fullColorProductionColorMapTransitionComplete",
+        }
+        exclusions = {
+            "TIME-ENTER-YELLOW-MAP": "LCD scanline synchronization and post-barrier music excluded",
+            "TIME-ENTER-YELLOW-MENU": "audio dispatch and post-barrier menu input excluded",
+            "TIME-ENTER-YELLOW-DIALOGUE": "frame/input synchronization excluded; complete dialogue initialization executed",
+            "TIME-ENTER-YELLOW-BATTLE": "frame/input/scanline synchronization excluded; complete wild and every reachable trainer-class presentation plus all eight animation branches executed",
+            "TIME-ENTER-YELLOW-HARD-RESET": "SGB handshake plus frame/input/audio synchronization excluded; intro and title presentation executed",
+            "TIME-ENTER-YELLOW-SOFT-RESET": "32-frame hold, SGB handshake, and frame/input/audio synchronization excluded; intro and title presentation executed",
+            "TIME-ENTER-COLOR-MAP": "LCD scanline synchronization and post-barrier music excluded",
+        }
+        terms = (
+            f"actual-linked-root({actual_roots[key]})={scenario_max}",
+            *(f"scenario({name})={value}" for name, value in scenario_cycles),
+            exclusions[key],
         )
         rows[key] = TimingRow(
             key, prior.operation,
-            (f"{operation}={cycles}",),
+            terms,
             cycles, cycles + 64, 64, cycles,
             hashlib.sha256(
                 rom_digest + key.encode() + cycles.to_bytes(4, "little")
+                + "\0".join(terms).encode()
             ).hexdigest(),
         )
     combined_cost = (
@@ -757,26 +1290,23 @@ def measure_rows(root: Path) -> dict[str, TimingRow]:
             + bytes.fromhex(rows["TIME-PALETTE-OBJ"].linked_sha256)
         ).hexdigest(),
     )
-    color_cost = (
-        rows["TIME-ENTER-COLOR-MAP"].worst_cycles
-        + rows["TIME-TRANSFER-RECTANGLE"].worst_cycles
-        + rows["TIME-PALETTE-COMBINED"].worst_cycles
-        + rows["TIME-OAM-SHADOW-BUILD"].worst_cycles
-        + rows["TIME-OAM-DMA"].worst_cycles
-    )
-    color = rows["TIME-ENTER-COLOR-MAP"]
-    rows["TIME-ENTER-COLOR-MAP"] = TimingRow(
-        color.key, color.operation,
-        color.terms + (
-            f"actual-hidden-rectangle-edge={rows['TIME-TRANSFER-RECTANGLE'].worst_cycles}",
-            f"complete-palette-pair={rows['TIME-PALETTE-COMBINED'].worst_cycles}",
-            f"shadow-OAM-build={rows['TIME-OAM-SHADOW-BUILD'].worst_cycles}",
-            f"OAM-DMA-edge={rows['TIME-OAM-DMA'].worst_cycles}",
+    yellow_vblank_cycles = _measure_yellow_vblank(root)
+    if yellow_vblank_cycles + VBLANK_GUARD_CYCLES > VBLANK_MACHINE_CYCLES:
+        raise TimingEvidenceError(
+            f"TIME-VBLANK-YELLOW: {yellow_vblank_cycles} misses double-speed VBlank"
+        )
+    rows["TIME-VBLANK-YELLOW"] = TimingRow(
+        "TIME-VBLANK-YELLOW",
+        "actual Yellow interrupt root through its presentation boundary",
+        (
+            "linked-StartCGB-KEY1-STOP=double-speed",
+            f"actual-VBlank-to-FullColorProductionVBlankVisibleRouteComplete={yellow_vblank_cycles}",
         ),
-        color_cost, color_cost + 64, 64, color_cost,
+        yellow_vblank_cycles, VBLANK_MACHINE_CYCLES, VBLANK_GUARD_CYCLES,
+        yellow_vblank_cycles,
         hashlib.sha256(
-            bytes.fromhex(color.linked_sha256) + rom_digest
-            + color_cost.to_bytes(4, "little")
+            speed_digest + rom_digest + b"yellow-home-vblank"
+            + yellow_vblank_cycles.to_bytes(4, "little")
         ).hexdigest(),
     )
     actual_vblank_routes = _measure_color_vblank_routes(root)
@@ -791,7 +1321,7 @@ def measure_rows(root: Path) -> dict[str, TimingRow]:
         "TIME-VBLANK-OVERWORLD",
         "actual Color visible route through its presentation boundary",
         ("linked-StartCGB-KEY1-STOP=double-speed",) + tuple(
-            f"actual-RunFullColorProductionVBlank[{kind}]={cycles}"
+            f"actual-VBlank-to-visible-boundary[{kind}]={cycles}"
             for kind, cycles in sorted(actual_vblank_routes.items())
         ) + (f"worst-case={worst_vblank_kind}",),
         vblank_cost, VBLANK_MACHINE_CYCLES, VBLANK_GUARD_CYCLES,
@@ -834,8 +1364,13 @@ def render_rgbds_constants(rows: dict[str, TimingRow]) -> str:
         "FULL_COLOR_TRANSITION_SOFT_RESET_BUDGET": rows["TIME-ENTER-YELLOW-SOFT-RESET"].worst_cycles,
         "FULL_COLOR_TRANSITION_COLOR_MAP_BUDGET": rows["TIME-ENTER-COLOR-MAP"].worst_cycles,
     }
-    if any(value <= 0 or value == 0xFFFF or value > 0xFFFF for value in values.values()):
-        raise TimingEvidenceError("production budgets must be finite positive 16-bit values")
+    if any(value <= 0 for value in values.values()):
+        raise TimingEvidenceError("production budgets must be finite and positive")
+    if any(
+        value > (0xFFFFFF if name.startswith("FULL_COLOR_TRANSITION_") else 0xFFFF)
+        for name, value in values.items()
+    ):
+        raise TimingEvidenceError("production budget exceeds its linked seam width")
     lines = [
         "; Generated by tools.rom_tests.full_color.production_timing; do not hand edit.\n",
     ]

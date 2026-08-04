@@ -19,6 +19,7 @@ rom_obj := \
 
 pokeyellow_obj       := $(rom_obj)
 pokeyellow_debug_obj := $(rom_obj:.o=_debug.o)
+pokeyellow_phase1_debug_obj := $(rom_obj:.o=_phase1_debug.o)
 pokeyellow_phase2_audit_obj := $(rom_obj:.o=_phase2_audit.o)
 pokeyellow_vc_obj    := $(rom_obj:.o=_vc.o)
 
@@ -54,6 +55,7 @@ RGBGFXFLAGS  ?= -Weverything
 	all \
 	yellow \
 	yellow_debug \
+	yellow_phase1_debug \
 	yellow_phase2_audit \
 	yellow_vc \
 	clean \
@@ -64,6 +66,7 @@ RGBGFXFLAGS  ?= -Weverything
 	measure-full-color-phase1 \
 	measure-full-color-source-transition \
 	measure-full-color-audit-evidence-identities \
+	measure-full-color-phase2-source-authority \
 	measure-full-color-phase2-audit \
 	verify-full-color-phase2-audit \
 	test-full-color-gate0 \
@@ -81,6 +84,7 @@ RGBGFXFLAGS  ?= -Weverything
 all: $(roms)
 yellow:       pokeyellow.gbc
 yellow_debug: pokeyellow_debug.gbc
+yellow_phase1_debug: pokeyellow_phase1_debug.gbc
 yellow_phase2_audit: pokeyellow_phase2_audit.gbc
 yellow_vc:    pokeyellow.patch
 
@@ -106,9 +110,13 @@ tidy:
 	      pokeyellow_phase2_audit.gbc \
 	      pokeyellow_phase2_audit.sym \
 	      pokeyellow_phase2_audit.map \
+	      pokeyellow_phase1_debug.gbc \
+	      pokeyellow_phase1_debug.sym \
+	      pokeyellow_phase1_debug.map \
 	      $(pokeyellow_obj) \
 	      $(pokeyellow_vc_obj) \
 	      $(pokeyellow_debug_obj) \
+	      $(pokeyellow_phase1_debug_obj) \
 	      $(pokeyellow_phase2_audit_obj) \
 	      rgbdscheck.o
 	$(MAKE) clean -C tools/
@@ -133,7 +141,10 @@ measure-full-color-source-transition: yellow yellow_debug yellow_vc yellow_phase
 measure-full-color-audit-evidence-identities: measure-full-color-source-transition
 	$(PYTHON) -m tools.rom_tests.full_color.audit_evidence_identities --root .
 
-measure-full-color-phase2-audit: measure-full-color-audit-evidence-identities
+measure-full-color-phase2-source-authority: measure-full-color-audit-evidence-identities
+	$(PYTHON) -m tools.rom_tests.full_color.phase2_source_authority --root .
+
+measure-full-color-phase2-audit: measure-full-color-phase2-source-authority
 	$(PYTHON) -m tools.rom_tests.full_color.phase2_measurements --root . --output specs/full-colors/evidence/phase2-hostile-slice-representation.json
 
 test-full-color-setup:
@@ -155,10 +166,10 @@ verify-full-color-phase2-audit: pokeyellow.gbc pokeyellow_debug.gbc pokeyellow_v
 test-full-color-renderer-conformance:
 	$(PYTHON) -m tools.rom_tests.full_color.renderer_conformance_runner --root . --results "$(FULL_COLOR_CONFORMANCE_RESULTS)"
 
-test-full-color-renderer-runtime: yellow_debug
+test-full-color-renderer-runtime: yellow_phase1_debug
 	$(PYTHON) -m tools.rom_tests.full_color.renderer_runtime_runner --root . --results "$(FULL_COLOR_RUNTIME_RESULTS)"
 
-test-full-color-smoke: yellow_debug
+test-full-color-smoke: yellow_phase1_debug
 	$(PYTHON) -m tools.rom_tests.full_color.runtime_observability --root . --results "$(FULL_COLOR_RESULTS)/smoke"
 
 test-full-color-fast:
@@ -183,6 +194,7 @@ RGBASMFLAGS += -E
 endif
 
 $(pokeyellow_debug_obj): RGBASMFLAGS += -D _DEBUG
+$(pokeyellow_phase1_debug_obj): RGBASMFLAGS += -D _DEBUG -D FULL_COLOR_PRODUCTION_LINKAGE -D FULL_COLOR_PHASE1_DIAGNOSTIC
 $(pokeyellow_phase2_audit_obj): RGBASMFLAGS += -D _DEBUG -D PHASE2_AUDIT
 $(pokeyellow_vc_obj):    RGBASMFLAGS += -D _YELLOW_VC
 $(pokeyellow_obj) $(pokeyellow_debug_obj) $(pokeyellow_vc_obj): RGBASMFLAGS += -D FULL_COLOR_PRODUCTION_LINKAGE
@@ -211,6 +223,7 @@ endef
 # Dependencies for objects
 $(foreach obj, $(pokeyellow_obj), $(eval $(call DEP,$(obj),$(obj:.o=.asm))))
 $(foreach obj, $(pokeyellow_debug_obj), $(eval $(call DEP,$(obj),$(obj:_debug.o=.asm))))
+$(foreach obj, $(pokeyellow_phase1_debug_obj), $(eval $(call DEP,$(obj),$(obj:_phase1_debug.o=.asm))))
 $(foreach obj, $(pokeyellow_phase2_audit_obj), $(eval $(call DEP,$(obj),$(obj:_phase2_audit.o=.asm))))
 $(foreach obj, $(pokeyellow_vc_obj), $(eval $(call DEP,$(obj),$(obj:_vc.o=.asm))))
 
@@ -219,12 +232,14 @@ endif
 
 pokeyellow.gbc:       RGBLINKFLAGS += -p 0x00
 pokeyellow_debug.gbc: RGBLINKFLAGS += -p 0xff
+pokeyellow_phase1_debug.gbc: RGBLINKFLAGS += -p 0xff
 pokeyellow_phase2_audit.gbc: RGBLINKFLAGS += -p 0xff
 pokeyellow_vc.gbc:    RGBLINKFLAGS += -p 0x00
 
 RGBFIXFLAGS += -Cjsv -k 01 -l 0x33 -m MBC5+RAM+BATTERY -r 03 -t "POKEMON YELLOW"
 pokeyellow.gbc:       RGBFIXFLAGS += -p 0x00
 pokeyellow_debug.gbc: RGBFIXFLAGS += -p 0xff
+pokeyellow_phase1_debug.gbc: RGBFIXFLAGS += -p 0xff
 pokeyellow_phase2_audit.gbc: RGBFIXFLAGS += -p 0xff
 pokeyellow_vc.gbc:    RGBFIXFLAGS += -p 0x00
 

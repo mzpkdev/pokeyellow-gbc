@@ -896,8 +896,8 @@ def run_smoke(
     if diagnostics_output is None:
         diagnostics_output = root / "test-results" / "full-color-debug-observability"
     emulator = Emulator(
-        rom=root / "pokeyellow_debug.gbc",
-        symbols=root / "pokeyellow_debug.sym",
+        rom=root / "pokeyellow_phase1_debug.gbc",
+        symbols=root / "pokeyellow_phase1_debug.sym",
         results=diagnostics_output,
         cgb=True,
     )
@@ -1010,7 +1010,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--root",
         type=Path,
         default=Path.cwd(),
-        help="repository containing pokeyellow_debug.gbc and .sym",
+        help="repository containing pokeyellow_phase1_debug.gbc and .sym",
     )
     parser.add_argument(
         "--snapshot-output",

@@ -294,7 +294,7 @@ def _run_complete_vblank(
 
 @pytest.mark.parametrize("product", PRODUCTS)
 @pytest.mark.parametrize("hostile", (False, True), ids=("yellow", "hostile-color"))
-def test_complete_production_vblank_is_forced_yellow_and_color_inert(
+def test_complete_production_vblank_routes_yellow_and_closes_invalid_color(
     request: pytest.FixtureRequest, product: str, hostile: bool
 ) -> None:
     emulator = Emulator(
@@ -311,8 +311,8 @@ def test_complete_production_vblank_is_forced_yellow_and_color_inert(
         else:
             raise AssertionError("hard boot did not initialize renderer ownership")
         assert emulator.read("wRendererOwner") == 0
-        assert emulator.read("wRendererPhase") == 0
-        assert emulator.read("wRendererAdmissionOpen") == 1
+        assert emulator.read("wRendererPhase") == _constants(product)["YELLOW_RECONSTRUCTING"]
+        assert emulator.read("wRendererAdmissionOpen") == 0
         assert emulator.read("wRendererJobState") == 0xFF
         assert emulator.read("wFullColorRequestCount") == 0
         assert emulator.read("wFullColorProducerPending") == 0
@@ -332,13 +332,32 @@ def test_complete_production_vblank_is_forced_yellow_and_color_inert(
             assert emulator.read_bytes("wRendererGeneration", 4) == b"\xef\xbe\xad\xde"
             assert emulator.read("wFullColorRequestCount") == 0xFF
             assert emulator.read("wFullColorProducerPending") == 1
+        else:
+            _write_wram2(emulator, "wRendererPhase", b"\x00")
+            _write_wram2(emulator, "wRendererAdmissionOpen", b"\x01")
         state_before = _read_wram2(emulator, start, end)
         yellow_calls, color_calls = _run_complete_vblank(
             emulator, _authoritative_color_boundaries(product)
         )
-        assert color_calls == ()
-        assert set(YELLOW_VBLANK_CALLS) <= set(yellow_calls)
-        assert _read_wram2(emulator, start, end) == state_before
+        if hostile:
+            # PrepareFullColorProductionOAMForOwnedVBlank enters the
+            # PrepareOAMData.build sublabel, which shares PrepareOAMData's
+            # linked address.  Every actual Yellow visible writer must still
+            # remain excluded from the Color route.
+            assert not (set(yellow_calls) - {"PrepareOAMData"})
+            assert "RunFullColorProductionVBlank" in color_calls
+            assert emulator.read("wRendererOwner") == 1
+            assert emulator.read_bytes("wRendererGeneration", 4) == b"\xef\xbe\xad\xde"
+        else:
+            # The post-visible adapter is owner-neutral and intentionally
+            # reached by both routes.  Yellow must not enter Color's visible
+            # dispatcher or any Color commit boundary.
+            assert not (
+                set(color_calls)
+                - {"PrepareFullColorProductionPostVisibleRoute"}
+            )
+            assert set(YELLOW_VBLANK_CALLS) <= set(yellow_calls)
+            assert _read_wram2(emulator, start, end) == state_before
     finally:
         emulator.close()
 
@@ -407,13 +426,14 @@ def _reachable_symbols(
 
 
 @pytest.mark.parametrize("product", PRODUCTS)
-def test_static_production_roots_cannot_reach_color_writers_or_activation(product: str) -> None:
+def test_static_production_roots_reach_only_activated_production_surface(product: str) -> None:
     symbols, _ = _symbols(product)
-    assert _constants(product)["FULL_COLOR_PRODUCTION_ACTIVATED"] == 0
+    assert _constants(product)["FULL_COLOR_PRODUCTION_ACTIVATED"] == 1
     assert "PollFullColorDebugCommand" not in symbols
     assert set(PRODUCTION_ROOTS) <= symbols.keys()
     reached = _reachable_symbols(product, PRODUCTION_ROOTS)
-    assert reached.isdisjoint(_authoritative_color_boundaries(product))
+    assert not reached.isdisjoint(_authoritative_color_boundaries(product))
+    assert not any(marker in symbol for marker in FORBIDDEN_PRODUCTION_MARKERS for symbol in reached)
 
 
 def test_audit_identity_and_surface_are_unchanged() -> None:

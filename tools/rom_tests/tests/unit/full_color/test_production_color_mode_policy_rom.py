@@ -97,7 +97,7 @@ def test_effective_owner_matrix_and_hostile_preferences(
 ) -> None:
     rom, constants = product_rom
     assert constants["NUM_RENDERER_CONTEXTS"] == len(CONTEXTS)
-    assert constants["FULL_COLOR_PRODUCTION_ACTIVATED"] == 0
+    assert constants["FULL_COLOR_PRODUCTION_ACTIVATED"] == 1
     assert "YELLOW_RECONSTRUCTING" in constants
     color_rows = 0
     for preference in ("COLOR_MODE_COLOR", "COLOR_MODE_YELLOW"):

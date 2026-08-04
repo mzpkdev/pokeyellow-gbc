@@ -940,7 +940,7 @@ def test_production_color_vblank_builds_next_oam_after_visible_commit() -> None:
     assert "RunFullColorOwnershipVBlank" in route
     vblank = (REPOSITORY_ROOT / "home/vblank.asm").read_text()
     assert vblank.index("FullColorProductionVBlankVisibleRouteComplete::") < vblank.index(
-        "PrepareFullColorProductionOAMForOwnedVBlank"
+        "PrepareFullColorProductionPostVisibleRoute"
     )
     adapter = _routine(
         lifecycle,

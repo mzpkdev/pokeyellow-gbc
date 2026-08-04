@@ -4,7 +4,23 @@ SoftReset::
 Init::
 	; Cold startup establishes its reset intent before inspecting any memory.
 	xor a
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+	; Admit the complete hard-reset root before it can clear any renderer-owned
+	; WRAM, VRAM, tilemap, palette, or OAM state. Cold WRAM is not authority for
+	; the test seam, so normalize the seam before the linked check observation.
+	di
+	ld a, 1
+	ldh [rSVBK], a
+	ld sp, wStack
+	farcall AdmitFullColorHardResetBeforeInit
+	jr c, .hardResetBudgetRejected
+	xor a
+	ENDC
 	jr InitWithResetIntent
+	IF FULL_COLOR_PRODUCTION_ACTIVATED
+.hardResetBudgetRejected
+	jr .hardResetBudgetRejected
+	ENDC
 
 SoftResetInit::
 	; Only the completed SoftResetRendererOwnership path enters here.

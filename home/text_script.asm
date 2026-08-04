@@ -15,6 +15,7 @@ DisplayTextID::
 	farcall DisplayTextIDInit ; initialization
 	IF FULL_COLOR_PRODUCTION_ACTIVATED
 	farcall RecordAndCompleteYellowPresentationRoot
+.fullColorProductionDialogueTransitionComplete
 	ENDC
 	ld hl, wTextPredefFlag
 	bit BIT_TEXT_PREDEF, [hl]

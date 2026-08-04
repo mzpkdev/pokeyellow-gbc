@@ -186,7 +186,7 @@ InitFullColorProductionLifecycleSelected::
 ENDC
 
 IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(PHASE2_AUDIT)
-; The budget word is a one-shot test seam for the decoded path cost. Zero means
+; The 24-bit budget is a one-shot test seam for the decoded path cost. Zero means
 ; use the generated production cost. A nonzero exact-fit value is accepted;
 ; threshold plus one returns carry before cancellation, generation, authority
 ; snapshots, LCD concealment, or any destination write.
@@ -199,51 +199,91 @@ CheckFullColorTransitionBudgetForCurrentContext:
 	jr z, .dialogue
 	cp RENDERER_CONTEXT_BATTLE
 	jr z, .battle
-	ld bc, FULL_COLOR_TRANSITION_MAP_BUDGET
+	ld a, FULL_COLOR_TRANSITION_MAP_BUDGET >> 16
+	ld bc, FULL_COLOR_TRANSITION_MAP_BUDGET & $ffff
 	jr CheckFullColorTransitionBudgetSelected
 .menu
-	ld bc, FULL_COLOR_TRANSITION_MENU_BUDGET
+	ld a, FULL_COLOR_TRANSITION_MENU_BUDGET >> 16
+	ld bc, FULL_COLOR_TRANSITION_MENU_BUDGET & $ffff
 	jr CheckFullColorTransitionBudgetSelected
 .dialogue
-	ld bc, FULL_COLOR_TRANSITION_DIALOGUE_BUDGET
+	ld a, FULL_COLOR_TRANSITION_DIALOGUE_BUDGET >> 16
+	ld bc, FULL_COLOR_TRANSITION_DIALOGUE_BUDGET & $ffff
 	jr CheckFullColorTransitionBudgetSelected
 .battle
-	ld bc, FULL_COLOR_TRANSITION_BATTLE_BUDGET
+	ld a, FULL_COLOR_TRANSITION_BATTLE_BUDGET >> 16
+	ld bc, FULL_COLOR_TRANSITION_BATTLE_BUDGET & $ffff
 	jr CheckFullColorTransitionBudgetSelected
 
 CheckFullColorColorMapTransitionBudget:
 	select_renderer_state_e
-	ld bc, FULL_COLOR_TRANSITION_COLOR_MAP_BUDGET
+	ld a, FULL_COLOR_TRANSITION_COLOR_MAP_BUDGET >> 16
+	ld bc, FULL_COLOR_TRANSITION_COLOR_MAP_BUDGET & $ffff
 	jr CheckFullColorTransitionBudgetSelected
+
+AdmitFullColorHardResetBeforeInit:
+	; The cold-start seam has no persisted authority. Normalize it before the
+	; observable check entry, while Init is still ahead of every hidden clear.
+	ld a, FULL_COLOR_PHASE2_WRAM_BANK
+	ldh [rSVBK], a
+	xor a
+	ld [wFullColorTransitionBudget], a
+	ld [wFullColorTransitionBudget + 1], a
+	ld [wFullColorTransitionBudget + 2], a
+	call CheckFullColorHardResetTransitionBudget
+	; CGB reset value 0 maps WRAM bank 1. Restore that physical stack bank before
+	; returning through the cold Init caller; LD preserves the admission flags.
+	ld a, 1
+	ldh [rSVBK], a
+	ret
+
+CheckFullColorHardResetTransitionBudget:
+	select_renderer_state_e
+	ld a, FULL_COLOR_TRANSITION_HARD_RESET_BUDGET >> 16
+	ld bc, FULL_COLOR_TRANSITION_HARD_RESET_BUDGET & $ffff
+	jr CheckFullColorTransitionBudgetSelected
+
+	EXPORT AdmitFullColorHardResetBeforeInit
 
 CheckFullColorResetTransitionBudget:
 	select_renderer_state_e
 	ldh a, [hSoftReset]
 	and a
-	ld bc, FULL_COLOR_TRANSITION_HARD_RESET_BUDGET
+	ld a, FULL_COLOR_TRANSITION_HARD_RESET_BUDGET >> 16
+	ld bc, FULL_COLOR_TRANSITION_HARD_RESET_BUDGET & $ffff
 	jr z, CheckFullColorTransitionBudgetSelected
-	ld bc, FULL_COLOR_TRANSITION_SOFT_RESET_BUDGET
+	ld a, FULL_COLOR_TRANSITION_SOFT_RESET_BUDGET >> 16
+	ld bc, FULL_COLOR_TRANSITION_SOFT_RESET_BUDGET & $ffff
 
 CheckFullColorTransitionBudgetSelected:
+	push af
 	ld a, [wFullColorTransitionBudget]
 	ld d, a
 	ld a, [wFullColorTransitionBudget + 1]
 	ld h, a
+	ld a, [wFullColorTransitionBudget + 2]
+	ld l, a
+	or h
 	or d
 	jr z, .accepted
-	ld a, h
-	cp b
-	jr c, .accepted
-	jr nz, .deferred
-	ld a, d
-	cp c
-	jr c, .accepted
-	jr z, .accepted
+	pop af
+	cp l
+	jr c, .deferred
+	jr nz, .acceptedPopped
+	ld a, b
+	cp h
+	jr c, .deferred
+	jr nz, .acceptedPopped
+	ld a, c
+	cp d
+	jr nc, .acceptedPopped
 .deferred
 	restore_renderer_state_e
 	scf
 	ret
 .accepted
+	pop af
+.acceptedPopped
 	restore_renderer_state_e
 	and a
 	ret
@@ -1310,6 +1350,7 @@ CompleteOrdinaryMapPresentationRoot::
 	call SnapshotFullColorMapAuthority
 	call CompleteFullColorMapReconstruction
 	jp c, FullColorProductionTransitionFailed
+.fullColorProductionColorMapTransitionComplete
 	ret
 .yellow
 	jp RecordAndCompleteYellowPresentationRoot
@@ -1468,7 +1509,6 @@ PrepareFullColorProductionOAMForOwnedVBlank::
 ; route.  Do not resolve ownership again: this is the one visible Color route.
 RunFullColorProductionVBlank::
 	call RetryFullColorProducer
-	call ProduceFullColorProductionVBlankWork
 	call RunFullColorOwnershipVBlank
 	ldh a, [hSCX]
 	ldh [rSCX], a
@@ -1477,6 +1517,20 @@ RunFullColorProductionVBlank::
 	ldh a, [hWY]
 	ldh [rWY], a
 	ret
+
+; C=the route already selected before the first visible writer. Producers run
+; after the named presentation barrier and prepare only a future frame.
+PrepareFullColorProductionPostVisibleRoute::
+	ld a, c
+	cp VBLANK_ROUTE_YELLOW
+	jr nz, .color
+	farcall PrepareOAMData
+	ret
+.color
+	cp VBLANK_ROUTE_COLOR
+	ret nz
+	call ProduceFullColorProductionVBlankWork
+	jp PrepareFullColorProductionOAMForOwnedVBlank
 
 ; Production keeps a collision-free private copy of every field consumed after
 ; PREPARED. Owner/generation are checked separately and source is excluded
@@ -1694,6 +1748,7 @@ EXPORT CompleteYellowPresentation
 	EXPORT SubmitFullColorProductionEastColumnFar
 	EXPORT SubmitFullColorProductionWestColumnFar
 	EXPORT PrepareFullColorProductionOAMForOwnedVBlank
+	EXPORT PrepareFullColorProductionPostVisibleRoute
 	EXPORT RunFullColorProductionVBlank
 ENDC
 EXPORT BeginFullColorPartyHandoff, ReturnFullColorFromParty

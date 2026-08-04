@@ -136,6 +136,7 @@ _InitBattleCommon:
 	; destination reconstruction. The closed Yellow VBlank cannot publish BG1,
 	; so the adapter commits the complete 20x18 window before its barrier.
 	farcall RecordAndCompleteYellowPresentationRoot
+.fullColorProductionBattleTransitionComplete
 	ENDC
 	callfar StartBattle
 	callfar EndOfBattle

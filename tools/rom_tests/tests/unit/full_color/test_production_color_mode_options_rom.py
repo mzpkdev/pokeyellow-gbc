@@ -116,7 +116,7 @@ def test_options_toggles_only_preference_and_renders_both_values(
     assert rom.read_memory(tilemap, 6) == bytes((0x82, 0x8E, 0x8B, 0x8E, 0x91, 0x7F))
     assert rom.read_bytes("wRendererStateStart", 13) == owner_before
     assert _visible_resources(rom) == visible_before
-    assert constants["FULL_COLOR_PRODUCTION_ACTIVATED"] == 0
+    assert constants["FULL_COLOR_PRODUCTION_ACTIVATED"] == 1
 
 
 def test_cursor_reaches_color_mode_between_print_and_cancel(

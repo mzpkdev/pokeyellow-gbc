@@ -27,7 +27,11 @@ DEF NUM_RENDERER_CONTEXTS EQU const_value
 
 ; Preference and policy are linked in Phase 1, but production dispatch remains
 ; closed until the later activation checkpoint has proved every handoff.
+IF DEF(FULL_COLOR_PRODUCTION_LINKAGE) && !DEF(FULL_COLOR_PHASE1_DIAGNOSTIC)
+DEF FULL_COLOR_PRODUCTION_ACTIVATED EQU 1
+ELSE
 DEF FULL_COLOR_PRODUCTION_ACTIVATED EQU 0
+ENDC
 
 IF DEF(FULL_COLOR_PRODUCTION_LINKAGE)
 INCLUDE "constants/full_color_timing_constants.asm"
