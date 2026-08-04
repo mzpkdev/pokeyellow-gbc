@@ -262,7 +262,145 @@ PassiveFullColorClearState:
 	xor a
 	ld b, a
 	ld c, a
-	jr PassiveFullColorWriteState
+	call PassiveFullColorWriteState
+	ldh a, [hAutoBGTransferEnabled]
+	res BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
+	ldh [hAutoBGTransferEnabled], a
+	ret
+
+PUSHS
+SECTION "Passive Full Color Window Transfer", ROMX, BANK[FULL_COLOR_PHASE2_ROM_BANK]
+
+; Carry means the active Pallet/Route 1 Color slice owns bank-1 attributes for
+; this overlay. Yellow mode and every other scene remain on the stock path.
+PassiveFullColorShouldColorOverlay:
+	call PassiveFullColorIsSliceMap
+	jr nz, .inactive
+	call PassiveFullColorReadActive
+	cp 1
+	jr nz, .inactive
+	scf
+	ret
+.inactive
+	and a
+	ret
+
+; Translate Yellow's finalized 20x18 window tilemap outside VBlank. The
+; existing AutoBgMapTransfer cursor then publishes tiles and attributes as one
+; three-frame lifecycle.
+PassiveFullColorPrepareMenuOverlay:
+	call PassiveFullColorShouldColorOverlay
+	jr nc, .inactive
+	select_renderer_state_e
+	ld hl, wTileMap
+	ld de, wFullColorAttributeRectangle
+	ld bc, SCREEN_AREA
+.translate
+	ld a, [hli]
+	call PassiveFullColorAttributeForTile
+	ld [de], a
+	inc de
+	dec bc
+	ld a, b
+	or c
+	jr nz, .translate
+	restore_renderer_state_e
+	xor a
+	ldh [hAutoBGTransferPortion], a
+	ldh a, [hAutoBGTransferEnabled]
+	set BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
+	ldh [hAutoBGTransferEnabled], a
+	scf
+	ret
+.inactive
+	ldh a, [hAutoBGTransferEnabled]
+	res BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
+	ldh [hAutoBGTransferEnabled], a
+	and a
+	ret
+; VBlank follows Yellow's just-completed bank-0 third with the corresponding
+; 120 authored attributes. There is no second completion cursor to drift or
+; claim success early.
+PassiveFullColorAutoBgMapTransfer:
+	ldh a, [hAutoBGTransferEnabled]
+	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
+	ret z
+	ld [hSPTemp], sp
+	ld a, FULL_COLOR_PHASE2_WRAM_BANK
+	ldh [rSVBK], a
+
+	; AutoBgMapTransfer already advanced the cursor. Derive the third it just
+	; consumed: next middle means top, next bottom means middle, next top means
+	; bottom.
+	ldh a, [hAutoBGTransferPortion]
+	cp TRANSFERMIDDLE
+	jr z, .top
+	cp TRANSFERBOTTOM
+	jr z, .middle
+.bottom
+	ld hl, wFullColorAttributeRectangle + 2 * SCREEN_AREA / 3
+	ld sp, hl
+	ldh a, [hAutoBGTransferDest + 1]
+	ld h, a
+	ldh a, [hAutoBGTransferDest]
+	ld l, a
+	ld de, 12 * TILEMAP_WIDTH
+	add hl, de
+	jr .copy
+.top
+	ld hl, wFullColorAttributeRectangle
+	ld sp, hl
+	ldh a, [hAutoBGTransferDest + 1]
+	ld h, a
+	ldh a, [hAutoBGTransferDest]
+	ld l, a
+	jr .copy
+.middle
+	ld hl, wFullColorAttributeRectangle + SCREEN_AREA / 3
+	ld sp, hl
+	ldh a, [hAutoBGTransferDest + 1]
+	ld h, a
+	ldh a, [hAutoBGTransferDest]
+	ld l, a
+	ld de, 6 * TILEMAP_WIDTH
+	add hl, de
+.copy
+	ld a, 1
+	ldh [rVBK], a
+	ld b, SCREEN_HEIGHT / 3
+.row
+	REPT SCREEN_WIDTH / 2 - 1
+		pop de
+		ld [hl], e
+		inc l
+		ld [hl], d
+		inc l
+	ENDR
+	pop de
+	ld [hl], e
+	inc l
+	ld [hl], d
+	ld a, TILEMAP_WIDTH - (SCREEN_WIDTH - 1)
+	add l
+	ld l, a
+	jr nc, .no_carry
+	inc h
+.no_carry
+	dec b
+	jr nz, .row
+.restore
+	ld a, 1
+	ldh [rSVBK], a
+	xor a
+	ldh [rVBK], a
+	ldh a, [hSPTemp]
+	ld l, a
+	ldh a, [hSPTemp + 1]
+	ld h, a
+	ld sp, hl
+	ret
+
+POPS
 
 ; Runs after Yellow's RedrawRowOrColumn. It never replaces or suppresses the
 ; bank-0 write, and consumes only the mode frozen immediately before it.
@@ -549,4 +687,6 @@ EXPORT PassiveFullColorApplyMap, PassiveFullColorHandleConnection
 EXPORT PassiveFullColorPrepareRedrawAttributes
 EXPORT PassiveFullColorPrepareColumnAttributes
 EXPORT PassiveFullColorScheduleAttributeRestore, PassiveFullColorRestoreAfterMenu
+EXPORT PassiveFullColorShouldColorOverlay, PassiveFullColorPrepareMenuOverlay
+EXPORT PassiveFullColorAutoBgMapTransfer
 EXPORT PassiveFullColorVBlank

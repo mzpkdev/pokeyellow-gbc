@@ -197,6 +197,14 @@ ENDR
 	ldh a, [hSPTemp + 1]
 	ld h, a
 	ld sp, hl
+	IF DEF(PHASE2_AUDIT)
+	; Return carry only when the audit menu paired an attribute plane with this
+	; transfer. VBlank can skip the banked helper without another HRAM read.
+	ldh a, [hAutoBGTransferEnabled]
+	and 1 << BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER
+	ret z
+	scf
+	ENDC
 	ret
 
 ; Copies [hVBlankCopyBGNumRows] rows from hVBlankCopyBGSource to hVBlankCopyBGDest.

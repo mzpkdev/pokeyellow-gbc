@@ -43,6 +43,13 @@ ENDC
 .ok
 
 	call AutoBgMapTransfer
+IF DEF(PHASE2_AUDIT)
+	; AutoBgMapTransfer advances one shared top/middle/bottom cursor. Publish
+	; the matching bank-1 attributes before any later VBlank writer runs.
+	jr nc, .skipPassiveWindowTransfer
+	farcall PassiveFullColorAutoBgMapTransfer
+.skipPassiveWindowTransfer
+ENDC
 	call VBlankCopyBgMap
 
 IF DEF(PHASE2_AUDIT)

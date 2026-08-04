@@ -16,6 +16,13 @@ ENDC
 	call PlaySound
 
 RedisplayStartMenu::
+	IF DEF(PHASE2_AUDIT)
+	farcall PassiveFullColorShouldColorOverlay
+	jr nc, .windowReady
+	ld a, $90
+	ldh [hWY], a
+.windowReady
+	ENDC
 	farcall DrawStartMenu
 RedisplayStartMenu_DoNotDrawStartMenu::
 	IF DEF(PHASE2_AUDIT)
@@ -116,7 +123,26 @@ FullColorStartMenuReveal:
 ; Mirror HandleMenuInput through its first visible cursor placement, enqueue
 ; that finished authority, then resume the original wait loop and mechanics.
 FullColorHandleStartMenuInput:
-	jp HandleMenuInput
+	farcall PassiveFullColorShouldColorOverlay
+	jp nc, HandleMenuInput
+	xor a
+	ld [wPartyMenuAnimMonEnabled], a
+	ldh a, [hDownArrowBlinkCount1]
+	push af
+	ldh a, [hDownArrowBlinkCount2]
+	push af
+	xor a
+	ldh [hDownArrowBlinkCount1], a
+	ld a, 6
+	ldh [hDownArrowBlinkCount2], a
+	xor a
+	ld [wAnimCounter], a
+	call PlaceMenuCursor
+	farcall PassiveFullColorPrepareMenuOverlay
+	call Delay3
+	xor a
+	ldh [hWY], a
+	jp HandleMenuInput_.loop2
 
 FullColorPlaceUnfilledStartMenuCursor:
 	jp PlaceUnfilledArrowMenuCursor

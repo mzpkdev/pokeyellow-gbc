@@ -527,9 +527,25 @@ InitOptionsMenu:
 	jr nz, .loop
 	xor a
 	ld [wOptionsCursorLocation], a
+	IF DEF(PHASE2_AUDIT)
+	farcall PassiveFullColorShouldColorOverlay
+	jr nc, .yellowInitialCursor
+	call OptionsMenu_UpdateCursorPosition
+	farcall PassiveFullColorPrepareMenuOverlay
+.yellowInitialCursor
+	ENDC
+	IF DEF(PHASE2_AUDIT)
+	ldh a, [hAutoBGTransferEnabled]
+	or 1
+	ELSE
 	inc a
+	ENDC
 	ldh [hAutoBGTransferEnabled], a
 	call Delay3
+	IF DEF(PHASE2_AUDIT)
+	xor a
+	ldh [hWY], a
+	ENDC
 	ret
 
 AllOptionsText:
