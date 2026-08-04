@@ -34,6 +34,8 @@ REDRAW_COL = 1
 REDRAW_ROW = 2
 PAD_RIGHT = 1 << 4
 YELLOW_NORMAL_BGP = 0xE4
+SCREEN_WIDTH = 20
+SCREEN_HEIGHT = 18
 
 
 @pytest.fixture(name="phase2_rom")
@@ -186,6 +188,72 @@ def test_menu_close_in_yellow_mode_restores_authoritative_pallet_palette(
         b"\x00" * TILEMAP_AREA
     )
     assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x00"
+
+
+def test_overlay_presentation_stays_latched_after_color_preference_changes(
+    phase2_rom: Phase2Rom,
+) -> None:
+    _activate_passive_map(phase2_rom)
+    _write_player_data(phase2_rom, "wUnusedObtainedBadges", 1)
+
+    _, flags = phase2_rom.call("PassiveFullColorShouldColorOverlay")
+
+    assert flags & 0x10
+    assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x01"
+
+
+def test_inactive_live_activation_publishes_wrapped_visible_rows_before_color(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    attributes = _linked_overworld_tile_attributes(phase2_rom)
+    palettes = _linked_bytes(
+        phase2_rom, "FullColorOverworldBGPalettes", "FullColorOverworldBGPalettesEnd"
+    )
+    tiles = bytes((index * 29 + 7) & 0xFF for index in range(SCREEN_WIDTH * SCREEN_HEIGHT))
+    pointer = 0x9BF5  # bottom row, x=21: exercises both horizontal and vertical wrap
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = PALLET_TOWN
+    _write_player_data(phase2_rom, "wUnusedObtainedBadges", 0)
+    phase2_rom.write_fixed(symbols["wTileMap"], tiles)
+    phase2_rom.write_fixed(
+        symbols["wMapViewVRAMPointer"], bytes((pointer & 0xFF, pointer >> 8))
+    )
+    _write_vram(phase2_rom, 1, VBG_MAP_0, b"\x07" * TILEMAP_AREA)
+    phase2_rom.call("PassiveFullColorWriteActive", a=0)
+    phase2_rom.call("PassiveFullColorTranslateTileMap")
+    phase2_rom.call("PassiveFullColorWriteState", b=4, c=SCREEN_HEIGHT)
+
+    phase2_rom.call("PassiveFullColorVBlank", de=0)
+    neutral = phase2_rom.emulator.read_palette_ram()
+    assert all(neutral[index * 8 : index * 8 + 8] == neutral[:8] for index in range(8))
+    assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x00"
+
+    expected_by_address: dict[int, int] = {}
+    for row in range(SCREEN_HEIGHT):
+        y = ((pointer - VBG_MAP_0) // 32 + row) & 31
+        x = (pointer - VBG_MAP_0) & 31
+        for column in range(SCREEN_WIDTH):
+            address = VBG_MAP_0 + y * 32 + ((x + column) & 31)
+            expected_by_address[address] = attributes[tiles[row * SCREEN_WIDTH + column]]
+
+    for remaining in range(SCREEN_HEIGHT - 2, -1, -2):
+        phase2_rom.call("PassiveFullColorVBlank", de=0)
+        assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x00"
+        assert phase2_rom.emulator.read_palette_ram() == neutral
+        assert phase2_rom.read_wram2("wPassiveFullColorClearChunks") == bytes((remaining,))
+
+    actual = phase2_rom.emulator.read_vram_bank(1, VBG_MAP_0, TILEMAP_AREA)
+    assert all(actual[address - VBG_MAP_0] == value for address, value in expected_by_address.items())
+    offscreen = next(address for address in range(VBG_MAP_0, VBG_MAP_0 + TILEMAP_AREA) if address not in expected_by_address)
+    assert actual[offscreen - VBG_MAP_0] == 7
+    assert phase2_rom.read_wram2("wPassiveFullColorPalettePending") == b"\x06"
+
+    phase2_rom.call("PassiveFullColorVBlank", de=0)
+    assert phase2_rom.emulator.read_palette_ram() == palettes
+    assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x01"
+    assert phase2_rom.read_wram2("wPassiveFullColorPalettePending") == b"\x00"
 
 
 def test_cold_boot_map_zero_cannot_activate_without_a_real_map_publish(

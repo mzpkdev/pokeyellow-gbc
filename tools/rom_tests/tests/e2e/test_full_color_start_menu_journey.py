@@ -52,6 +52,25 @@ def _assert_paired_window(emulator: Emulator, attributes: bytes, label: str) -> 
     ))
 
 
+def _visible_map_plane(emulator: Emulator, bank: int) -> bytes:
+    pointer = int.from_bytes(emulator.read_bytes("wMapViewVRAMPointer", 2), "little")
+    offset = pointer - VBG_MAP_0
+    x, y = offset & 31, (offset >> 5) & 31
+    return bytes(
+        emulator.read_vram_bank(
+            bank, VBG_MAP_0 + ((y + row) & 31) * 32 + ((x + column) & 31), 1
+        )[0]
+        for row in range(18)
+        for column in range(20)
+    )
+
+
+def _assert_paired_visible_map(emulator: Emulator, attributes: bytes) -> None:
+    tiles = _visible_map_plane(emulator, 0)
+    actual = _visible_map_plane(emulator, 1)
+    assert actual == bytes(attributes[tile] for tile in tiles)
+
+
 def _assert_not_blank(emulator: Emulator, label: str, frame: int) -> None:
     image = emulator.capture_screen().convert("RGB")
     assert emulator.pyboy.memory[RLCDC] & 0x80, (label, frame, "LCD disabled")
@@ -97,6 +116,29 @@ def _press_until_first_reveal(
         f"joy5={emulator.read('hJoy5'):#04x} "
         f"auto={emulator.read('hAutoBGTransferEnabled'):#04x} "
         f"option={emulator.read('wOptionsCursorLocation'):#04x}"
+    )
+
+
+def _move_cursor_to(
+    emulator: Emulator,
+    symbol: str,
+    target: int,
+    *,
+    label: str,
+    attempts: int = 12,
+) -> None:
+    for _ in range(attempts):
+        if emulator.read(symbol) == target:
+            return
+        emulator.pyboy.button("down", delay=10)
+        emulator.tick(14)
+    registers = emulator.pyboy.register_file
+    raise AssertionError(
+        f"{label}: {symbol} stopped at {emulator.read(symbol)}, expected {target}; "
+        f"PC={registers.PC:#06x} SP={registers.SP:#06x} "
+        f"joy5={emulator.read('hJoy5'):#04x} "
+        f"auto={emulator.read('hAutoBGTransferEnabled'):#04x} "
+        f"WY={emulator.pyboy.memory[RWY]:#04x}"
     )
 
 
@@ -170,6 +212,129 @@ def test_natural_color_start_options_window_is_paired_before_reveal() -> None:
         assert emulator.read("wWalkCounter") == 0
     except BaseException:
         emulator.save_screenshot("natural-color-start-options-failure.png")
+        raise
+    finally:
+        emulator.close()
+
+
+def test_natural_renderer_toggle_reconciles_only_on_outer_start_close() -> None:
+    results = result_directory(
+        "test_full_color_start_menu_journey.py::natural-renderer-toggle-transaction"
+    )
+    emulator = Emulator(
+        rom=Path(REPOSITORY_ROOT / "pokeyellow_phase2_audit.gbc"),
+        symbols=Path(REPOSITORY_ROOT / "pokeyellow_phase2_audit.sym"),
+        results=results,
+        cgb=True,
+    )
+    attributes = _linked_attributes()
+    try:
+        reach_bedroom_overworld(emulator)
+        walk_from_bedroom_to_pallet(emulator)
+        donor_palettes = emulator.read_palette_ram()
+
+        _press_until_first_reveal(
+            emulator,
+            "start",
+            attributes,
+            "toggle-open-color-start",
+            require_hidden_frame=False,
+            ready=lambda: emulator.read("wMaxMenuItem") == 6,
+        )
+        _move_cursor_to(
+            emulator, "wCurrentMenuItem", 4, label="Color Start to Options"
+        )
+        _press_until_first_reveal(
+            emulator,
+            "a",
+            attributes,
+            "toggle-open-color-options",
+            require_hidden_frame=True,
+            ready=lambda: emulator.read("wOptionsCursorLocation") == 0,
+        )
+        emulator.tick(30)
+        _move_cursor_to(
+            emulator, "wOptionsCursorLocation", 5, label="Color Options to mode"
+        )
+
+        emulator.pyboy.button("right", delay=2)
+        changed = False
+        for frame in range(45):
+            emulator.tick()
+            _assert_not_blank(emulator, "Color to Yellow inside Options", frame)
+            assert emulator.read_palette_ram() == donor_palettes
+            assert emulator.read("wPassiveFullColorActive") == 1
+            if emulator.pyboy.memory[RWY] == 0:
+                tiles = _window_plane(emulator, 0)
+                assert _window_plane(emulator, 1) == bytes(attributes[tile] for tile in tiles)
+            if emulator.read("wUnusedObtainedBadges") & 1 and not changed:
+                emulator.save_screenshot(
+                    "right-after-changing-to-yellow-mode-in-settings.png"
+                )
+                changed = True
+        assert changed
+
+        _press_until_first_reveal(
+            emulator,
+            "b",
+            attributes,
+            "toggle-return-color-start",
+            require_hidden_frame=True,
+            ready=lambda: emulator.read("wMaxMenuItem") == 6,
+            button_delay=30,
+        )
+        emulator.tick(35)
+        emulator.pyboy.button("b", delay=10)
+        for frame in range(100):
+            emulator.tick()
+            _assert_not_blank(emulator, "outer close to Yellow", frame)
+            if emulator.read_palette_ram() != donor_palettes:
+                assert not any(_visible_map_plane(emulator, 1)), (
+                    "Yellow palettes exposed through donor attributes",
+                    frame,
+                )
+        assert emulator.read("wPassiveFullColorActive") == 0
+        assert emulator.read("wUnusedObtainedBadges") & 1
+
+        emulator.pyboy.button("start", delay=10)
+        emulator.tick(40)
+        _move_cursor_to(
+            emulator, "wCurrentMenuItem", 4, label="Yellow Start to Options"
+        )
+        emulator.pyboy.button("a", delay=10)
+        emulator.tick(40)
+        _move_cursor_to(
+            emulator, "wOptionsCursorLocation", 5, label="Yellow Options to mode"
+        )
+        emulator.pyboy.button("right", delay=10)
+        emulator.tick(24)
+        assert emulator.read("wUnusedObtainedBadges") & 1 == 0
+        assert emulator.read("wPassiveFullColorActive") == 0
+        emulator.pyboy.button("b", delay=10)
+        emulator.tick(40)
+
+        emulator.pyboy.button("b", delay=10)
+        activated = False
+        for frame in range(180):
+            emulator.tick()
+            _assert_not_blank(emulator, "bounded outer close to Color", frame)
+            if emulator.read("wPassiveFullColorActive") == 1:
+                activated = True
+            if activated and emulator.read("wJoyIgnore") == 0:
+                break
+        assert activated
+        _assert_paired_visible_map(emulator, attributes)
+
+        start_x = emulator.read("wXCoord")
+        walk_to_value(
+            emulator, "wXCoord", start_x + 5, "right", "five east steps after Color activation"
+        )
+        _assert_paired_visible_map(emulator, attributes)
+        emulator.save_screenshot(
+            "right-after-changing-to-color-more-in-settings-and-moving-5-squares-to-the-right.png"
+        )
+    except BaseException:
+        emulator.save_screenshot("natural-renderer-toggle-transaction-failure.png")
         raise
     finally:
         emulator.close()

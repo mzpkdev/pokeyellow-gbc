@@ -107,6 +107,9 @@ CloseTextDisplay::
 	ld a, $90
 	ldh [hWY], a ; move the window off the screen
 	call DelayFrame
+	IF DEF(PHASE2_AUDIT)
+	farcall PassiveFullColorPrepareMenuHandoff
+	ENDC
 	call LoadGBPal
 	xor a
 	ldh [hAutoBGTransferEnabled], a ; disable continuous WRAM to VRAM transfer each V-blank

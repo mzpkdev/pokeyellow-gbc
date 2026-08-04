@@ -544,6 +544,23 @@ def test_exit_path_finishes_before_natural_ly0(phase2_rom: Phase2Rom) -> None:
     _assert_passive_finishes_before_ly0(measurement)
 
 
+def test_activation_two_row_publish_finishes_before_natural_ly0(
+    phase2_rom: Phase2Rom,
+) -> None:
+    _activate_passive_map(phase2_rom)
+    phase2_rom.call("PassiveFullColorWriteActive", a=0)
+    phase2_rom.write_wram2("wPassiveFullColorPalettePending", 5)
+    phase2_rom.write_wram2("wPassiveFullColorClearChunks", 18)
+
+    measurement = _run_natural_vblank(
+        phase2_rom, operation="activation two-row publish", expect_passive=True,
+    )
+
+    _assert_passive_finishes_before_ly0(measurement)
+    assert phase2_rom.read_wram2("wPassiveFullColorPalettePending") == b"\x05"
+    assert phase2_rom.read_wram2("wPassiveFullColorClearChunks") == b"\x10"
+
+
 @pytest.mark.parametrize("mode", (REDRAW_ROW, REDRAW_COL))
 def test_natural_passive_redraw_restores_real_banked_stack_and_cpu_state(
     phase2_rom: Phase2Rom, mode: int,

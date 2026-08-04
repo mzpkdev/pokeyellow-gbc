@@ -56,7 +56,8 @@ cutscenes. Do not widen this boundary as a shortcut for another colored map.
 is the live presentation path. Hooks in Yellow's normal map, redraw, menu,
 palette, and VBlank flows call its `PassiveFullColor*` routines. The activation
 gate requires the saved Color preference and accepts only `PALLET_TOWN` and
-`ROUTE_1`.
+`ROUTE_1`. While Start or Options is open, the active presentation remains
+latched; the saved preference is reconciled only when the outer menu closes.
 
 [engine/full_color/passive_palette_refresh.asm](../engine/full_color/passive_palette_refresh.asm)
 detects a legitimate Yellow palette replacement after a fade or restoration
@@ -143,8 +144,9 @@ instead of writing palette RAM during visible time.
 At most one passive visible operation runs per frame:
 
 1. a Yellow row/column redraw wins;
-2. otherwise a pending palette commit may run;
-3. otherwise one exit-cleanup chunk may run.
+2. otherwise one activation-barrier step may run;
+3. otherwise a pending palette commit may run;
+4. otherwise one exit-cleanup chunk may run.
 
 A palette request remains pending when a redraw wins. Combining them violates
 the measured timing contract.
@@ -170,11 +172,14 @@ The passive renderer is an overworld layer, not global display ownership.
 - Interiors are outside the map gate and use Yellow palettes with cleared
   bank-1 attributes.
 - Menus and dialogue can overwrite the visible attribute window. On close,
-  Yellow rebuilds `wTileMap` and loads its palette, then
-  `PassiveFullColorRestoreAfterMenu` performs a complete LCD-hidden transition.
-  Color republishes all eight palettes and the full 32×32 attribute map;
-  Yellow mode reruns Yellow's authoritative overworld palette command, then
-  clears passive state and the full bank-1 map.
+  a Color-to-Yellow handoff clears donor attributes before Yellow can replace
+  the palettes. Yellow then rebuilds `wTileMap`, and
+  `PassiveFullColorRestoreAfterMenu` reconciles the selected presentation. An
+  already-active Color presentation refreshes its palettes. Yellow-to-Color
+  activation keeps Color inactive and donor palettes unpublished while two
+  wrapped visible rows are published per VBlank, then commits all donor
+  palettes and activates Color in one later VBlank. Yellow mode reruns Yellow's
+  authoritative overworld palette command and leaves passive state inactive.
 - Battles and transitions remain Yellow behavior. Normal map restoration
   reapplies the passive attributes when returning to an allowed map.
 - Sprites, battle effects, moving tiles, and cutscene objects are never inferred
@@ -211,8 +216,9 @@ raw `SVBK`, and leaves `rVBK` as Yellow expects.
 3. Yellow owns bank-0 tiles, sprites, mechanics, timing, fades, and overlays.
 4. Passive code writes only complete BG palettes and bank-1 BG attributes.
 5. Every attribute comes from the authored 256-byte table.
-6. Initial publication is LCD-off; visible work is one bounded passive VBlank
-   operation.
+6. Initial publication is LCD-off; every live transition is a bounded sequence
+   of one-operation passive VBlanks with palettes committed only after the
+   corresponding visible attribute plane is coherent.
 7. Yellow's bank-0 redraw precedes the corresponding bank-1 attribute commit.
 8. Every exit removes or neutralizes stale attributes.
 9. Map identity, active state, and renderer generation agree before a visible

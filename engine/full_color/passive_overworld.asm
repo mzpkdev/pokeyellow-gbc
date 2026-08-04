@@ -7,6 +7,10 @@ PassiveFullColorIsSliceMap:
 	ld a, [wUnusedObtainedBadges]
 	bit BIT_PHASE2_AUDIT_YELLOW_MODE, a
 	ret nz
+
+; Presentation stays latched while a Start/Options overlay is open. The saved
+; preference is reconciled only when the outer overlay closes or a map loads.
+PassiveFullColorIsPresentedSliceMap:
 	ld a, [wCurMap]
 	cp PALLET_TOWN
 	ret z
@@ -166,16 +170,35 @@ PassiveFullColorScheduleAttributeRestore:
 	ld bc, $200
 	jp PassiveFullColorWriteState
 
+; Color-to-Yellow menu close must retire donor attributes before LoadGBPal can
+; install Yellow palettes. Yellow's whole-screen GDMA packet clears both bank-1
+; maps during safe video periods, matching the established battle handoff.
+PassiveFullColorPrepareMenuHandoff:
+	call PassiveFullColorIsSliceMap
+	ret z
+	call PassiveFullColorShouldColorOverlay
+	ret nc
+	call PassiveFullColorClearState
+	xor a
+	call PassiveFullColorWriteActive
+	ld c, 12 ; BGMapAttributes_WholeScreen
+	jpfar LoadBGMapAttributes
+
 ; Menu/dialogue close hook, called after Yellow's LoadCurrentMapView and
-; LoadGBPal. Never blank the live LCD: Color republishes its palettes in the
-; next bounded VBlank, while Yellow makes stale attributes inert before the
-; existing chunked cleanup clears them.
+; LoadGBPal. Never blank the live LCD. An already-active Color presentation
+; needs only a palette refresh. Activating Color from Yellow first translates
+; Yellow's finalized wTileMap outside VBlank, then holds this close path until
+; a bounded live-LCD transaction has published all 20x18 attributes.
 PassiveFullColorRestoreAfterMenu:
 	call PassiveFullColorIsSliceMap
 	jr nz, .yellow
+	ld a, [wIsInBattle]
+	and a
+	jr nz, .battle_owned
+	call PassiveFullColorReadActive
+	cp 1
+	jr nz, .activate_color
 	call PassiveFullColorClearState
-	ld a, 1
-	call PassiveFullColorWriteActive
 	ldh a, [rLCDC]
 	bit B_LCDC_ENABLE, a
 	jr nz, .schedule_color
@@ -184,6 +207,36 @@ PassiveFullColorRestoreAfterMenu:
 .schedule_color
 	ld bc, $100
 	jp PassiveFullColorWriteState
+.activate_color
+	call PassiveFullColorClearState
+	xor a
+	call PassiveFullColorWriteActive
+	ldh a, [rLCDC]
+	bit B_LCDC_ENABLE, a
+	jr nz, .prepare_activation
+	call PassiveFullColorCommitPalettes
+	call PassiveFullColorCommitVisibleAttributes
+	ld a, 1
+	jp PassiveFullColorWriteActive
+.prepare_activation
+	call PassiveFullColorTranslateTileMap
+	ld bc, $412 ; neutralize, then publish eighteen rows
+	call PassiveFullColorWriteState
+	ld b, 12 ; one bounded spare frame beyond the eleven-step transaction
+.wait
+	push bc
+	call DelayFrame
+	call PassiveFullColorReadActive
+	cp 1
+	pop bc
+	ret z
+	dec b
+	jr nz, .wait
+	ret
+.battle_owned
+	call PassiveFullColorClearState
+	xor a
+	jp PassiveFullColorWriteActive
 .yellow
 	ld b, SET_PAL_OVERWORLD
 	call RunPaletteCommand
@@ -277,7 +330,7 @@ SECTION "Passive Full Color Window Transfer", ROMX, BANK[FULL_COLOR_PHASE2_ROM_B
 ; Carry means the active Pallet/Route 1 Color slice owns bank-1 attributes for
 ; this overlay. Yellow mode and every other scene remain on the stock path.
 PassiveFullColorShouldColorOverlay:
-	call PassiveFullColorIsSliceMap
+	call PassiveFullColorIsPresentedSliceMap
 	jr nz, .inactive
 	call PassiveFullColorReadActive
 	cp 1
@@ -294,6 +347,22 @@ PassiveFullColorShouldColorOverlay:
 PassiveFullColorPrepareMenuOverlay:
 	call PassiveFullColorShouldColorOverlay
 	jr nc, .inactive
+	call PassiveFullColorTranslateTileMap
+	xor a
+	ldh [hAutoBGTransferPortion], a
+	ldh a, [hAutoBGTransferEnabled]
+	set BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
+	ldh [hAutoBGTransferEnabled], a
+	scf
+	ret
+.inactive
+	ldh a, [hAutoBGTransferEnabled]
+	res BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
+	ldh [hAutoBGTransferEnabled], a
+	and a
+	ret
+
+PassiveFullColorTranslateTileMap:
 	select_renderer_state_e
 	ld hl, wTileMap
 	ld de, wFullColorAttributeRectangle
@@ -308,18 +377,6 @@ PassiveFullColorPrepareMenuOverlay:
 	or c
 	jr nz, .translate
 	restore_renderer_state_e
-	xor a
-	ldh [hAutoBGTransferPortion], a
-	ldh a, [hAutoBGTransferEnabled]
-	set BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
-	ldh [hAutoBGTransferEnabled], a
-	scf
-	ret
-.inactive
-	ldh a, [hAutoBGTransferEnabled]
-	res BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
-	ldh [hAutoBGTransferEnabled], a
-	and a
 	ret
 ; VBlank follows Yellow's just-completed bank-0 third with the corresponding
 ; 120 authored attributes. There is no second completion cursor to drift or
@@ -435,9 +492,6 @@ PassiveFullColorVBlank:
 	ld a, b
 	dec a
 	jr nz, .inactive
-	ld a, [wUnusedObtainedBadges]
-	rra
-	jr c, .inactive
 	ld a, [wCurMap]
 	cp PALLET_TOWN
 	jr z, .slice
@@ -464,6 +518,8 @@ PassiveFullColorVBlank:
 
 .inactive
 	ld a, c
+	cp 4
+	jp nc, PassiveFullColorActivationVBlank
 	cp 3
 	jr nz, .clear
 	ld c, e
@@ -591,6 +647,180 @@ PassiveFullColorCommitRedrawRow:
 POPS
 
 PUSHS
+SECTION "Passive Full Color Activation Barrier", ROMX, BANK[FULL_COLOR_PHASE2_ROM_BANK]
+
+PassiveFullColorActivationVBlank:
+	cp 4
+	jr z, .neutralize
+	cp 5
+	jr z, .rows
+	cp 6
+	jr nz, .abort
+	call PassiveFullColorValidateActivation
+	jr nc, .abort
+	jp PassiveFullColorCommitActivation
+.neutralize
+	call PassiveFullColorValidateActivation
+	jr nc, .abort
+	ld b, 5
+	ld c, e
+	call PassiveFullColorWriteState
+	jp PassiveFullColorHomogenizeBGPalettes
+.rows
+	call PassiveFullColorValidateActivation
+	jr nc, .abort
+	jp PassiveFullColorCommitActivationRows
+.abort
+	call PassiveFullColorClearState
+	ret
+
+; Carry means an inactive live-LCD activation may continue. The saved option
+; cannot change while RestoreAfterMenu is blocking, so admission is bound to
+; generation-validated transaction state, map identity, and battle ownership.
+PassiveFullColorValidateActivation:
+	ld a, [wIsInBattle]
+	and a
+	jr nz, .invalid
+	call PassiveFullColorIsPresentedSliceMap
+	jr nz, .invalid
+	scf
+	ret
+.invalid
+	and a
+	ret
+
+; Publish two translated visible rows per VBlank. wPassiveFullColorClearChunks
+; carries the remaining row count (18, 16, ... 2) during this transaction.
+PassiveFullColorCommitActivationRows:
+	ld a, SCREEN_HEIGHT
+	sub e
+	push af
+	call PassiveFullColorCommitActivationRow
+	pop af
+	inc a
+	call PassiveFullColorCommitActivationRow
+
+	ld a, FULL_COLOR_PHASE2_WRAM_BANK
+	ldh [rSVBK], a
+	ld a, [wPassiveFullColorClearChunks]
+	sub 2
+	ld [wPassiveFullColorClearChunks], a
+	jr nz, .restore
+	ld a, 6
+	ld [wPassiveFullColorPalettePending], a
+.restore
+	ld a, 1
+	ldh [rSVBK], a
+	ret
+
+; A=row (0..17). Resolve both axes independently on Yellow's 32x32 torus:
+; vertical addition wraps at $9bff and horizontal increments wrap within the
+; same row instead of spilling into the next one.
+PassiveFullColorCommitActivationRow:
+	push af
+	ld a, [wMapViewVRAMPointer]
+	ld e, a
+	ld a, [wMapViewVRAMPointer + 1]
+	ld d, a
+	pop af
+	push af
+	ld c, a
+.advance_row
+	ld a, c
+	and a
+	jr z, .destination_ready
+	ld a, TILEMAP_WIDTH
+	add e
+	ld e, a
+	jr nc, .no_carry
+	inc d
+.no_carry
+	dec c
+	jr .advance_row
+.destination_ready
+	ld a, d
+	and HIGH(TILEMAP_AREA - 1)
+	or HIGH(vBGMap0)
+	ld d, a
+
+	; Convert the row to a packed 20-byte scratch offset: row * (16 + 4).
+	pop af
+	ld l, a
+	ld h, 0
+	add hl, hl
+	add hl, hl
+	ld b, h
+	ld c, l
+	add hl, hl
+	add hl, hl
+	add hl, bc
+	ld bc, wFullColorAttributeRectangle
+	add hl, bc
+	ld a, FULL_COLOR_PHASE2_WRAM_BANK
+	ldh [rSVBK], a
+	ld a, 1
+	ldh [rVBK], a
+	ld a, e
+	and %11111
+	ld c, a
+	add SCREEN_WIDTH
+	cp TILEMAP_WIDTH + 1
+	jr nc, .split_copy
+	ld b, SCREEN_WIDTH
+.copy_one_segment
+	ld a, [hli]
+	ld [de], a
+	inc e
+	dec b
+	jr nz, .copy_one_segment
+	jr .copy_done
+.split_copy
+	ld a, TILEMAP_WIDTH
+	sub c
+	ld b, a
+.copy_before_wrap
+	ld a, [hli]
+	ld [de], a
+	inc e
+	dec b
+	jr nz, .copy_before_wrap
+	ld a, e
+	sub TILEMAP_WIDTH
+	ld e, a
+	ld a, c
+	sub TILEMAP_WIDTH - SCREEN_WIDTH
+	ld b, a
+.copy_after_wrap
+	ld a, [hli]
+	ld [de], a
+	inc e
+	dec b
+	jr nz, .copy_after_wrap
+.copy_done
+	ld a, 1
+	ldh [rSVBK], a
+	xor a
+	ldh [rVBK], a
+	ret
+
+; Palettes are committed only after every visible attribute row is complete.
+; Set active in the same later bounded VBlank so no mixed presentation exists.
+PassiveFullColorCommitActivation:
+	call PassiveFullColorCommitPalettes
+	ld a, FULL_COLOR_PHASE2_WRAM_BANK
+	ldh [rSVBK], a
+	ld a, 1
+	ld [wPassiveFullColorActive], a
+	xor a
+	ld [wPassiveFullColorPalettePending], a
+	ld [wPassiveFullColorClearChunks], a
+	ld a, 1
+	ldh [rSVBK], a
+	ret
+
+POPS
+
+PUSHS
 SECTION "Passive Full Color Exit Barrier", ROMX, BANK[FULL_COLOR_PHASE2_ROM_BANK]
 
 ; VBlank-only exit barrier. Read each color from palette 0 and duplicate it
@@ -690,6 +920,7 @@ EXPORT PassiveFullColorApplyMap, PassiveFullColorHandleConnection
 EXPORT PassiveFullColorPrepareRedrawAttributes
 EXPORT PassiveFullColorPrepareColumnAttributes
 EXPORT PassiveFullColorScheduleAttributeRestore, PassiveFullColorRestoreAfterMenu
+EXPORT PassiveFullColorPrepareMenuHandoff
 EXPORT PassiveFullColorShouldColorOverlay, PassiveFullColorPrepareMenuOverlay
 EXPORT PassiveFullColorPrepareBattleHandoff
 EXPORT PassiveFullColorAutoBgMapTransfer
