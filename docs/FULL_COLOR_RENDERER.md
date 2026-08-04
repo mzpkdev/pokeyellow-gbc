@@ -1,7 +1,8 @@
 # Full-color renderer
 
-This manual describes the renderer that actually runs today and the approved
-migration beyond it. It supplements the ROM-wide [ARCHITECTURE.md](ARCHITECTURE.md).
+This manual is the normative contract for the renderer that actually runs
+today and describes the proposed migration beyond it. It supplements the
+ROM-wide [ARCHITECTURE.md](ARCHITECTURE.md).
 Procedures live in [ADDING_CONTENT.md](ADDING_CONTENT.md), and proof boundaries
 live in [TESTING.md](TESTING.md).
 
@@ -10,6 +11,10 @@ live in [TESTING.md](TESTING.md).
 The visible Phase 2 slice is an audit-only passive CGB color layer for Pallet
 Town and Route 1. It is not a release feature and it is not the retained
 full-color scheduler taking ownership of the game.
+
+`passive_overworld` is the only active color presentation path. No plan,
+compiled module, callable symbol, retained test, or migration proposal changes
+that fact without a separately approved architecture change.
 
 | Target | Product | Active passive slice |
 | --- | --- | --- |
@@ -24,12 +29,12 @@ reachable passive renderer by accident.
 
 ## Ownership contract
 
-Yellow remains authoritative for every bank-0 background tile and tile pattern;
-sprite graphics, OAM, movement, and mechanics; map construction, scrolling,
-menus, dialogue, battle, and cutscenes; and animations, overlays, fades, and
-scheduling.
+Yellow MUST retain authority for every bank-0 background tile and tile pattern;
+sprite graphics, OAM, movement, and gameplay; map construction, scrolling,
+menus, dialogue, battle, and cutscenes; and animations, overlays, fades,
+scheduling, and lifecycle behavior.
 
-The passive slice may publish only:
+The passive Color path MAY publish only:
 
 - a complete set of eight CGB background palettes; and
 - corresponding per-tile attributes in VRAM bank 1.
@@ -65,6 +70,9 @@ frame through `RouteRendererOwnershipVBlank`. The passive path reuses reviewed
 WRAM2 storage and the renderer generation, but it does not acquire
 `RENDERER_FULL_COLOR_OVERWORLD` ownership or enqueue ordinary scheduler jobs.
 Compiled or callable scaffolding is not evidence of active presentation.
+Retained ownership, scheduler, and lifecycle machinery MUST NOT be activated,
+used as current presentation authority, or treated as the foundation of a
+color-mode toggle without a separately approved architecture change.
 
 ## Data authority
 

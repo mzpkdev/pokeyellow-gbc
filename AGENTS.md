@@ -1,5 +1,15 @@
 # Pull request descriptions
 
+Before editing, agents MUST read [the documentation index](docs/INDEX.md) and
+[the RFC 2119 keyword convention](docs/RFC_2119_KEYWORDS.md). The index defines
+which document owns each kind of truth; the keyword convention defines the
+force of uppercase requirement words throughout repository markdown.
+
+Task and pull-request plans define execution scope, but they do not supersede
+the current approved architecture or product truth. If a plan contradicts
+those authorities, agents MUST stop implementation and obtain an explicit
+operator decision before editing code or rewriting documentation.
+
 Start every pull request description from
 [`.github/pull_request_template.md`](.github/pull_request_template.md). If the
 template is missing, create it before opening the pull request.

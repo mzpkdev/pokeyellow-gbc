@@ -38,6 +38,19 @@ Before editing, establish:
 - which stock or debug ROM supplies the comparison baseline;
 - which checks actually exercise the changed runtime path.
 
+Then perform the architecture conflict gate: compare the task or pull-request
+plan with [Architecture](ARCHITECTURE.md), the current product truth in
+[the index](INDEX.md), and any applicable normative subsystem manual. Plans
+govern execution scope, but they MUST NOT override current approved
+architecture or product truth. If the plan contradicts an approved owner,
+activation path, product boundary, data flow, scheduler, or lifecycle,
+implementation MUST stop and the operator must decide explicitly.
+
+Do not write code for the contradictory plan and revise the manuals afterward
+to make that unapproved architecture look intentional. Update architecture
+documentation only when a separately approved architecture change authorizes
+both the new contract and its dependent implementation.
+
 ## General build and review loop
 
 Use the cheapest check capable of disproving the current change, then widen the

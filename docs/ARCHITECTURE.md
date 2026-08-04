@@ -147,6 +147,20 @@ explicitly supersedes one of its resources. Hooks in ROM0, VBlank, map loading,
 menus, or battle transitions have a large blast radius because they are shared
 by otherwise unrelated content.
 
+### Pre-edit architecture conflict gate
+
+Before changing runtime code, compare the task or pull-request plan with this
+manual and the current subsystem manual. Plans govern execution scope; they
+MUST NOT override current approved architecture or product truth. If the plan
+requires a contradictory owner, data flow, activation path, product claim, or
+lifecycle, implementation MUST stop until the operator explicitly decides the
+architecture change.
+
+Do not implement the contradiction first and rewrite documentation afterward
+to legitimize it. Architecture manuals may be revised only as part of a
+separately approved architecture decision, before dependent implementation is
+treated as authorized.
+
 Before adding such a hook, establish:
 
 1. the old owner and its exact postconditions;
