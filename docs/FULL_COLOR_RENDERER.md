@@ -195,9 +195,10 @@ raw `SVBK`, and leaves `rVBK` as Yellow expects.
    unsupported maps, reset, and every map under `YELLOW` preference.
 4. Color and Yellow owner-gated writers never run under the other owner.
 5. Every attribute comes from the authored 256-byte table.
-6. Initial publication is LCD-off; visible work is one bounded passive VBlank
-   operation.
-7. Yellow's bank-0 redraw precedes the corresponding bank-1 attribute commit.
+6. Initial Color reconstruction is LCD-off; later visible work is one bounded,
+   owner-exclusive Color VBlank operation.
+7. Color publishes its coordinated attributes, palettes, and OAM only on the
+   Color route; Yellow redraw and palette writers run only on the Yellow route.
 8. Every exit removes or neutralizes stale attributes.
 9. Map identity, active state, and renderer generation agree before a visible
    write.

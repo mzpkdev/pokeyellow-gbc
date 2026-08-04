@@ -381,8 +381,11 @@ def _run_pallet_ui_boundary(
         # Prove that the UI round-trip returns to a naturally playable map,
         # rather than merely drawing a plausible-looking overworld frame.
         walk_to_value(emulator, "wXCoord", 8, "right", "Oak's Lab west side")
-        walk_from_oaks_lab_to_viridian(emulator, use_debug_repel=True)
-        observe("viridian-entry")
+        walk_from_oaks_lab_to_viridian(
+            emulator,
+            lambda name, _: observe(name),
+            use_debug_repel=True,
+        )
     except BaseException:
         emulator.save_screenshot(f"{product}-boundary-failure.png")
         raise
@@ -736,8 +739,9 @@ def _run_pallet_save_continue_round_trip(
     results: Path,
     *,
     preference: str | None = None,
+    hard_reset: bool = False,
 ) -> SaveContinueRoundTrip:
-    """Save in Pallet, soft-reset, Continue, and resume natural movement."""
+    """Save in Pallet, reset, Continue, and resume natural movement."""
     emulator = Emulator(
         rom=REPOSITORY_ROOT / f"{product}.gbc",
         symbols=REPOSITORY_ROOT / f"{product}.sym",
@@ -774,15 +778,22 @@ def _run_pallet_save_continue_round_trip(
         emulator.tick(120)
         before_reset = _observe(emulator, f"{product}-before-reset.png")
 
-        # Yellow's documented A+B+Start+Select soft-reset path keeps the SRAM
-        # created above while rebuilding all volatile renderer state.
-        for button in ("a", "b", "start", "select"):
-            emulator.pyboy.button_press(button)
-        emulator.tick(20)
-        for button in ("a", "b", "start", "select"):
-            emulator.pyboy.button_release(button)
-        emulator.tick(120)
-        save_ui("soft-reset")
+        if hard_reset:
+            # Recreate the emulator from the ROM while carrying only cartridge
+            # SRAM across the boundary. No volatile renderer state survives.
+            emulator.power_cycle()
+            emulator.tick(120)
+            save_ui("hard-reset")
+        else:
+            # Yellow's documented A+B+Start+Select soft-reset path keeps the SRAM
+            # created above while rebuilding all volatile renderer state.
+            for button in ("a", "b", "start", "select"):
+                emulator.pyboy.button_press(button)
+            emulator.tick(20)
+            for button in ("a", "b", "start", "select"):
+                emulator.pyboy.button_release(button)
+            emulator.tick(120)
+            save_ui("soft-reset")
 
         def is_continue_menu() -> bool:
             return (
@@ -797,7 +808,8 @@ def _run_pallet_save_continue_round_trip(
             if is_continue_menu():
                 break
             emulator.press("start", wait_frames=30)
-        assert is_continue_menu(), "soft reset did not reach a valid Continue menu"
+        reset_kind = "hard reset" if hard_reset else "soft reset"
+        assert is_continue_menu(), f"{reset_kind} did not reach a valid Continue menu"
         save_ui("continue-menu")
 
         emulator.press("a")
@@ -1628,6 +1640,9 @@ def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> 
         "party",
         "returned-start-menu",
         "restored-overworld",
+        "route1-south",
+        "route1-mid",
+        "route1-north",
         "viridian-entry",
     )
     assert tuple(vanilla) == expected_names
@@ -1689,6 +1704,10 @@ def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> 
         "dialogue-restored",
         "direct-start-restored",
         "restored-overworld",
+        "route1-south",
+        "route1-mid",
+        "route1-north",
+        "viridian-entry",
     ):
         mismatches = [
             {
@@ -1881,6 +1900,9 @@ def test_production_color_mode_natural_ui_and_map_matrix(
         "party",
         "returned-start-menu",
         "restored-overworld",
+        "route1-south",
+        "route1-mid",
+        "route1-north",
         "viridian-entry",
     )
     assert tuple(observations) == expected_names
@@ -1890,6 +1912,10 @@ def test_production_color_mode_natural_ui_and_map_matrix(
         "dialogue-restored",
         "direct-start-restored",
         "restored-overworld",
+        "route1-south",
+        "route1-mid",
+        "route1-north",
+        "viridian-entry",
     }
     for name, observation in observations.items():
         journey = observation.journey
@@ -1904,6 +1930,8 @@ def test_production_color_mode_natural_ui_and_map_matrix(
         assert journey.passive_state == (0, 0, 0, 0), name
 
     assert observations["stable-overworld"].journey.logical_state[0] == PALLET_TOWN
+    for name in ("route1-south", "route1-mid", "route1-north"):
+        assert observations[name].journey.logical_state[0] == ROUTE_1
     assert observations["viridian-entry"].journey.logical_state[0] == VIRIDIAN_CITY
     generations = [
         int.from_bytes(bytes(observations[name].journey.renderer_generation), "little")
@@ -1913,14 +1941,25 @@ def test_production_color_mode_natural_ui_and_map_matrix(
     if preference == "YELLOW":
         assert len(set(generations)) == 1
     else:
-        assert generations[1] == generations[0] + 1
-        assert generations[2] == generations[1] + 1
-        assert generations[3] == generations[2] + 1
-        assert generations[4] == generations[3] + 1
-        assert generations[5] == generations[4] + 1
-        assert generations[6] == generations[5]
-        assert generations[7] == generations[6] + 1
-        assert generations[8] == generations[7] + 1
+        assert [
+            current - prior for prior, current in zip(generations, generations[1:])
+        ] == [1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 1]
+
+
+def test_production_debug_hard_reset_from_color_restores_saved_map() -> None:
+    results = RESULTS_ROOT / "production-pokeyellow_debug-color-hard-reset"
+    _prepare_results(results)
+    saved = _run_pallet_save_continue_round_trip(
+        "pokeyellow_debug",
+        results,
+        preference="COLOR",
+        hard_reset=True,
+    )
+    expected = _expected_map_owner("COLOR", PALLET_TOWN)
+    assert saved.before_reset.renderer_state == expected
+    assert saved.restored.renderer_state == expected
+    assert saved.playable.renderer_state == expected
+    assert saved.before_reset.renderer_generation != saved.restored.renderer_generation
 
 
 @pytest.mark.parametrize("preference", PRODUCTION_PREFERENCES)
