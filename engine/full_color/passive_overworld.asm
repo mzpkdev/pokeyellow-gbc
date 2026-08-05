@@ -1,4 +1,4 @@
-; Shipped passive CGB coloring for Pallet Town and Route 1.
+; Shipped passive CGB coloring for maps using the OVERWORLD tileset.
 ;
 ; Yellow remains authoritative for tiles, OAM, timing, overlays, fades, and
 ; mechanics. This code writes only BG palette RAM and VRAM bank 1 attributes.
@@ -25,10 +25,22 @@ PassiveFullColorIsSliceMap:
 ; Presentation stays latched while a Start/Options overlay is open. The saved
 ; preference is reconciled only when the outer overlay closes or a map loads.
 PassiveFullColorIsPresentedSliceMap:
+	ld a, [wCurMapTileset]
+	cp OVERWORLD
+	ret nz
 	ld a, [wCurMap]
-	cp PALLET_TOWN
-	ret z
-	cp ROUTE_1
+	cp NUM_CITY_MAPS
+	jr c, .eligible
+	cp FIRST_ROUTE_MAP
+	jr c, .ineligible
+	cp FIRST_INDOOR_MAP
+	jr c, .eligible
+.ineligible
+	ld a, 1
+	and a
+	ret
+.eligible
+	xor a
 	ret
 
 ; Called with the LCD disabled after Yellow's complete ordinary map setup.
@@ -399,7 +411,7 @@ DEF PASSIVE_FULL_COLOR_OVERLAY_ROWS_PER_PHASE EQU 2
 DEF PASSIVE_FULL_COLOR_OVERLAY_WAIT_FRAMES EQU \
 	2 * SCREEN_HEIGHT / PASSIVE_FULL_COLOR_OVERLAY_ROWS_PER_PHASE - 3
 
-; Carry means the active Pallet/Route 1 Color slice owns bank-1 attributes for
+; Carry means the active supported OVERWORLD Color slice owns bank-1 attributes for
 ; this overlay. Yellow mode and every other scene remain on the stock path.
 PassiveFullColorShouldColorOverlay:
 	call PassiveFullColorIsPresentedSliceMap
@@ -622,10 +634,7 @@ PassiveFullColorVBlank:
 	ld a, b
 	dec a
 	jr nz, .inactive
-	ld a, [wCurMap]
-	cp PALLET_TOWN
-	jr z, .slice
-	cp ROUTE_1
+	call PassiveFullColorIsPresentedSliceMap
 	jr nz, .inactive
 .slice
 	ld d, h
@@ -676,17 +685,70 @@ PassiveFullColorVBlank:
 	jp PassiveFullColorClearBGMapChunk
 
 ; LCD must be off or the caller must be in VBlank.
+PUSHS
+SECTION "Passive Full Color Map Palettes", ROMX, BANK[FULL_COLOR_PHASE2_ROM_BANK]
+
 PassiveFullColorCommitPalettes:
 	ld a, $80
 	ldh [rBGPI], a
 	ld hl, FullColorOverworldBGPalettes
-	ld b, 8 * 4 * 2
-.loop
+	ld b, 6 * 4 * 2 + 2 ; palettes 0-5 and roof color 0
+.prefix
 	ld a, [hli]
 	ldh [rBGPD], a
 	dec b
-	jr nz, .loop
+	jr nz, .prefix
+	call PassiveFullColorRoofPaletteForMap
+	ld b, 2 * 2
+.roof
+	ld a, [hli]
+	ldh [rBGPD], a
+	dec b
+	jr nz, .roof
+	ld hl, FullColorOverworldBGPalettes + 6 * 4 * 2 + 3 * 2
+	ld b, 2 + 4 * 2 ; roof color 3 and palette 7
+.suffix
+	ld a, [hli]
+	ldh [rBGPD], a
+	dec b
+	jr nz, .suffix
 	ret
+
+; Select the donor's two authored roof colors for the current town or route.
+; The caller has already admitted an OVERWORLD map, so its ID is below the
+; indoor boundary. Route 6's top rows belong visually to Saffron City.
+PassiveFullColorRoofPaletteForMap:
+	ld a, [wCurMap]
+	cp FIRST_INDOOR_MAP
+	jr nc, .pallet
+	cp ROUTE_6
+	jr nz, .assigned
+	ld a, [wYCoord]
+	cp 2
+	jr nc, .assigned_route6
+	ld a, FULL_COLOR_ROOF_SAFFRON
+	jr .resolve
+.assigned_route6
+	ld a, ROUTE_6
+.assigned
+	ld c, a
+	ld b, 0
+	ld hl, FullColorOverworldRoofAssignments
+	add hl, bc
+	ld a, [hl]
+	jr .resolve
+.pallet
+	xor a
+.resolve
+	add a
+	add a
+	ld c, a
+	ld b, 0
+	ld hl, FullColorOverworldRoofPalettes
+	add hl, bc
+	ret
+
+POPS
 
 ; Translate tile A through the donor-authored 256-byte authority table.
 ; Preserves DE, returns the attribute in A.

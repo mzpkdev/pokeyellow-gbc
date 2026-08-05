@@ -4,9 +4,8 @@
 ;
 ; Sources: color/data/map_palettes.asm, OverworldPalSet in
 ; color/data/map_palette_sets.asm, color/data/map_palette_constants.asm,
-; color/tilesets/overworld.asm, and PalletRoof in color/data/roofpalettes.asm.
-; Pallet Town and Route 1 both use OVERWORLD; the donor roof table gives both
-; maps PalletRoof identity.
+; color/tilesets/overworld.asm, and the complete town/route table in
+; color/data/roofpalettes.asm.
 
 DEF FULL_COLOR_OVERWORLD_GRAY   EQU 0
 DEF FULL_COLOR_OVERWORLD_RED    EQU 1
@@ -18,8 +17,8 @@ DEF FULL_COLOR_OVERWORLD_ROOF   EQU 6
 DEF FULL_COLOR_OVERWORLD_TEXT   EQU 7
 
 ; Eight complete CGB BG palettes selected by the donor's OverworldPalSet.
-; Palette 6 retains OUTDOOR_ROOF colors 0 and 3 and applies PalletRoof to
-; colors 1 and 2, matching the donor's LoadTownPalette behavior.
+; Palette 6 retains OUTDOOR_ROOF colors 0 and 3. The commit path replaces
+; colors 1 and 2 with the current map's roof pair.
 FullColorOverworldBGPalettes::
 ; Compatibility aliases retain the existing audit-only size/symbol ABI.
 IF DEF(PHASE2_AUDIT)
@@ -61,6 +60,92 @@ FullColorOverworldBGPalettesEnd::
 IF DEF(PHASE2_AUDIT)
 FullColorCanaryBGPalettesEnd::
 ENDC
+
+DEF FULL_COLOR_ROOF_PALLET    EQU 0
+DEF FULL_COLOR_ROOF_VIRIDIAN  EQU 1
+DEF FULL_COLOR_ROOF_PEWTER    EQU 2
+DEF FULL_COLOR_ROOF_CERULEAN  EQU 3
+DEF FULL_COLOR_ROOF_LAVENDER  EQU 4
+DEF FULL_COLOR_ROOF_VERMILION EQU 5
+DEF FULL_COLOR_ROOF_CELADON   EQU 6
+DEF FULL_COLOR_ROOF_FUCHSIA   EQU 7
+DEF FULL_COLOR_ROOF_CINNABAR  EQU 8
+DEF FULL_COLOR_ROOF_INDIGO    EQU 9
+DEF FULL_COLOR_ROOF_SAFFRON   EQU 10
+DEF NUM_FULL_COLOR_ROOFS      EQU 11
+
+PUSHS
+SECTION "Passive Full Color Roof Data", ROMX, BANK[FULL_COLOR_PHASE2_ROM_BANK]
+
+; One donor roof identity for every city/route map ID. Route 6 normally uses
+; Vermilion; the renderer selects Saffron while the player is in its top rows.
+FullColorOverworldRoofAssignments::
+	db FULL_COLOR_ROOF_PALLET    ; PALLET_TOWN
+	db FULL_COLOR_ROOF_VIRIDIAN  ; VIRIDIAN_CITY
+	db FULL_COLOR_ROOF_PEWTER    ; PEWTER_CITY
+	db FULL_COLOR_ROOF_CERULEAN  ; CERULEAN_CITY
+	db FULL_COLOR_ROOF_LAVENDER  ; LAVENDER_TOWN
+	db FULL_COLOR_ROOF_VERMILION ; VERMILION_CITY
+	db FULL_COLOR_ROOF_CELADON   ; CELADON_CITY
+	db FULL_COLOR_ROOF_FUCHSIA   ; FUCHSIA_CITY
+	db FULL_COLOR_ROOF_CINNABAR  ; CINNABAR_ISLAND
+	db FULL_COLOR_ROOF_INDIGO    ; INDIGO_PLATEAU
+	db FULL_COLOR_ROOF_SAFFRON   ; SAFFRON_CITY
+	db FULL_COLOR_ROOF_PALLET    ; UNUSED_MAP_0B
+	db FULL_COLOR_ROOF_PALLET    ; ROUTE_1
+	db FULL_COLOR_ROOF_VIRIDIAN  ; ROUTE_2
+	db FULL_COLOR_ROOF_PEWTER    ; ROUTE_3
+	db FULL_COLOR_ROOF_PEWTER    ; ROUTE_4
+	db FULL_COLOR_ROOF_SAFFRON   ; ROUTE_5
+	db FULL_COLOR_ROOF_VERMILION ; ROUTE_6
+	db FULL_COLOR_ROOF_SAFFRON   ; ROUTE_7
+	db FULL_COLOR_ROOF_SAFFRON   ; ROUTE_8
+	db FULL_COLOR_ROOF_LAVENDER  ; ROUTE_9
+	db FULL_COLOR_ROOF_LAVENDER  ; ROUTE_10
+	db FULL_COLOR_ROOF_VERMILION ; ROUTE_11
+	db FULL_COLOR_ROOF_VERMILION ; ROUTE_12
+	db FULL_COLOR_ROOF_FUCHSIA   ; ROUTE_13
+	db FULL_COLOR_ROOF_FUCHSIA   ; ROUTE_14
+	db FULL_COLOR_ROOF_FUCHSIA   ; ROUTE_15
+	db FULL_COLOR_ROOF_CELADON   ; ROUTE_16
+	db FULL_COLOR_ROOF_CELADON   ; ROUTE_17
+	db FULL_COLOR_ROOF_CELADON   ; ROUTE_18
+	db FULL_COLOR_ROOF_CINNABAR  ; ROUTE_19
+	db FULL_COLOR_ROOF_CINNABAR  ; ROUTE_20
+	db FULL_COLOR_ROOF_CINNABAR  ; ROUTE_21
+	db FULL_COLOR_ROOF_INDIGO    ; ROUTE_22
+	db FULL_COLOR_ROOF_INDIGO    ; ROUTE_23
+	db FULL_COLOR_ROOF_CERULEAN  ; ROUTE_24
+	db FULL_COLOR_ROOF_CERULEAN  ; ROUTE_25
+FullColorOverworldRoofAssignmentsEnd::
+
+; Middle colors for palette 6. Colors 0 and 3 stay OUTDOOR_ROOF values.
+FullColorOverworldRoofPalettes::
+	RGB 31, 31, 31 ; Pallet
+	RGB 24, 24, 24
+	RGB 0, 29, 7   ; Viridian
+	RGB 0, 24, 7
+	RGB 24, 25, 26 ; Pewter
+	RGB 20, 17, 19
+	RGB 14, 24, 31 ; Cerulean
+	RGB 14, 20, 26
+	RGB 23, 12, 31 ; Lavender
+	RGB 19, 9, 24
+	RGB 29, 8, 0   ; Vermilion
+	RGB 22, 8, 0
+	RGB 15, 26, 19 ; Celadon
+	RGB 3, 20, 11
+	RGB 31, 3, 18  ; Fuchsia
+	RGB 25, 3, 12
+	RGB 29, 0, 0   ; Cinnabar
+	RGB 22, 0, 0
+	RGB 16, 0, 31  ; Indigo
+	RGB 10, 0, 25
+	RGB 31, 27, 0  ; Saffron
+	RGB 28, 22, 0
+FullColorOverworldRoofPalettesEnd::
+
+POPS
 
 ; OBJ remains the independently authored canary/fallback for this data phase.
 IF DEF(PHASE2_AUDIT)
@@ -108,6 +193,8 @@ FullColorCanaryOverworldTileClassesEnd::
 ENDC
 
 ASSERT FullColorOverworldBGPalettesEnd - FullColorOverworldBGPalettes == 8 * 4 * 2
+ASSERT FullColorOverworldRoofAssignmentsEnd - FullColorOverworldRoofAssignments == FIRST_INDOOR_MAP
+ASSERT FullColorOverworldRoofPalettesEnd - FullColorOverworldRoofPalettes == NUM_FULL_COLOR_ROOFS * 2 * 2
 IF DEF(PHASE2_AUDIT)
 ASSERT FullColorCanaryOBJPalettesEnd - FullColorCanaryOBJPalettes == 8 * 4 * 2
 ENDC

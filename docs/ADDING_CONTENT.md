@@ -125,7 +125,8 @@ diff, and obtain fresh review. Never bulk-bless failures.
 ## Full-color extension recipes
 
 The current playable color renderer is deliberately narrower than the ROMhack:
-normal, debug, and VC products all offer Color for Pallet Town and Route 1.
+normal, debug, and VC products offer Color for the 34 city and route maps using
+the `OVERWORLD` tileset.
 Yellow mode and unsupported maps use Yellow presentation. Yellow still owns
 bank-0 tile graphics, sprites, animations, overlays, menus, battles, mechanics,
 and scheduling. The passive layer may install complete BG palettes and
@@ -134,14 +135,11 @@ surfaces; it never gates this player-visible behavior.
 
 ### Add a map compatible with the Phase 2 slice
 
-A shared `OVERWORLD` tileset is necessary, not sufficient. The map is compatible
-only if the existing complete 256-entry tile-to-attribute table and the same
-eight-palette payload—including palette 6's Pallet roof colors—are correct, and
-all entry, scrolling, connection, menu, battle, exit, reset, and return paths
-fit the existing passive lifecycle.
+A shared `OVERWORLD` tileset, a city or route map ID, and an authored row in the
+roof assignment table define the current playable set. All existing maps that
+meet those conditions are admitted through one runtime predicate.
 
-Closure comes before activation. Keep both runtime allowlists unchanged while
-you:
+Closure comes before adding another map or tileset. Before widening this set:
 
 1. Add the source scene root to `PHASE2_HOSTILE_SCENE_ROOTS` in
    [source_discovery.py](../tools/rom_tests/full_color/source_discovery.py).
@@ -184,12 +182,11 @@ make measure-full-color-phase2-audit
 make verify-full-color-phase2-audit
 ```
 
-Only after that evidence is closed may you add the map constant to
-`PassiveFullColorIsSliceMap` and the duplicated stackless guard in
-`PassiveFullColorVBlank`, both in
-[passive_overworld.asm](../engine/full_color/passive_overworld.asm). Updating
-only the first guard makes entry look correct while scrolling updates remain
-inactive.
+The runtime predicate in
+[passive_overworld.asm](../engine/full_color/passive_overworld.asm) checks map
+range and tileset for both ordinary and VBlank paths. Do not reintroduce a
+second map allowlist. Extend `FullColorOverworldRoofAssignments` in lockstep
+with the city/route map-ID boundary.
 
 Then extend linked-ROM coverage in
 [test_passive_overworld_rom.py](../tools/rom_tests/tests/unit/full_color/test_passive_overworld_rom.py)
@@ -201,15 +198,12 @@ restoration. Rebuild, regenerate evidence again because source and ROM
 identities changed, run the full gates, add a natural cold-boot checkpoint,
 and manually inspect both directions of every boundary.
 
-### Viridian is a canary, not completed content
+### Map-aware roofs
 
-Viridian City uses `OVERWORLD`, so temporarily adding `VIRIDIAN_CITY` to both
-guards can diagnose activation, scrolling, and the Route 1 connection. It does
-not produce honest Viridian coloring: the global payload still hardcodes
-Pallet's roof colors. Phase 3 supplies map-aware palette selection and paired
-transfers; future all-map authoring must supply and accept Viridian's reviewed
-roof/content data. Until both are evidenced, keep Viridian outside the claimed
-slice.
+Palette 6 keeps the common outdoor edge colors and replaces its middle pair
+from `FullColorOverworldRoofAssignments`. The assignments follow the donor's
+city and route table. Route 6 selects Saffron colors in its top rows and
+Vermilion colors elsewhere.
 
 ### Change palettes or tile attributes
 
@@ -218,6 +212,8 @@ current authority:
 
 - `FullColorOverworldBGPalettes` is exactly 64 bytes: eight complete CGB BG
   palettes of four RGB555 colors;
+- `FullColorOverworldRoofAssignments` has one row per city/route map ID and
+  selects one of eleven two-color roof pairs;
 - `FullColorOverworldTileAttributes` is exactly 256 bytes, indexed by the full
   bank-0 tile ID; and
 - every attribute must use legal CGB bits. The present table selects bank 0 and
@@ -233,11 +229,11 @@ the gates, and review natural gameplay captures.
 
 ### Know the roadmap boundary
 
-Do not hide later ownership work in an allowlist or palette edit. Phase 3 builds
-map-aware palette selection and paired transfers; Phase 4 owns overworld OAM;
-Phase 5 stress-tests the architecture; Phase 6 closes bounded Pallet Town and
-Route 1 data, overrides, animation, and field-replacement work; Phase 7 closes
-every handoff; Phase 8 removes old overworld ownership; and Phase 9 hardens
+Do not hide later ownership work in a palette edit. The playable slice now has
+map-aware roof selection; Phase 3 still owns broader paired transfers and
+effects, Phase 4 owns overworld OAM; Phase 5 stress-tests the architecture;
+Phase 6 closes map-specific overrides, animation, and field-replacement work;
+Phase 7 closes every handoff; Phase 8 removes old overworld ownership; and Phase 9 hardens
 release timing and products. All-25-tileset and all-map authoring remains
 future non-gating work. The authoritative exit gates live in the
 [migration plan](../specs/full-colors/docs/migration-plan.md).

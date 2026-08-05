@@ -35,7 +35,7 @@ running that file directly preserves its narrow
 `test-results/full-color-cold-boot/` default.
 
 The normal, debug, and VC products all include the saved Color/Yellow toggle
-and bounded Pallet Town/Route 1 passive renderer. Production-linkage proves
+and passive renderer for the 34 supported `OVERWORLD` maps. Production-linkage proves
 that shared runtime surface while excluding Phase 2-only diagnostics. Natural
 runtime tests select Color and Yellow inside one shipped binary; the
 `PHASE2_AUDIT` product is an additional diagnostic/certification surface, not a

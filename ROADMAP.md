@@ -25,9 +25,9 @@ The current tracked baseline and constraints are described by the [documentation
 ## Milestone 2 — Map-aware renderer and paired-transfer foundation
 
 - **Outcome:** One effective-mode/map authority selects reviewed palettes, tileset attributes, roofs, and overrides; every visible map mutation transfers tiles and full-byte attributes as one declared unit.
-- **Scope:** Replace the Pallet/Route 1 hard-coded assumptions with explicit map, tileset, roof, override, and destination identities. Cover initial load, reload, scrolling, all connections, overlays, animation, field replacement, alternate BG/window destinations, clipping, VBlank routing, and reconstruction, following the [migration plan](specs/full-colors/docs/migration-plan.md).
+- **Scope:** Build on the centralized `OVERWORLD` predicate and map-aware roof table with explicit override and destination identities. Cover initial load, reload, scrolling, all connections, overlays, animation, field replacement, alternate BG/window destinations, clipping, VBlank routing, and reconstruction, following the [migration plan](specs/full-colors/docs/migration-plan.md).
 - **Exit gate:** Source and linked-ROM inventory agree on one authority; supported and unsupported decisions match at load and VBlank; forced insufficient budgets defer before presentation; every admitted commit is atomic; natural traversal and frame review show no tile/attribute mismatch.
-- **Debt/constraint consequence:** Do not widen the supported-map list here. This milestone pays down duplicated map gating and transfer ownership; content remains canary-bounded until later Yellow-specific review.
+- **Debt/constraint consequence:** The playable `OVERWORLD` map set is broader than its retained harness authority. Do not infer support for another tileset or scene class from that playable slice.
 
 ## Milestone 3 — Full overworld OBJ ownership
 

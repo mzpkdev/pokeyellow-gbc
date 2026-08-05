@@ -123,9 +123,10 @@ incorporate accepted authority changes before generating reviewed evidence.
 ## Current playable full-color loop
 
 The normal, debug, and VC products all ship the same saved Color/Yellow toggle
-and bounded passive renderer. Color passively colors Pallet Town and Route 1.
-Yellow mode, interiors, menus, battles, cutscenes, sprites, animation, and maps
-outside that slice retain Pokemon Yellow's existing visual behavior.
+and bounded passive renderer. Color passively colors city and route maps using
+the `OVERWORLD` tileset. Yellow mode, interiors, menus, battles, cutscenes,
+sprites, animation, and maps outside that slice retain Pokemon Yellow's
+existing visual behavior.
 
 `pokeyellow_phase2_audit.gbc` adds diagnostic and certification surfaces to the
 same behavior. `PHASE2_AUDIT` does not gate the toggle or renderer. Read
@@ -180,8 +181,7 @@ return, and no seams or one-frame palette swaps.
   indices, attribute coordinates, VRAM banks, wrapping, or cleanup are wrong.
   Stop palette tuning until geometry matches the debug ROM.
 - If geometry matches but a roof, ground, or object color is wrong, inspect the
-  palette payload and tile-to-attribute authority. An allowlist does not make a
-  map correctly colored; Viridian needs map-aware palette/roof support.
+  palette payload, map roof assignment, and tile-to-attribute authority.
 - For flicker or seams, assume scheduling until disproved. Yellow's redraw and
   animation work retains priority; passive work must defer or clear in bounded
   chunks.

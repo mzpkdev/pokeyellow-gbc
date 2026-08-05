@@ -34,7 +34,7 @@ authoritative decision is:
 effective_owner(preference, lifecycle, map) = RENDERER_FULL_COLOR_OVERWORLD
     iff preference == COLOR
     and lifecycle == ordinary map presentation
-    and map in {Pallet Town, Route 1};
+    and map is a city or route using the OVERWORLD tileset;
 otherwise RENDERER_YELLOW.
 ```
 
@@ -53,7 +53,7 @@ HARD BOOT / RESET / SOFT RESET
     v
 YELLOW_ACTIVE <----> YELLOW-OWNED NESTED / ERROR LIFECYCLES
     |
-    | effective owner changes for ordinary Pallet Town / Route 1 only
+    | effective owner changes for ordinary supported OVERWORLD maps only
     v
 HANDOFF_TO_OVERWORLD
     |
@@ -63,7 +63,7 @@ OVERWORLD_RECONSTRUCTING
     |
     | one complete presentation barrier
     v
-OVERWORLD_ACTIVE (ordinary Pallet Town / Route 1 only)
+OVERWORLD_ACTIVE (ordinary supported OVERWORLD maps only)
     |
     | overlay/dialogue/menu/battle/standalone/unsupported map,
     | Yellow preference, reset, or soft reset
@@ -174,7 +174,7 @@ mid-operation
 ## Bounded Color overworld pipeline
 
 ```text
-authoritative ordinary Pallet Town / Route 1 map, tileset, override, viewport, and object state
+authoritative ordinary supported OVERWORLD map, tileset, override, viewport, and object state
         |
         +--> base BG/OBJ palettes --> transformed BG/OBJ payloads
         +--> desired tile IDs -----> 256-entry attribute lookup/overrides

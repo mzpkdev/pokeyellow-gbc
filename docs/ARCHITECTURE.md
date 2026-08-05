@@ -129,7 +129,7 @@ flags:
 | `make yellow_vc` | `_YELLOW_VC` | Virtual Console product with the same bounded mode |
 | `make yellow_phase2_audit` | `_DEBUG`, `PHASE2_AUDIT` | debug-derived ROM with extra Phase 2 diagnostics |
 
-The Color/Yellow toggle and passive Pallet Town/Route 1 renderer are linked and
+The Color/Yellow toggle and passive `OVERWORLD`-tileset renderer are linked and
 reachable in all three shipped products. `PHASE2_AUDIT` adds diagnostic
 mailboxes, callable roots, trace carriers, and certification metadata only; it
 MUST NOT select, enable, disable, or otherwise alter player-visible renderer

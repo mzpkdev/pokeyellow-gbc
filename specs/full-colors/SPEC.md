@@ -10,7 +10,8 @@ Mechanism reference: `git@github.com:dannye/pokered-gbc.git` commit
 ## Goal
 
 Add a persistent `COLOR MODE: COLOR/YELLOW` preference. Color may become the
-authoritative renderer only for ordinary Pallet Town and Route 1 presentation,
+authoritative renderer for ordinary presentation of the 34 city and route maps
+whose map header selects the `OVERWORLD` tileset,
 including their map palettes, paired tiles/attributes, animated tiles, field
 replacements, and overworld OAM—including follower Pikachu.
 
@@ -23,7 +24,7 @@ exclusive ownership at explicit boundaries and never write concurrently.
 
 Included:
 
-- ordinary Pallet Town and Route 1 base-map presentation;
+- ordinary base-map presentation for the 34 supported `OVERWORLD` maps;
 - map entry, reload, scrolling, their connection, animated tiles, and field replacements;
 - complete Color-to-Yellow and Yellow-to-Color handoffs around forced-Yellow contexts;
 - player, follower Pikachu, NPCs, and overworld objects; and
@@ -36,7 +37,7 @@ Excluded:
 - party, status, Pokédex, trade, slots, printer, and link presentation; and
 - Pikachu's Beach and Surfing Pikachu.
 
-All-25-map Color authoring and production Color overlays remain future work,
+Color authoring for other tilesets and production Color overlays remain future work,
 not release gates for this bounded product.
 
 See [Scope and ownership boundary](docs/scope.md).
@@ -52,8 +53,8 @@ RENDERER_YELLOW
 
 Production ownership is defined by the pure decision
 `effective_owner(preference, lifecycle, map)`: it returns Color if and only if
-preference is Color, lifecycle is ordinary map presentation, and map is Pallet
-Town or Route 1; otherwise it returns Yellow. `OVERWORLD_OVERLAY` is reserved
+preference is Color, lifecycle is ordinary map presentation, and the map is a
+city or route whose header selects `OVERWORLD`; otherwise it returns Yellow. `OVERWORLD_OVERLAY` is reserved
 and unreachable. Every real owner change closes admission, resolves departing
 work, advances generation once, selects the destination, reconstructs every
 destination authority from fresh logical state, crosses one barrier, and then
@@ -129,7 +130,7 @@ Details:
 The project is done when:
 
 1. The exhaustive preference × lifecycle × map matrix selects exactly one owner per cell.
-2. Color exclusively renders ordinary Pallet Town/Route 1 only when preference is Color; Yellow exclusively renders every other cell.
+2. Color exclusively renders ordinary presentation of the 34 supported `OVERWORLD` maps only when preference is Color; Yellow exclusively renders every other cell.
 3. Map tiles and attributes use paired, serialized transfer paths.
 4. Forced-Yellow overlays and complete bidirectional/reset handoffs pass deterministic semantic tests.
 5. All bank, ownership, timing, and writer gates pass.

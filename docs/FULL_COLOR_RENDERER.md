@@ -8,8 +8,9 @@ live in [TESTING.md](TESTING.md).
 
 ## Current scope
 
-The shipped renderer is a bounded passive CGB color layer for Pallet Town and
-Route 1. The normal, debug, and VC products expose a saved `COLOR MODE`
+The shipped renderer is a bounded passive CGB color layer for the 34 city and
+route maps that use the `OVERWORLD` tileset. The normal, debug, and VC products
+expose a saved `COLOR MODE`
 preference between `COLOR` and `YELLOW`; fresh saves default to Color, Continue
 retains the saved choice, and New Game may reset it to Color. It is a release
 feature, but it is not the retained full-color scheduler taking ownership of
@@ -57,8 +58,8 @@ cutscenes. Do not widen this boundary as a shortcut for another colored map.
 is the live presentation path. Hooks in Yellow's normal map, redraw, menu,
 palette, and VBlank flows call its `PassiveFullColor*` routines in every
 shipped product. The activation gate requires the saved Color preference and
-accepts only `PALLET_TOWN` and
-`ROUTE_1`. While Start or Options is open, the active presentation remains
+accepts only city and route map IDs whose loaded tileset is `OVERWORLD`.
+While Start or Options is open, the active presentation remains
 latched; the saved preference is reconciled only when the outer menu closes.
 
 [engine/full_color/passive_palette_refresh.asm](../engine/full_color/passive_palette_refresh.asm)
@@ -66,7 +67,7 @@ detects a legitimate Yellow palette replacement after a fade or restoration
 and queues passive republication for a bounded VBlank.
 
 The following modules preserve measured contracts, debug observability, and
-future migration seams but do not drive the current Pallet/Route 1 display:
+future migration seams but do not drive the current passive display:
 
 - `ownership.asm` and `scheduler.asm`;
 - `palettes.asm`, `transfers.asm`, and `oam.asm`; and
@@ -93,16 +94,17 @@ contains every live slice color decision:
 - tile IDs `$00`–`$5f`: donor-derived `OVERWORLD` assignments;
 - tile IDs `$60`–`$ff`: text palette 7;
 - bank 0 and no authored priority for all current attributes; and
-- palette 6: the Pallet roof colors used by both current maps.
+- `FullColorOverworldRoofAssignments`: one donor roof identity for each city
+  and route map ID;
+- `FullColorOverworldRoofPalettes`: the eleven donor roof color pairs; and
+- palette 6: common outdoor edge colors with map-aware roof middle colors.
 
 The table records pinned donor provenance and has size assertions. Runtime uses
 a direct lookup; there is no `tile_id & 7` or other legal-looking fallback.
 
-Pallet Town and Route 1 can share this authority because both use Yellow's
-`OVERWORLD` tileset and the accepted slice gives them the same roof identity.
-That does not make the palette correct for every `OVERWORLD` map. Viridian City
-is the canonical trap: adding it to an allowlist is a diagnostic canary, not
-finished Viridian color.
+All admitted maps share Yellow's `OVERWORLD` tile graphics and the same authored
+tile-to-attribute table. The current map selects its donor roof colors; Route 6
+selects Saffron roof colors in its top rows and Vermilion colors elsewhere.
 
 ## Map load and publication
 
@@ -232,8 +234,8 @@ raw `SVBK`, and leaves `rVBK` as Yellow expects.
 
 1. Every normal, debug, and VC build exposes the same bounded passive slice;
    `PHASE2_AUDIT` may add diagnostics but MUST NOT gate its behavior.
-2. Only the saved Color preference on Pallet Town and Route 1 is active until
-   the extension procedure proves another map.
+2. Only the saved Color preference on city and route maps using `OVERWORLD` is
+   active.
 3. Yellow owns bank-0 tiles, sprites, mechanics, timing, fades, and overlays.
 4. Passive code writes only complete BG palettes and bank-1 BG attributes.
 5. Every attribute comes from the authored 256-byte table.
@@ -310,9 +312,9 @@ remaining work and exit gates:
 All-25-tileset and all-map color authoring remains future non-gating work after
 the bounded release. It is not implied by the shipped toggle.
 
-Until the relevant phases are proved, a new map belongs in the passive slice
-only if it truthfully uses the exact current `OVERWORLD` palette and attribute
-authority. Phase 3 can introduce map-aware selection; Phase 6 still has to
-author and accept correct map-specific content. Follow
+Until the relevant phases are proved, maps outside the current city/route
+`OVERWORLD` set remain Yellow-owned. Phase 3 can introduce wider tileset-aware
+selection; Phase 6 still has to author and accept other map-specific content.
+Follow
 [ADDING_CONTENT.md](ADDING_CONTENT.md) instead of editing the allowlist in
 isolation.
