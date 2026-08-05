@@ -652,8 +652,8 @@ CheckMapConnections::
 	ld [wPikachuSpawnState], a
 	call LoadMapHeader
 	call PlayDefaultMusicFadeOutCurrent
-	; Pallet and Route 1 share one authored Color authority. Preserve that live
-	; plane across their seamless connection instead of flashing the LCD off or
+	; Consecutive admitted Color maps share one live attribute plane. Preserve
+	; it across their seamless connection instead of flashing the LCD off or
 	; letting Yellow's palette command replace it between visible frames.
 	farcall PassiveFullColorShouldColorOverlay
 	jr c, .loadPassiveSliceConnection
@@ -672,6 +672,7 @@ CheckMapConnections::
 .loadPassiveSliceConnection
 	call InitMapSprites
 	call LoadTileBlockMap
+	farcall PassiveFullColorHandleConnection
 	jp OverworldLoopLessDelay
 .didNotEnterConnectedMap
 	jp OverworldLoop

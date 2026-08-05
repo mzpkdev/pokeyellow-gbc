@@ -27,6 +27,9 @@ from tools.rom_tests.tests.unit.full_color.test_phase2_scheduler_rom import (
 from tools.rom_tests.tests.unit.full_color.test_phase2_vblank_routing_rom import (
     _run_actual_vblank,
 )
+from tools.rom_tests.tests.unit.full_color.test_passive_overworld_rom import (
+    _linked_overworld_bg_palettes,
+)
 
 
 IE = 0xFFFF
@@ -42,6 +45,8 @@ BOOTROM_DISABLE = 0xFF50
 VBLANK_INTERRUPT = 1 << 0
 VBG_MAP_1 = 0x9800
 PASSIVE_OVERLAY_COMPLETE = 1 << 5
+PALLET_TOWN = 0
+VIRIDIAN_CITY = 1
 PRODUCTS = ("pokeyellow", "pokeyellow_debug", "pokeyellow_vc")
 
 
@@ -404,6 +409,71 @@ def test_connected_map_transition_is_disable_yellow_command_publish_enable(
         (phase2_rom.constants["RENDERER_YELLOW"],)
     )
     assert "wFullColorRequestCount" not in phase2_rom.emulator.symbols
+
+
+def test_active_color_connection_queues_new_map_palette_without_stock_handoff(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = PALLET_TOWN
+    emu.memory[symbols["wCurMapTileset"]] = 0  # OVERWORLD
+    emu.memory[symbols["wUnusedObtainedBadges"]] = 0
+    emu.memory[0xFF40] &= 0x7F
+    phase2_rom.call("PassiveFullColorApplyMap")
+    pallet_palettes = _linked_overworld_bg_palettes(
+        phase2_rom, PALLET_TOWN, y_coord=0
+    )
+    viridian_palettes = _linked_overworld_bg_palettes(
+        phase2_rom, VIRIDIAN_CITY, y_coord=0
+    )
+    assert phase2_rom.emulator.read_palette_ram() == pallet_palettes
+    emu.memory[0xFF40] |= 0x80
+
+    def load_viridian_header() -> None:
+        emu.memory[symbols["wCurMap"]] = VIRIDIAN_CITY
+        emu.memory[symbols["wCurMapTileset"]] = 0  # OVERWORLD
+
+    state = _run_to_boundary(
+        phase2_rom,
+        "CheckMapConnections.loadNewMap",
+        "OverworldLoopLessDelay",
+        observe=(
+            "DisableLCD",
+            "RunPaletteCommand",
+            "PassiveFullColorApplyMap",
+            "EnableLCD",
+            "LoadTileBlockMap",
+            "PassiveFullColorHandleConnection",
+        ),
+        stub_returns={
+            "LoadMapHeader": load_viridian_header,
+            "PlayDefaultMusicFadeOutCurrent": None,
+            "InitMapSprites": None,
+            "LoadTileBlockMap": None,
+        },
+        entry_rom_bank=0,
+    )
+
+    assert state.events == (
+        "LoadTileBlockMap",
+        "PassiveFullColorHandleConnection",
+        "OverworldLoopLessDelay",
+    )
+    assert emu.memory[0xFF40] & 0x80
+    assert phase2_rom.emulator.read_palette_ram() == pallet_palettes
+    assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x01"
+    assert phase2_rom.read_wram2("wPassiveFullColorPalettePending") == b"\x01"
+    assert phase2_rom.read_wram2("wPassiveFullColorClearChunks") == b"\x00"
+
+    _run_actual_vblank(phase2_rom)
+
+    assert phase2_rom.emulator.read_palette_ram() == viridian_palettes
+    assert viridian_palettes[6 * 8 + 2 : 6 * 8 + 6] != pallet_palettes[
+        6 * 8 + 2 : 6 * 8 + 6
+    ]
+    assert phase2_rom.read_wram2("wPassiveFullColorPalettePending") == b"\x00"
 
 
 def test_overworld_palette_guard_suppresses_steady_yellow_bg_publication(

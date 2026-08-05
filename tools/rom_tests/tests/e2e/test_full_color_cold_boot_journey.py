@@ -52,16 +52,7 @@ CHECKPOINTS = (
     "route1-north",
     "viridian-entry",
 )
-COLOR_CHECKPOINTS = frozenset(
-    {
-        "pallet-before-oak",
-        "oak-interception",
-        "post-lab-pallet",
-        "route1-south",
-        "route1-mid",
-        "route1-north",
-    }
-)
+COLOR_CHECKPOINTS = frozenset(CHECKPOINTS)
 REVERSE_CHECKPOINTS = (
     "viridian-southbound",
     "route1-reentry",
@@ -70,7 +61,7 @@ REVERSE_CHECKPOINTS = (
     "route1-south-ledge",
     "pallet-reentry",
 )
-REVERSE_COLOR_CHECKPOINTS = frozenset(REVERSE_CHECKPOINTS[1:])
+REVERSE_COLOR_CHECKPOINTS = frozenset(REVERSE_CHECKPOINTS)
 SCRIPT_PALLETTOWN_PIKACHU_BATTLE = 4
 SCRIPT_PALLETTOWN_AFTER_PIKACHU_BATTLE = 5
 BATTLE_TYPE_PIKACHU = 4
@@ -1011,6 +1002,52 @@ def _linked_bytes(product: str, symbol: str, size: int) -> bytes:
     return (REPOSITORY_ROOT / f"{product}.gbc").read_bytes()[offset : offset + size]
 
 
+def _linked_span(product: str, start: str, end: str) -> bytes:
+    symbol_lines = (
+        (REPOSITORY_ROOT / f"{product}.sym").read_text(encoding="utf-8").splitlines()
+    )
+    addresses = Emulator._parse_symbols(symbol_lines)
+    banks = Emulator._parse_symbol_banks(symbol_lines)
+    assert banks[start] == banks[end], (product, start, end)
+    return _linked_bytes(product, start, addresses[end] - addresses[start])
+
+
+def _linked_overworld_bg_palettes(
+    product: str,
+    map_id: int,
+    *,
+    y_coord: int,
+) -> bytes:
+    """Resolve the linked map-specific palette payload published by the ROM."""
+    palettes = bytearray(
+        _linked_span(
+            product,
+            "FullColorOverworldBGPalettes",
+            "FullColorOverworldBGPalettesEnd",
+        )
+    )
+    assignments = _linked_span(
+        product,
+        "FullColorOverworldRoofAssignments",
+        "FullColorOverworldRoofAssignmentsEnd",
+    )
+    roof_palettes = _linked_span(
+        product,
+        "FullColorOverworldRoofPalettes",
+        "FullColorOverworldRoofPalettesEnd",
+    )
+    assert len(palettes) == 64
+    assert 0 <= map_id < len(assignments), (product, map_id)
+    route_6 = 0x11
+    saffron_city = 0x0A
+    roof_map_id = saffron_city if map_id == route_6 and y_coord < 2 else map_id
+    roof_start = assignments[roof_map_id] * 4
+    roof_middle_colors = roof_palettes[roof_start : roof_start + 4]
+    assert len(roof_middle_colors) == 4, (product, map_id, roof_start)
+    palettes[6 * 8 + 2 : 6 * 8 + 6] = roof_middle_colors
+    return bytes(palettes)
+
+
 def _visible_attribute_pairs(
     observation: JourneyObservation,
 ) -> tuple[tuple[int, int], ...]:
@@ -1149,16 +1186,34 @@ def test_production_cold_boot_changes_only_color_state_between_modes() -> None:
         yellow_mode=False,
     )
 
-    expected_palettes = _linked_bytes(
-        "pokeyellow", "FullColorOverworldBGPalettes", 64
-    )
-    expected_attributes = _linked_bytes(
+    overworld_attributes = _linked_bytes(
         "pokeyellow", "FullColorOverworldTileAttributes", 256
+    )
+    pallet_palettes = _linked_overworld_bg_palettes(
+        "pokeyellow", PALLET_TOWN, y_coord=0
+    )
+    bedroom_palettes = _linked_bytes(
+        "pokeyellow", "FullColorIndoorBGPalettes", 64
+    )
+    bedroom_attributes = _linked_bytes(
+        "pokeyellow", "FullColorRedsHouseTileAttributes", 256
     )
     diagnostics = {}
     for name in CHECKPOINTS:
         baseline = yellow[name]
         candidate = color[name]
+        expected_palettes, expected_attributes = (
+            (bedroom_palettes, bedroom_attributes)
+            if name == "bedroom"
+            else (
+                _linked_overworld_bg_palettes(
+                    "pokeyellow",
+                    candidate.logical_state[0],
+                    y_coord=candidate.logical_state[1],
+                ),
+                overworld_attributes,
+            )
+        )
         visible_pairs = _visible_attribute_pairs(candidate)
         candidate_visible_indices = _visible_indices(candidate)
         baseline_visible_indices = _visible_indices(baseline)
@@ -1228,6 +1283,11 @@ def test_production_cold_boot_changes_only_color_state_between_modes() -> None:
             "palette_first_baseline_mismatch": _first_mismatch(
                 candidate.bg_palettes, baseline.bg_palettes
             ),
+            "roof_middle_colors": list(candidate.bg_palettes[6 * 8 + 2 : 6 * 8 + 6]),
+            "roof_middle_first_pallet_mismatch": _first_mismatch(
+                candidate.bg_palettes[6 * 8 + 2 : 6 * 8 + 6],
+                pallet_palettes[6 * 8 + 2 : 6 * 8 + 6],
+            ),
             "visible_attribute_first_baseline_mismatch": _first_mismatch(
                 candidate_visible_attributes, baseline_visible_attributes
             ),
@@ -1249,47 +1309,60 @@ def test_production_cold_boot_changes_only_color_state_between_modes() -> None:
         json.dumps(diagnostics, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    assert (
+        diagnostics["viridian-entry"]["roof_middle_first_pallet_mismatch"]
+        is not None
+    )
 
     color_difference_seen = False
     for name in CHECKPOINTS:
         baseline = yellow[name]
         candidate = color[name]
+        expected_palettes, expected_attributes = (
+            (bedroom_palettes, bedroom_attributes)
+            if name == "bedroom"
+            else (
+                _linked_overworld_bg_palettes(
+                    "pokeyellow",
+                    candidate.logical_state[0],
+                    y_coord=candidate.logical_state[1],
+                ),
+                overworld_attributes,
+            )
+        )
         assert candidate.logical_state == baseline.logical_state, name
         assert candidate.renderer_state == (0, 0), name
         assert baseline.renderer_preference == 1, name
         assert candidate.renderer_preference == 0, name
-        assert baseline.passive_state[:3] == (0, 0, 0), name
+        if name == "bedroom":
+            # Switching the fresh-save default from Color to Yellow naturally
+            # catches the bounded bank-1 cleanup in flight. The presentation
+            # is already inactive and no palette publication may be pending.
+            assert baseline.passive_state[:2] == (0, 0), name
+            assert baseline.passive_state[2] > 0, name
+        else:
+            assert baseline.passive_state[:3] == (0, 0, 0), name
         _assert_visible_bg_parity(candidate, baseline, name)
 
-        if name in COLOR_CHECKPOINTS:
-            assert candidate.passive_state == (
-                1,
-                0,
-                0,
-                candidate.renderer_generation[0],
-            ), name
-            assert candidate.bg_palettes == expected_palettes, name
-            for tile, attribute in _visible_attribute_pairs(candidate):
-                assert attribute == expected_attributes[tile], (
-                    name,
-                    tile,
-                    attribute,
-                    expected_attributes[tile],
-                )
-            color_difference_seen |= (
-                candidate.bg_palettes != baseline.bg_palettes
-                or candidate.attributes != baseline.attributes
+        assert name in COLOR_CHECKPOINTS
+        assert candidate.passive_state == (
+            1,
+            0,
+            0,
+            candidate.renderer_generation[0],
+        ), name
+        assert candidate.bg_palettes == expected_palettes, name
+        for tile, attribute in _visible_attribute_pairs(candidate):
+            assert attribute == expected_attributes[tile], (
+                name,
+                tile,
+                attribute,
+                expected_attributes[tile],
             )
-        else:
-            assert candidate.passive_state[:3] == (0, 0, 0), name
-            assert candidate.attributes == baseline.attributes, name
-            if name == "viridian-entry":
-                # Cleanup makes every visible attribute select palette 0; the
-                # other seven slots are inert and may remain homogenized.
-                assert candidate.bg_palettes[:8] == baseline.bg_palettes[:8], name
-            else:
-                assert candidate.bg_palettes == baseline.bg_palettes, name
-            assert candidate.screen.tobytes() == baseline.screen.tobytes(), name
+        color_difference_seen |= (
+            candidate.bg_palettes != baseline.bg_palettes
+            or candidate.attributes != baseline.attributes
+        )
 
         _assert_oam_semantics(candidate, baseline, name)
 
@@ -1306,17 +1379,22 @@ def test_reverse_route1_ledges_preserve_yellow_and_passive_color_state() -> None
         "pokeyellow_debug", results, yellow_mode=False
     )
 
-    expected_palettes = _linked_bytes(
-        "pokeyellow_debug", "FullColorOverworldBGPalettes", 64
-    )
     expected_attributes = _linked_bytes(
         "pokeyellow_debug", "FullColorOverworldTileAttributes", 256
+    )
+    pallet_palettes = _linked_overworld_bg_palettes(
+        "pokeyellow_debug", PALLET_TOWN, y_coord=0
     )
     diagnostics = {}
 
     for name in REVERSE_CHECKPOINTS:
         baseline = yellow[name]
         candidate = color[name]
+        expected_palettes = _linked_overworld_bg_palettes(
+            "pokeyellow_debug",
+            candidate.logical_state[0],
+            y_coord=candidate.logical_state[1],
+        )
         visible_mismatches = [
             {
                 "visible_index": index,
@@ -1345,6 +1423,11 @@ def test_reverse_route1_ledges_preserve_yellow_and_passive_color_state() -> None
             "palette_first_donor_mismatch": _first_mismatch(
                 candidate.bg_palettes, expected_palettes
             ),
+            "roof_middle_colors": list(candidate.bg_palettes[6 * 8 + 2 : 6 * 8 + 6]),
+            "roof_middle_first_pallet_mismatch": _first_mismatch(
+                candidate.bg_palettes[6 * 8 + 2 : 6 * 8 + 6],
+                pallet_palettes[6 * 8 + 2 : 6 * 8 + 6],
+            ),
         }
 
         assert candidate.logical_state == baseline.logical_state, name
@@ -1355,20 +1438,15 @@ def test_reverse_route1_ledges_preserve_yellow_and_passive_color_state() -> None
         _assert_visible_bg_parity(candidate, baseline, name)
         _assert_oam_semantics(candidate, baseline, name)
 
-        if name in REVERSE_COLOR_CHECKPOINTS:
-            assert candidate.passive_state == (
-                1,
-                0,
-                0,
-                candidate.renderer_generation[0],
-            ), name
-            assert candidate.bg_palettes == expected_palettes, name
-            assert not visible_mismatches, name
-        else:
-            assert candidate.logical_state[0] == VIRIDIAN_CITY, name
-            assert candidate.passive_state[:3] == (0, 0, 0), name
-            assert candidate.attributes == baseline.attributes, name
-            assert candidate.bg_palettes[:8] == baseline.bg_palettes[:8], name
+        assert name in REVERSE_COLOR_CHECKPOINTS
+        assert candidate.passive_state == (
+            1,
+            0,
+            0,
+            candidate.renderer_generation[0],
+        ), name
+        assert candidate.bg_palettes == expected_palettes, name
+        assert not visible_mismatches, name
 
     assert color["route1-reentry"].logical_state[:3] == (ROUTE_1, 0, 10)
     assert color["pallet-reentry"].logical_state[:3] == (PALLET_TOWN, 0, 10)
@@ -1376,6 +1454,9 @@ def test_reverse_route1_ledges_preserve_yellow_and_passive_color_state() -> None
         json.dumps(diagnostics, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    assert diagnostics["viridian-southbound"][
+        "roof_middle_first_pallet_mismatch"
+    ] is not None
 
 
 def test_pallet_house_round_trip_restores_passive_color_slice() -> None:
@@ -1388,27 +1469,50 @@ def test_pallet_house_round_trip_restores_passive_color_slice() -> None:
         "pokeyellow", results, yellow_mode=False
     )
 
-    expected_palettes = _linked_bytes(
-        "pokeyellow", "FullColorOverworldBGPalettes", 64
+    expected_pallet_palettes = _linked_overworld_bg_palettes(
+        "pokeyellow", PALLET_TOWN, y_coord=0
     )
-    expected_attributes = _linked_bytes(
+    expected_pallet_attributes = _linked_bytes(
         "pokeyellow", "FullColorOverworldTileAttributes", 256
+    )
+    expected_interior_palettes = _linked_bytes(
+        "pokeyellow", "FullColorIndoorBGPalettes", 64
+    )
+    expected_interior_attributes = _linked_bytes(
+        "pokeyellow", "FullColorRedsHouseTileAttributes", 256
     )
 
     baseline_inside = yellow.interior
     candidate_inside = color.interior
     assert candidate_inside.logical_state == baseline_inside.logical_state
     assert candidate_inside.logical_state == (0x25, 7, 2, 1, 22, 0)
-    assert candidate_inside.passive_state[:3] == (0, 0, 0)
+    interior_visible_mismatches = [
+        {
+            "visible_index": index,
+            "tile": tile,
+            "actual": attribute,
+            "expected": expected_interior_attributes[tile],
+        }
+        for index, (tile, attribute) in enumerate(
+            _visible_attribute_pairs(candidate_inside)
+        )
+        if attribute != expected_interior_attributes[tile]
+    ]
+    assert candidate_inside.passive_state == (
+        1,
+        0,
+        0,
+        candidate_inside.renderer_generation[0],
+    )
     assert candidate_inside.renderer_state == (0, 0)
     assert baseline_inside.renderer_preference == 1
     assert candidate_inside.renderer_preference == 0
     assert baseline_inside.passive_state[:3] == (0, 0, 0)
     _assert_visible_bg_parity(candidate_inside, baseline_inside, "reds-house-1f")
     _assert_oam_semantics(candidate_inside, baseline_inside, "reds-house-1f")
-    assert candidate_inside.attributes == baseline_inside.attributes
-    assert candidate_inside.bg_palettes[:8] == baseline_inside.bg_palettes[:8]
-    assert candidate_inside.screen.tobytes() == baseline_inside.screen.tobytes()
+    assert candidate_inside.bg_palettes == expected_interior_palettes
+    assert not interior_visible_mismatches
+    assert candidate_inside.screen.tobytes() != baseline_inside.screen.tobytes()
 
     baseline_outside = yellow.restored_pallet
     candidate_outside = color.restored_pallet
@@ -1417,12 +1521,12 @@ def test_pallet_house_round_trip_restores_passive_color_slice() -> None:
             "visible_index": index,
             "tile": tile,
             "actual": attribute,
-            "expected": expected_attributes[tile],
+            "expected": expected_pallet_attributes[tile],
         }
         for index, (tile, attribute) in enumerate(
             _visible_attribute_pairs(candidate_outside)
         )
-        if attribute != expected_attributes[tile]
+        if attribute != expected_pallet_attributes[tile]
     ]
     diagnostics = {
         "interior": {
@@ -1432,11 +1536,14 @@ def test_pallet_house_round_trip_restores_passive_color_slice() -> None:
             "bank0_tilemap_first_mismatch": _first_mismatch(
                 candidate_inside.tilemap, baseline_inside.tilemap
             ),
-            "attribute_first_baseline_mismatch": _first_mismatch(
-                candidate_inside.attributes, baseline_inside.attributes
+            "palette_first_authority_mismatch": _first_mismatch(
+                candidate_inside.bg_palettes, expected_interior_palettes
             ),
-            "palette0_first_baseline_mismatch": _first_mismatch(
-                candidate_inside.bg_palettes[:8], baseline_inside.bg_palettes[:8]
+            "visible_attribute_mismatch_count": len(interior_visible_mismatches),
+            "visible_attribute_first_mismatch": (
+                interior_visible_mismatches[0]
+                if interior_visible_mismatches
+                else None
             ),
             "screen_equal": (
                 candidate_inside.screen.tobytes() == baseline_inside.screen.tobytes()
@@ -1450,7 +1557,7 @@ def test_pallet_house_round_trip_restores_passive_color_slice() -> None:
                 candidate_outside.tilemap, baseline_outside.tilemap
             ),
             "palette_first_donor_mismatch": _first_mismatch(
-                candidate_outside.bg_palettes, expected_palettes
+                candidate_outside.bg_palettes, expected_pallet_palettes
             ),
             "visible_attribute_mismatch_count": len(visible_mismatches),
             "visible_attribute_first_mismatch": (
@@ -1477,7 +1584,7 @@ def test_pallet_house_round_trip_restores_passive_color_slice() -> None:
     assert baseline_outside.passive_state[:3] == (0, 0, 0)
     _assert_visible_bg_parity(candidate_outside, baseline_outside, "restored-pallet")
     _assert_oam_semantics(candidate_outside, baseline_outside, "restored-pallet")
-    assert candidate_outside.bg_palettes == expected_palettes
+    assert candidate_outside.bg_palettes == expected_pallet_palettes
     assert not visible_mismatches
 
 
@@ -1492,11 +1599,14 @@ def test_oak_scripted_pikachu_capture_preserves_yellow_visuals_and_completes() -
         "pokeyellow", results, yellow_mode=False
     )
 
-    expected_palettes = _linked_bytes(
-        "pokeyellow", "FullColorOverworldBGPalettes", 64
-    )
     expected_attributes = _linked_bytes(
         "pokeyellow", "FullColorOverworldTileAttributes", 256
+    )
+    expected_lab_palettes = _linked_bytes(
+        "pokeyellow", "FullColorIndoorBGPalettes", 64
+    )
+    expected_lab_attributes = _linked_bytes(
+        "pokeyellow", "FullColorGymTileAttributes", 256
     )
     checkpoints = {
         "oak_dialogue": (yellow.oak_dialogue, color.oak_dialogue),
@@ -1560,6 +1670,11 @@ def test_oak_scripted_pikachu_capture_preserves_yellow_visuals_and_completes() -
 
     for name in ("oak_dialogue", "post_capture"):
         baseline, candidate = checkpoints[name]
+        expected_palettes = _linked_overworld_bg_palettes(
+            "pokeyellow",
+            candidate.logical_state[0],
+            y_coord=candidate.logical_state[1],
+        )
         assert candidate.passive_state == (
             1,
             0,
@@ -1570,27 +1685,35 @@ def test_oak_scripted_pikachu_capture_preserves_yellow_visuals_and_completes() -
         for tile, attribute in _visible_attribute_pairs(candidate):
             assert attribute == expected_attributes[tile], name
 
-    # Battles and interiors remain wholly stock-owned. At these visual
-    # checkpoints the two modes must be pixel-identical, including the real
-    # transient Poké Ball toss that the old harness skipped completely.
-    for name in ("battle_presentation", "ball_animation", "lab_transition"):
+    baseline_lab, candidate_lab = checkpoints["lab_transition"]
+    assert candidate_lab.passive_state == (
+        1,
+        0,
+        0,
+        candidate_lab.renderer_generation[0],
+    )
+    assert candidate_lab.bg_palettes == expected_lab_palettes
+    for tile, attribute in _visible_attribute_pairs(candidate_lab):
+        assert attribute == expected_lab_attributes[tile], "lab_transition"
+    assert candidate_lab.screen.tobytes() != baseline_lab.screen.tobytes()
+
+    # Battles remain wholly stock-owned. The modes must be pixel-identical at
+    # both transient checkpoints, including the real Poké Ball toss that the
+    # old harness skipped completely.
+    for name in ("battle_presentation", "ball_animation"):
         baseline, candidate = checkpoints[name]
-        if name == "lab_transition":
-            assert candidate.passive_state[:3] == (0, 0, 0), name
-        else:
-            # The guarded Pallet context remains active for return, while the
-            # battle owns VRAM and no passive transaction remains pending.
-            assert candidate.passive_state[1:3] == (0, 0), name
+        # The guarded Pallet context remains active for return, while the
+        # battle owns VRAM and no passive transaction remains pending.
+        assert candidate.passive_state[1:3] == (0, 0), name
         assert bytes(
             candidate.attributes[index] for index in _visible_indices(candidate)
         ) == bytes(
             baseline.attributes[index] for index in _visible_indices(baseline)
         ), name
         assert candidate.bg_palettes[:8] == baseline.bg_palettes[:8], name
-        if name != "lab_transition":
-            assert candidate.hardware_oam == baseline.hardware_oam, name
-            assert candidate.shadow_oam == baseline.shadow_oam, name
-            assert candidate.screen.tobytes() == baseline.screen.tobytes(), name
+        assert candidate.hardware_oam == baseline.hardware_oam, name
+        assert candidate.shadow_oam == baseline.shadow_oam, name
+        assert candidate.screen.tobytes() == baseline.screen.tobytes(), name
 
     (results / "paired-oak-capture-diagnostics.json").write_text(
         json.dumps(diagnostics, indent=2, sort_keys=True) + "\n",
@@ -1622,11 +1745,11 @@ def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> 
     assert tuple(yellow) == expected_names
     assert tuple(color) == expected_names
 
-    expected_palettes = _linked_bytes(
-        "pokeyellow_debug", "FullColorOverworldBGPalettes", 64
-    )
     expected_attributes = _linked_bytes(
         "pokeyellow_debug", "FullColorOverworldTileAttributes", 256
+    )
+    pallet_palettes = _linked_overworld_bg_palettes(
+        "pokeyellow_debug", PALLET_TOWN, y_coord=0
     )
     initial_generation = color["stable-overworld"].journey.renderer_generation
     for name in expected_names:
@@ -1658,15 +1781,20 @@ def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> 
 
     assert stable.passive_state == (1, 0, 0, initial_generation[0])
     assert restored.passive_state == stable.passive_state
-    assert stable.bg_palettes == expected_palettes
-    assert restored.bg_palettes == expected_palettes
     boundary_diagnostics = {}
     for name in (
         "stable-overworld",
         "dialogue-restored",
         "direct-start-restored",
         "restored-overworld",
+        "viridian-entry",
     ):
+        observation = color[name].journey
+        expected_palettes = _linked_overworld_bg_palettes(
+            "pokeyellow_debug",
+            observation.logical_state[0],
+            y_coord=observation.logical_state[1],
+        )
         mismatches = [
             {
                 "row": visible_index // 20,
@@ -1676,21 +1804,33 @@ def test_pallet_dialogue_party_round_trip_preserves_yellow_and_color_state() -> 
                 "expected": expected_attributes[tile],
             }
             for visible_index, (tile, attribute) in enumerate(
-                _visible_attribute_pairs(color[name].journey)
+                _visible_attribute_pairs(observation)
             )
             if attribute != expected_attributes[tile]
         ]
         boundary_diagnostics[name] = {
+            "palette_first_authority_mismatch": _first_mismatch(
+                observation.bg_palettes, expected_palettes
+            ),
+            "roof_middle_colors": list(
+                observation.bg_palettes[6 * 8 + 2 : 6 * 8 + 6]
+            ),
+            "roof_middle_first_pallet_mismatch": _first_mismatch(
+                observation.bg_palettes[6 * 8 + 2 : 6 * 8 + 6],
+                pallet_palettes[6 * 8 + 2 : 6 * 8 + 6],
+            ),
             "visible_mismatch_count": len(mismatches),
             "mismatches": mismatches,
         }
+        assert observation.bg_palettes == expected_palettes, name
+        assert not mismatches, name
     (results / "boundary-attribute-diagnostics.json").write_text(
         json.dumps(boundary_diagnostics, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    assert not boundary_diagnostics["dialogue-restored"]["mismatches"]
-    assert not boundary_diagnostics["direct-start-restored"]["mismatches"]
-    assert not boundary_diagnostics["restored-overworld"]["mismatches"]
+    assert boundary_diagnostics["viridian-entry"][
+        "roof_middle_first_pallet_mismatch"
+    ] is not None
     _assert_visible_bg_parity(restored, stable, "restored-overworld")
 
     assert color["viridian-entry"].journey.logical_state[:4] == (
@@ -1715,9 +1855,6 @@ def test_route1_wild_battle_round_trip_restores_passive_color_slice() -> None:
         assert route_steps > 0
         assert 0 <= grass_pacing_steps <= 256
 
-    expected_palettes = _linked_bytes(
-        "pokeyellow", "FullColorOverworldBGPalettes", 64
-    )
     expected_attributes = _linked_bytes(
         "pokeyellow", "FullColorOverworldTileAttributes", 256
     )
@@ -1756,6 +1893,11 @@ def test_route1_wild_battle_round_trip_restores_passive_color_slice() -> None:
 
     restored = color.restored_route
     baseline_restored = yellow.restored_route
+    expected_palettes = _linked_overworld_bg_palettes(
+        "pokeyellow",
+        restored.logical_state[0],
+        y_coord=restored.logical_state[1],
+    )
     assert restored.logical_state == baseline_restored.logical_state
     assert restored.logical_state[0] == 0x0C
     assert restored.logical_state[-1] == 0
@@ -1786,9 +1928,6 @@ def test_pallet_save_reset_continue_restores_playable_color_slice() -> None:
         "pokeyellow", results, yellow_mode=False
     )
 
-    expected_palettes = _linked_bytes(
-        "pokeyellow", "FullColorOverworldBGPalettes", 64
-    )
     expected_attributes = _linked_bytes(
         "pokeyellow", "FullColorOverworldTileAttributes", 256
     )
@@ -1797,6 +1936,11 @@ def test_pallet_save_reset_continue_restores_playable_color_slice() -> None:
     for name in ("before_reset", "restored", "playable"):
         baseline = getattr(yellow, name)
         candidate = getattr(color, name)
+        expected_palettes = _linked_overworld_bg_palettes(
+            "pokeyellow",
+            candidate.logical_state[0],
+            y_coord=candidate.logical_state[1],
+        )
         visible_mismatches = [
             {
                 "visible_index": index,
