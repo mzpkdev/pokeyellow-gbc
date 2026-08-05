@@ -126,7 +126,9 @@ diff, and obtain fresh review. Never bulk-bless failures.
 
 The current playable color renderer is deliberately narrower than the ROMhack:
 normal, debug, and VC products offer Color for the 34 city and route maps using
-the `OVERWORLD` tileset.
+`OVERWORLD` and conventional interiors using tileset IDs `REDS_HOUSE_1`
+through `FACILITY`, except `FOREST`, `SHIP_PORT`, and `CAVERN`; the 19
+admitted interior tilesets cover 162 maps.
 Yellow mode and unsupported maps use Yellow presentation. Yellow still owns
 bank-0 tile graphics, sprites, animations, overlays, menus, battles, mechanics,
 and scheduling. The passive layer may install complete BG palettes and
@@ -135,9 +137,9 @@ surfaces; it never gates this player-visible behavior.
 
 ### Add a map compatible with the Phase 2 slice
 
-A shared `OVERWORLD` tileset, a city or route map ID, and an authored row in the
-roof assignment table define the current playable set. All existing maps that
-meet those conditions are admitted through one runtime predicate.
+A shared `OVERWORLD` tileset plus a city/route map ID, or one of the authored
+conventional-interior tileset IDs, defines the current playable set. All maps
+that meet either condition are admitted through one runtime predicate.
 
 Closure comes before adding another map or tileset. Before widening this set:
 
@@ -186,7 +188,8 @@ The runtime predicate in
 [passive_overworld.asm](../engine/full_color/passive_overworld.asm) checks map
 range and tileset for both ordinary and VBlank paths. Do not reintroduce a
 second map allowlist. Extend `FullColorOverworldRoofAssignments` in lockstep
-with the city/route map-ID boundary.
+with the city/route map-ID boundary; extend the interior pointer tables in
+lockstep with the tileset-ID ABI.
 
 Then extend linked-ROM coverage in
 [test_passive_overworld_rom.py](../tools/rom_tests/tests/unit/full_color/test_passive_overworld_rom.py)
@@ -207,8 +210,9 @@ Vermilion colors elsewhere.
 
 ### Change palettes or tile attributes
 
-[full_color_overworld.asm](../data/tilesets/full_color_overworld.asm) is the
-current authority:
+[full_color_overworld.asm](../data/tilesets/full_color_overworld.asm) and
+[full_color_interiors.asm](../data/tilesets/full_color_interiors.asm) are the
+current authorities:
 
 - `FullColorOverworldBGPalettes` is exactly 64 bytes: eight complete CGB BG
   palettes of four RGB555 colors;
@@ -218,6 +222,9 @@ current authority:
   bank-0 tile ID; and
 - every attribute must use legal CGB bits. The present table selects bank 0 and
   authors no priority.
+- every interior palette payload is exactly 64 bytes and every interior
+  assignment table is exactly 256 bytes; the first `$60` bytes reproduce the
+  donor loader's selected table and `$60`–`$ff` are palette 7.
 
 Never derive a palette with `tile_id & 7`. Tile IDs are identities, not palette
 classes. Preserve source, permission, pinned donor revision, complete tables,
@@ -234,8 +241,8 @@ map-aware roof selection; Phase 3 still owns broader paired transfers and
 effects, Phase 4 owns overworld OAM; Phase 5 stress-tests the architecture;
 Phase 6 closes map-specific overrides, animation, and field-replacement work;
 Phase 7 closes every handoff; Phase 8 removes old overworld ownership; and Phase 9 hardens
-release timing and products. All-25-tileset and all-map authoring remains
-future non-gating work. The authoritative exit gates live in the
+release timing and products. Remaining special-tileset and all-map authoring
+remains future non-gating work. The authoritative exit gates live in the
 [migration plan](../specs/full-colors/docs/migration-plan.md).
 
 ## Verification before handoff

@@ -23,6 +23,7 @@ DisplayOptionMenu_:
 	jr c, .exitOptionMenu
 .dpadDelay
 	call OptionsMenu_UpdateCursorPosition
+	farcall PassiveFullColorPrepareMenuOverlay
 	call DelayFrame
 	call DelayFrame
 	call DelayFrame

@@ -124,8 +124,8 @@ incorporate accepted authority changes before generating reviewed evidence.
 
 The normal, debug, and VC products all ship the same saved Color/Yellow toggle
 and bounded passive renderer. Color passively colors city and route maps using
-the `OVERWORLD` tileset. Yellow mode, interiors, menus, battles, cutscenes,
-sprites, animation, and maps outside that slice retain Pokemon Yellow's
+`OVERWORLD` plus the authored conventional-interior tileset range. Yellow mode,
+unsupported maps, menus, battles, cutscenes, sprites, and animation retain Pokemon Yellow's
 existing visual behavior.
 
 `pokeyellow_phase2_audit.gbc` adds diagnostic and certification surfaces to the

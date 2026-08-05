@@ -25,7 +25,8 @@ source diff, build, screenshot, or synthetic test alone when its acceptance
 proof requires linked-ROM or natural-gameplay evidence.
 
 Current product truth: normal, debug, and VC products all ship the saved
-`COLOR/YELLOW` option and bounded passive `OVERWORLD`-tileset renderer.
+`COLOR/YELLOW` option and bounded passive map-background renderer for the 34
+`OVERWORLD` maps plus 162 maps using the 19 admitted interior tilesets.
 `PHASE2_AUDIT` adds diagnostics and certification surfaces only; it never gates
 player-visible behavior. Broader scheduler ownership, OAM color, animation
 ownership, and all-map color remain proposed in the
@@ -92,7 +93,7 @@ mailbox, Gate 0, or Phase 1 runtime evidence.
 
 - **Status / priority:** CLOSED / P0.
 - **What exists:** normal, debug, and VC products all link the saved
-  Color/Yellow option and bounded `OVERWORLD`-tileset passive renderer. The
+  Color/Yellow option and bounded map-background passive renderer. The
   audit product runs the same player-visible behavior.
 - **Why it changed:** audit isolation proved the initial slice, then the
   operator approved it as ordinary product behavior without approving the
@@ -113,9 +114,12 @@ mailbox, Gate 0, or Phase 1 runtime evidence.
 ### FC-002: Map and roof dispatch acceptance
 
 - **Status / priority:** ACTIVE / P1.
-- **What exists:** one predicate admits the 34 city and route maps using
-  `OVERWORLD`; one donor-derived table selects their roof colors, including the
-  Route 6 Saffron/Vermilion split.
+- **What exists:** one predicate admits the 34 city/route maps using
+  `OVERWORLD` plus conventional interiors from `REDS_HOUSE_1` through
+  `FACILITY`, excluding `FOREST`, `SHIP_PORT`, and `CAVERN`; those 19 tilesets
+  cover 162 maps, and donor-derived pointer tables
+  select complete palettes and attributes, while the outdoor roof table keeps
+  the Route 6 Saffron/Vermilion split.
 - **Why retained:** implementation is playable, but manual traversal and visual
   acceptance have not closed the wider map set.
 - **Current risk:** an incorrect roof row or transition can show the wrong
@@ -135,9 +139,9 @@ mailbox, Gate 0, or Phase 1 runtime evidence.
 ### FC-003: Yellow-owned scene fallbacks
 
 - **Status / priority:** PLANNED / P1.
-- **What exists:** interiors, menus, dialogue, battles, cutscenes, sprites,
-  effects, and animations remain Yellow-owned; the passive layer restores a
-  colored overworld after some overlays.
+- **What exists:** conventional interior map backgrounds are admitted, but
+  menus, dialogue, battles, cutscenes, sprites, effects, and animations remain
+  Yellow-owned; the passive layer restores a colored map after some overlays.
 - **Why retained:** Yellow remains the only proved owner for those scenes, and
   coloring them by inferring from background tile IDs previously corrupted
   geometry and progression.
@@ -153,7 +157,7 @@ mailbox, Gate 0, or Phase 1 runtime evidence.
 - **Acceptance proof:** each migrated scene has an exclusive writer, explicit
   entry/exit reconstruction, frame-strip review, built-ROM probes, and natural
   gameplay in both player modes.
-- **Sources:** [renderer scene boundaries](docs/FULL_COLOR_RENDERER.md#menus-interiors-dialogue-and-battles),
+- **Sources:** [renderer scene boundaries](docs/FULL_COLOR_RENDERER.md#menus-maps-dialogue-and-battles),
   [migration phases](specs/full-colors/docs/migration-plan.md), and
   [acceptance criteria](specs/full-colors/docs/acceptance-criteria.md).
 
@@ -384,9 +388,10 @@ mailbox, Gate 0, or Phase 1 runtime evidence.
 ### FC-014: Donor content is incomplete for Yellow
 
 - **Status / priority:** BLOCKED / P1.
-- **What exists:** one donor-derived `OVERWORLD` tile-to-attribute table,
-  common BG palettes, and map-aware roof colors cover all current `OVERWORLD`
-  maps. The donor offers useful Gen 1 organization and artistic evidence, not
+- **What exists:** donor-derived `OVERWORLD` and conventional-interior
+  tile-to-attribute tables, shared complete BG palette sets, and map-aware roof
+  colors cover the admitted map slice. The donor offers useful Gen 1
+  organization and artistic evidence, not
   a drop-in Yellow renderer.
 - **Why retained:** the accepted data is a strong canary and avoids inventing
   colors already authored for a related engine.
@@ -397,14 +402,15 @@ mailbox, Gate 0, or Phase 1 runtime evidence.
   Yellow tilesets and overrides.
 - **Right-time trigger:** adding any map whose exact tileset, roof, override,
   or animation identity differs from the accepted slice.
-- **Recommendation:** keep the accepted frozen OVERWORLD payload pinned to its
-  five exact authorities. Treat every other donor value as candidate provenance
+- **Recommendation:** keep the accepted bounded map payload pinned to its
+  exact authorities. Treat every other donor value as candidate provenance
   and validate it against Yellow graphics and behavior. Keep mechanisms separate
   from authored data.
 - **Acceptance proof:** every Yellow tileset, roof, override, animation, and
   special case has inventory closure, atlas/table review, semantic full-byte
   attribute tests, and natural visual acceptance.
 - **Sources:** [full_color_overworld.asm](data/tilesets/full_color_overworld.asm),
+  [full_color_interiors.asm](data/tilesets/full_color_interiors.asm),
   [future all-25 plan](specs/full-colors/docs/migration-plan.md#future-non-gating-work-all-25-tileset-authoring),
   [R8.2](specs/full-colors/docs/requirements.md), and
   [full-color extension recipes](docs/ADDING_CONTENT.md#full-color-extension-recipes).
@@ -449,10 +455,12 @@ trigger is reached and the replacement has a proved boundary.
 products all ship the bounded renderer. The remaining `PHASE2_AUDIT` flag is
 diagnostic debt tracked by FC-008 and FC-011, not a behavior boundary.
 
-### IC-002: OVERWORLD tileset only
+### IC-002: Bounded authored map tilesets
 
-The slice stays limited to city and route maps using `OVERWORLD`. Other
-tilesets remain Yellow-owned until independently authored content exists.
+The slice stays limited to city/route maps using `OVERWORLD` and conventional
+interiors using IDs `REDS_HOUSE_1` through `FACILITY`, except `FOREST`,
+`SHIP_PORT`, and `CAVERN`. `PLATEAU`, `BEACH_HOUSE`, and other unsupported tilesets remain
+Yellow-owned until independently authored content exists.
 
 ### IC-003: Yellow owns bank-0 tiles and gameplay
 
@@ -462,9 +470,9 @@ geometry, movement, or cutscene progression.
 
 ### IC-004: Yellow owns excluded scenes
 
-Menus, dialogue, battles, interiors, effects, sprites, and cutscenes stay Yellow
-until their concrete migration phases close. A player mode toggle does not
-color those scenes by itself.
+Menus, dialogue, battles, effects, sprites, and cutscenes stay Yellow until
+their concrete migration phases close. Admitting an interior map background
+does not color those scene classes by itself.
 
 ### IC-005: One bounded passive VBlank operation
 
@@ -491,11 +499,11 @@ The conformance checker proves its modeled contract; callable ROM tests prove
 controlled entry points. Neither may claim natural reachability, playability,
 visual stability, or artistic quality.
 
-### IC-009: Donor content outside the frozen OVERWORLD payload is candidate evidence
+### IC-009: Donor content outside the accepted map payload is candidate evidence
 
-The five pinned authorities accepted for the frozen OVERWORLD palette and
-corrected 96-byte attribute payload remain authoritative for that payload only.
-All other material from `git@github.com:dannye/pokered-gbc.git` can supply only
+The pinned authorities accepted for the outdoor and conventional-interior
+palette and 96-byte attribute payloads remain authoritative for that payload
+only. All other material from `git@github.com:dannye/pokered-gbc.git` can supply only
 organization and artistic candidates. Yellow-specific values outside that
 accepted payload still require independent authoring and validation; no donor
 import can waive Yellow's inventories or acceptance gates.

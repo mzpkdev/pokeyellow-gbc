@@ -57,6 +57,8 @@ SCREEN_HEIGHT = 18
 SCREEN_AREA = SCREEN_WIDTH * SCREEN_HEIGHT
 VBG_MAP_1 = 0x9C00
 AUTO_BG_TRANSFER_ENABLED = 1 << 0
+PASSIVE_OVERLAY_FINITE_SWEEP = 1 << 3
+PASSIVE_OVERLAY_STOCK_SWEEP = 1 << 4
 PASSIVE_OVERLAY_ATTRIBUTE_PHASE = 1 << 6
 PASSIVE_OVERLAY_COMPLETE = 1 << 5
 PASSIVE_OVERLAY_TRANSFER = 1 << 7
@@ -205,6 +207,7 @@ def _run_natural_vblank(
     expect_passive: bool,
     passive_symbol: str = "PassiveFullColorVBlank",
     finish_interrupt: bool = False,
+    expected_downstream: tuple[str, ...] = VBLANK_TAIL_STAGES,
 ) -> NaturalVBlankMeasurement:
     emu = rom.emulator.pyboy
     regs = emu.register_file
@@ -304,7 +307,7 @@ def _run_natural_vblank(
             emu.hook_deregister(bank, address)
     assert observed["vblank"][1] == 144
     assert "complete" in observed
-    assert tuple(item[0] for item in downstream) == VBLANK_TAIL_STAGES
+    assert tuple(item[0] for item in downstream) == expected_downstream
     if expect_passive:
         assert {"passive", "passive_end"} <= observed.keys()
     vblank_cycle, vblank_ly = observed["vblank"]
@@ -666,49 +669,64 @@ def test_passive_paths_finish_before_natural_ly0(
 @pytest.mark.parametrize(
     (
         "case",
-        "phase_flags",
+        "initial_portion",
         "expected_portion",
+        "expected_transfer",
         "expected_attribute_phase",
         "expected_complete",
-        "expected_bank",
+        "expected_stock_sweep",
+        "expected_rows",
+        "expected_animation_counter",
     ),
     (
         (
-            "paired-overlay attributes",
-            PASSIVE_OVERLAY_TRANSFER | PASSIVE_OVERLAY_ATTRIBUTE_PHASE,
+            "fresh-overlay attributes",
+            0,
+            OVERLAY_ROWS_PER_PHASE,
+            True,
+            True,
+            False,
+            False,
+            (0, 1),
+            19,
+        ),
+        (
+            "final-overlay attributes",
+            SCREEN_HEIGHT - OVERLAY_ROWS_PER_PHASE,
+            SCREEN_HEIGHT,
+            True,
+            True,
+            False,
+            False,
+            (SCREEN_HEIGHT - 2, SCREEN_HEIGHT - 1),
+            19,
+        ),
+        (
+            "terminal-overlay completion",
+            SCREEN_HEIGHT,
             0,
             False,
             False,
-            1,
-        ),
-        (
-            "paired-overlay tiles",
-            PASSIVE_OVERLAY_TRANSFER,
-            OVERLAY_ROWS_PER_PHASE,
             True,
-            False,
-            0,
-        ),
-        (
-            "coherent-overlay tiles",
-            PASSIVE_OVERLAY_TRANSFER | PASSIVE_OVERLAY_COMPLETE,
-            OVERLAY_ROWS_PER_PHASE,
-            False,
             True,
+            (),
             0,
         ),
     ),
 )
 @pytest.mark.parametrize("product", TIMING_PRODUCTS)
-def test_bounded_overlay_phase_leaves_complete_vblank_tail_headroom(
+def test_bounded_overlay_transfer_leaves_complete_vblank_tail_headroom(
     request: pytest.FixtureRequest,
     product: str,
     case: str,
-    phase_flags: int,
+    initial_portion: int,
     expected_portion: int,
+    expected_transfer: bool,
     expected_attribute_phase: bool,
     expected_complete: bool,
-    expected_bank: int,
+    expected_stock_sweep: bool,
+    expected_rows: tuple[int, ...],
+    expected_animation_counter: int,
 ) -> None:
     phase2_rom = _open_product(request, product, product)
     try:
@@ -725,9 +743,11 @@ def test_bounded_overlay_phase_leaves_complete_vblank_tail_headroom(
         _write_vram(phase2_rom, 1, VBG_MAP_1, b"\xee" * extent)
         emu.memory[symbols["hAutoBGTransferDest"]] = VBG_MAP_1 & 0xFF
         emu.memory[symbols["hAutoBGTransferDest"] + 1] = VBG_MAP_1 >> 8
-        emu.memory[symbols["hAutoBGTransferPortion"]] = 0
+        emu.memory[symbols["hAutoBGTransferPortion"]] = initial_portion
         emu.memory[symbols["hAutoBGTransferEnabled"]] = (
-            AUTO_BG_TRANSFER_ENABLED | phase_flags
+            AUTO_BG_TRANSFER_ENABLED
+            | PASSIVE_OVERLAY_TRANSFER
+            | PASSIVE_OVERLAY_ATTRIBUTE_PHASE
         )
         emu.memory[symbols["hTileAnimations"]] = 1
         emu.memory[symbols["hMovingBGTilesCounter1"]] = 19
@@ -741,29 +761,188 @@ def test_bounded_overlay_phase_leaves_complete_vblank_tail_headroom(
 
         _assert_passive_finishes_before_ly0(measurement)
         _assert_complete_vblank_tail_finishes_before_ly0(measurement)
-        assert emu.memory[symbols["hMovingBGTilesCounter1"]] == 19
+        assert (
+            emu.memory[symbols["hMovingBGTilesCounter1"]]
+            == expected_animation_counter
+        )
         assert emu.memory[symbols["hAutoBGTransferPortion"]] == expected_portion
         enabled = emu.memory[symbols["hAutoBGTransferEnabled"]]
+        assert bool(enabled & PASSIVE_OVERLAY_TRANSFER) is expected_transfer
         assert (
             bool(enabled & PASSIVE_OVERLAY_ATTRIBUTE_PHASE)
             is expected_attribute_phase
         )
         assert bool(enabled & PASSIVE_OVERLAY_COMPLETE) is expected_complete
+        assert (
+            bool(enabled & PASSIVE_OVERLAY_STOCK_SWEEP)
+            is expected_stock_sweep
+        )
         expected_writes = {
             row * 32 + column
-            for row in range(OVERLAY_ROWS_PER_PHASE)
+            for row in expected_rows
             for column in range(SCREEN_WIDTH)
         }
         bank0 = phase2_rom.emulator.read_vram_bank(0, VBG_MAP_1, extent)
         bank1 = phase2_rom.emulator.read_vram_bank(1, VBG_MAP_1, extent)
         changed0 = {index for index, value in enumerate(bank0) if value != 0x55}
         changed1 = {index for index, value in enumerate(bank1) if value != 0xEE}
-        assert (changed0, changed1) == (
-            (expected_writes, set()) if expected_bank == 0
-            else (set(), expected_writes)
-        )
+        assert (changed0, changed1) == (set(), expected_writes)
     finally:
         phase2_rom.emulator.close()
+
+
+@pytest.mark.parametrize("product", TIMING_PRODUCTS)
+def test_completed_menu_sweep_uses_only_stock_bank0_transfer(
+    request: pytest.FixtureRequest,
+    product: str,
+) -> None:
+    phase2_rom = _open_product(request, product, product)
+    try:
+        _activate_passive_map(phase2_rom)
+        emu = phase2_rom.emulator.pyboy
+        symbols = phase2_rom.emulator.symbols
+        phase2_rom.write_fixed(symbols["wTileMap"], b"\x80" * SCREEN_AREA)
+        extent = SCREEN_HEIGHT * 32
+        _write_vram(phase2_rom, 0, VBG_MAP_1, b"\x55" * extent)
+        _write_vram(phase2_rom, 1, VBG_MAP_1, b"\xee" * extent)
+        emu.memory[symbols["hAutoBGTransferDest"]] = VBG_MAP_1 & 0xFF
+        emu.memory[symbols["hAutoBGTransferDest"] + 1] = VBG_MAP_1 >> 8
+        emu.memory[symbols["hAutoBGTransferPortion"]] = 0
+        emu.memory[symbols["hAutoBGTransferEnabled"]] = (
+            AUTO_BG_TRANSFER_ENABLED
+            | PASSIVE_OVERLAY_FINITE_SWEEP
+            | PASSIVE_OVERLAY_STOCK_SWEEP
+            | PASSIVE_OVERLAY_COMPLETE
+        )
+        emu.memory[symbols["hRedrawRowOrColumnMode"]] = REDRAW_ROW
+        phase2_rom.write_wram2("wPassiveFullColorPalettePending", 1)
+        phase2_rom.write_wram2(
+            "wPassiveFullColorDeferredRedrawState", REDRAW_ROW
+        )
+
+        measurement = _run_natural_vblank(
+            phase2_rom,
+            operation=f"{product} completed-menu stock tiles",
+            expect_passive=False,
+            expected_downstream=("TrackPlayTime",),
+        )
+
+        _assert_complete_vblank_tail_finishes_before_ly0(measurement)
+        enabled = emu.memory[symbols["hAutoBGTransferEnabled"]]
+        assert enabled & PASSIVE_OVERLAY_COMPLETE
+        assert enabled & PASSIVE_OVERLAY_FINITE_SWEEP
+        assert enabled & PASSIVE_OVERLAY_STOCK_SWEEP
+        assert not enabled & PASSIVE_OVERLAY_TRANSFER
+        assert not enabled & PASSIVE_OVERLAY_ATTRIBUTE_PHASE
+        assert emu.memory[symbols["hAutoBGTransferPortion"]] == 1
+        assert emu.memory[symbols["hRedrawRowOrColumnMode"]] == REDRAW_ROW
+        assert phase2_rom.read_wram2(
+            "wPassiveFullColorPalettePending"
+        ) == b"\x01"
+        assert phase2_rom.read_wram2(
+            "wPassiveFullColorDeferredRedrawState"
+        ) == bytes((REDRAW_ROW,))
+        expected_writes = {
+            row * 32 + column
+            for row in range(SCREEN_HEIGHT // 3)
+            for column in range(SCREEN_WIDTH)
+        }
+        bank0 = phase2_rom.emulator.read_vram_bank(0, VBG_MAP_1, extent)
+        bank1 = phase2_rom.emulator.read_vram_bank(1, VBG_MAP_1, extent)
+        changed0 = {index for index, value in enumerate(bank0) if value != 0x55}
+        changed1 = {index for index, value in enumerate(bank1) if value != 0xEE}
+        assert (changed0, changed1) == (expected_writes, set())
+    finally:
+        phase2_rom.emulator.close()
+
+
+def test_completed_menu_sweep_stops_after_three_frames_and_restores_video_tail(
+    phase2_rom: Phase2Rom,
+) -> None:
+    _activate_passive_map(phase2_rom)
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.write_fixed(symbols["wTileMap"], b"\x80" * SCREEN_AREA)
+    emu.memory[symbols["hAutoBGTransferDest"]] = VBG_MAP_1 & 0xFF
+    emu.memory[symbols["hAutoBGTransferDest"] + 1] = VBG_MAP_1 >> 8
+    emu.memory[symbols["hAutoBGTransferPortion"]] = 0
+    emu.memory[symbols["hAutoBGTransferEnabled"]] = (
+        AUTO_BG_TRANSFER_ENABLED
+        | PASSIVE_OVERLAY_FINITE_SWEEP
+        | PASSIVE_OVERLAY_STOCK_SWEEP
+        | PASSIVE_OVERLAY_COMPLETE
+    )
+
+    for portion in (1, 2, 0):
+        sweep = _run_natural_vblank(
+            phase2_rom,
+            operation=f"completed menu sweep portion {portion}",
+            expect_passive=False,
+            finish_interrupt=True,
+            expected_downstream=("TrackPlayTime",),
+        )
+        _assert_complete_vblank_tail_finishes_before_ly0(sweep)
+        assert emu.memory[symbols["hAutoBGTransferPortion"]] == portion
+
+    enabled = emu.memory[symbols["hAutoBGTransferEnabled"]]
+    assert enabled & PASSIVE_OVERLAY_COMPLETE
+    assert not enabled & PASSIVE_OVERLAY_FINITE_SWEEP
+    assert not enabled & PASSIVE_OVERLAY_STOCK_SWEEP
+    assert not enabled & AUTO_BG_TRANSFER_ENABLED
+
+    recovery = _run_natural_vblank(
+        phase2_rom,
+        operation="completed menu idle recovery",
+        expect_passive=True,
+        finish_interrupt=True,
+    )
+    _assert_complete_vblank_tail_finishes_before_ly0(recovery)
+
+
+def test_completed_dialogue_yields_every_fourth_frame_to_video_tail(
+    phase2_rom: Phase2Rom,
+) -> None:
+    _activate_passive_map(phase2_rom)
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.write_fixed(symbols["wTileMap"], b"\x80" * SCREEN_AREA)
+    emu.memory[symbols["hAutoBGTransferDest"]] = VBG_MAP_1 & 0xFF
+    emu.memory[symbols["hAutoBGTransferDest"] + 1] = VBG_MAP_1 >> 8
+    emu.memory[symbols["hAutoBGTransferPortion"]] = 0
+    emu.memory[symbols["hAutoBGTransferEnabled"]] = (
+        AUTO_BG_TRANSFER_ENABLED
+        | PASSIVE_OVERLAY_STOCK_SWEEP
+        | PASSIVE_OVERLAY_COMPLETE
+    )
+
+    for portion in (1, 2, 0):
+        sweep = _run_natural_vblank(
+            phase2_rom,
+            operation=f"completed dialogue sweep portion {portion}",
+            expect_passive=False,
+            finish_interrupt=True,
+            expected_downstream=("TrackPlayTime",),
+        )
+        _assert_complete_vblank_tail_finishes_before_ly0(sweep)
+        assert emu.memory[symbols["hAutoBGTransferPortion"]] == portion
+
+    enabled = emu.memory[symbols["hAutoBGTransferEnabled"]]
+    assert enabled & AUTO_BG_TRANSFER_ENABLED
+    assert enabled & PASSIVE_OVERLAY_COMPLETE
+    assert not enabled & PASSIVE_OVERLAY_STOCK_SWEEP
+
+    recovery = _run_natural_vblank(
+        phase2_rom,
+        operation="completed dialogue recovery",
+        expect_passive=True,
+        finish_interrupt=True,
+    )
+    _assert_complete_vblank_tail_finishes_before_ly0(recovery)
+    enabled = emu.memory[symbols["hAutoBGTransferEnabled"]]
+    assert enabled & AUTO_BG_TRANSFER_ENABLED
+    assert enabled & PASSIVE_OVERLAY_COMPLETE
+    assert enabled & PASSIVE_OVERLAY_STOCK_SWEEP
+    assert emu.memory[symbols["hAutoBGTransferPortion"]] == 0
 
 
 @pytest.mark.parametrize("mode", (REDRAW_ROW, REDRAW_COL))
@@ -990,7 +1169,7 @@ def test_warm_idle_then_ordinary_redraw_keeps_both_full_vblank_tails_in_budget(
         phase2_rom.emulator.close()
 
 
-def test_paired_overlay_publication_completes_only_after_exact_row_pairs(
+def test_overlay_attribute_publication_completes_on_tenth_no_copy_step(
     phase2_rom: Phase2Rom,
 ) -> None:
     _activate_passive_map(phase2_rom)
@@ -1006,6 +1185,7 @@ def test_paired_overlay_publication_completes_only_after_exact_row_pairs(
     emu.memory[symbols["hAutoBGTransferPortion"]] = 0
     emu.memory[symbols["hAutoBGTransferEnabled"]] = (
         AUTO_BG_TRANSFER_ENABLED
+        | PASSIVE_OVERLAY_FINITE_SWEEP
         | PASSIVE_OVERLAY_TRANSFER
         | PASSIVE_OVERLAY_ATTRIBUTE_PHASE
     )
@@ -1013,9 +1193,11 @@ def test_paired_overlay_publication_completes_only_after_exact_row_pairs(
     for row in range(0, SCREEN_HEIGHT, OVERLAY_ROWS_PER_PHASE):
         phase2_rom.call("PassiveFullColorAutoBgMapTransfer")
         enabled = emu.memory[symbols["hAutoBGTransferEnabled"]]
-        assert not enabled & PASSIVE_OVERLAY_ATTRIBUTE_PHASE
+        expected_row = row + OVERLAY_ROWS_PER_PHASE
+        assert emu.memory[symbols["hAutoBGTransferPortion"]] == expected_row
+        assert enabled & PASSIVE_OVERLAY_TRANSFER
+        assert enabled & PASSIVE_OVERLAY_ATTRIBUTE_PHASE
         assert not enabled & PASSIVE_OVERLAY_COMPLETE
-        assert emu.memory[symbols["hAutoBGTransferPortion"]] == row
         bank0 = phase2_rom.emulator.read_vram_bank(
             0, VBG_MAP_1, SCREEN_HEIGHT * 32
         )
@@ -1023,26 +1205,44 @@ def test_paired_overlay_publication_completes_only_after_exact_row_pairs(
             1, VBG_MAP_1, SCREEN_HEIGHT * 32
         )
         for published_row in range(SCREEN_HEIGHT):
-            bank0_published = published_row < row
             bank1_published = published_row < row + OVERLAY_ROWS_PER_PHASE
             offset = published_row * 32
-            assert (
-                bank0[offset : offset + SCREEN_WIDTH] != b"\x55" * SCREEN_WIDTH
-            ) is bank0_published
+            assert bank0[offset : offset + SCREEN_WIDTH] == b"\x55" * SCREEN_WIDTH
             assert (
                 bank1[offset : offset + SCREEN_WIDTH] != b"\xee" * SCREEN_WIDTH
             ) is bank1_published
 
-        phase2_rom.call("PassiveFullColorAutoBgMapTransfer")
+    bank0_after_copy = phase2_rom.emulator.read_vram_bank(
+        0, VBG_MAP_1, SCREEN_HEIGHT * 32
+    )
+    bank1_after_copy = phase2_rom.emulator.read_vram_bank(
+        1, VBG_MAP_1, SCREEN_HEIGHT * 32
+    )
+    phase2_rom.call("PassiveFullColorAutoBgMapTransfer")
+    enabled = emu.memory[symbols["hAutoBGTransferEnabled"]]
+    assert emu.memory[symbols["hAutoBGTransferPortion"]] == 0
+    assert not enabled & PASSIVE_OVERLAY_TRANSFER
+    assert not enabled & PASSIVE_OVERLAY_ATTRIBUTE_PHASE
+    assert enabled & PASSIVE_OVERLAY_COMPLETE
+    assert enabled & PASSIVE_OVERLAY_FINITE_SWEEP
+    assert enabled & PASSIVE_OVERLAY_STOCK_SWEEP
+    assert phase2_rom.emulator.read_vram_bank(
+        0, VBG_MAP_1, SCREEN_HEIGHT * 32
+    ) == bank0_after_copy
+    assert phase2_rom.emulator.read_vram_bank(
+        1, VBG_MAP_1, SCREEN_HEIGHT * 32
+    ) == bank1_after_copy
+
+    for portion in range(3):
+        phase2_rom.call("PassiveFullColorCompletedOverlayVBlank")
         enabled = emu.memory[symbols["hAutoBGTransferEnabled"]]
-        expected_row = (row + OVERLAY_ROWS_PER_PHASE) % SCREEN_HEIGHT
-        assert emu.memory[symbols["hAutoBGTransferPortion"]] == expected_row
-        assert bool(enabled & PASSIVE_OVERLAY_COMPLETE) is (
-            row + OVERLAY_ROWS_PER_PHASE == SCREEN_HEIGHT
-        )
-        assert bool(enabled & PASSIVE_OVERLAY_ATTRIBUTE_PHASE) is (
-            row + OVERLAY_ROWS_PER_PHASE < SCREEN_HEIGHT
-        )
+        assert enabled & PASSIVE_OVERLAY_COMPLETE
+        assert not enabled & PASSIVE_OVERLAY_TRANSFER
+        assert not enabled & PASSIVE_OVERLAY_ATTRIBUTE_PHASE
+        assert bool(enabled & PASSIVE_OVERLAY_STOCK_SWEEP) is (portion < 2)
+        assert bool(enabled & PASSIVE_OVERLAY_FINITE_SWEEP) is (portion < 2)
+        assert bool(enabled & AUTO_BG_TRANSFER_ENABLED) is (portion < 2)
+        assert emu.memory[symbols["hAutoBGTransferPortion"]] == (portion + 1) % 3
         bank0 = phase2_rom.emulator.read_vram_bank(
             0, VBG_MAP_1, SCREEN_HEIGHT * 32
         )
@@ -1050,14 +1250,52 @@ def test_paired_overlay_publication_completes_only_after_exact_row_pairs(
             1, VBG_MAP_1, SCREEN_HEIGHT * 32
         )
         for published_row in range(SCREEN_HEIGHT):
-            paired = published_row < row + OVERLAY_ROWS_PER_PHASE
+            tiles_published = published_row < (portion + 1) * (SCREEN_HEIGHT // 3)
             offset = published_row * 32
             assert (
                 bank0[offset : offset + SCREEN_WIDTH] != b"\x55" * SCREEN_WIDTH
-            ) is paired
+            ) is tiles_published
             assert (
                 bank1[offset : offset + SCREEN_WIDTH] != b"\xee" * SCREEN_WIDTH
-            ) is paired
+            ) is True
+
+
+@pytest.mark.parametrize("invalid_cursor", (1, 17, SCREEN_HEIGHT + 1, 0xFF))
+def test_overlay_attribute_cursor_fails_closed_without_vram_write(
+    phase2_rom: Phase2Rom,
+    invalid_cursor: int,
+) -> None:
+    _activate_passive_map(phase2_rom)
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    extent = SCREEN_HEIGHT * 32
+    _write_vram(phase2_rom, 0, VBG_MAP_1, b"\x55" * extent)
+    _write_vram(phase2_rom, 1, VBG_MAP_1, b"\xee" * extent)
+    emu.memory[symbols["hAutoBGTransferDest"]] = VBG_MAP_1 & 0xFF
+    emu.memory[symbols["hAutoBGTransferDest"] + 1] = VBG_MAP_1 >> 8
+    emu.memory[symbols["hAutoBGTransferPortion"]] = invalid_cursor
+    emu.memory[symbols["hAutoBGTransferEnabled"]] = (
+        AUTO_BG_TRANSFER_ENABLED
+        | PASSIVE_OVERLAY_FINITE_SWEEP
+        | PASSIVE_OVERLAY_TRANSFER
+        | PASSIVE_OVERLAY_ATTRIBUTE_PHASE
+    )
+
+    phase2_rom.call("PassiveFullColorAutoBgMapTransfer")
+
+    enabled = emu.memory[symbols["hAutoBGTransferEnabled"]]
+    assert emu.memory[symbols["hAutoBGTransferPortion"]] == 0
+    assert enabled & PASSIVE_OVERLAY_COMPLETE
+    assert enabled & PASSIVE_OVERLAY_FINITE_SWEEP
+    assert enabled & PASSIVE_OVERLAY_STOCK_SWEEP
+    assert not enabled & PASSIVE_OVERLAY_TRANSFER
+    assert not enabled & PASSIVE_OVERLAY_ATTRIBUTE_PHASE
+    assert phase2_rom.emulator.read_vram_bank(
+        0, VBG_MAP_1, extent
+    ) == b"\x55" * extent
+    assert phase2_rom.emulator.read_vram_bank(
+        1, VBG_MAP_1, extent
+    ) == b"\xee" * extent
 
 
 @pytest.mark.parametrize(

@@ -356,6 +356,7 @@ INCLUDE "engine/full_color/transfers.asm"
 INCLUDE "engine/full_color/oam.asm"
 ENDC
 INCLUDE "data/tilesets/full_color_overworld.asm"
+INCLUDE "data/tilesets/full_color_interiors.asm"
 INCLUDE "engine/full_color/passive_overworld.asm"
 
 	ds FULL_COLOR_PHASE2_ROM_END - @

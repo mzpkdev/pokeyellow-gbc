@@ -28,6 +28,7 @@ PRODUCTION_RENDERER_SURFACE = frozenset(
         "PassiveFullColorPrepareRedrawAttributes",
         "PassiveFullColorPrepareColumnAttributes",
         "PassiveFullColorPrepareMenuOverlay",
+        "PassiveFullColorPrepareTextOverlay",
         "PassiveFullColorRestoreAfterMenu",
         "PassiveFullColorPrepareBattleHandoff",
         "PassiveFullColorVBlank",
@@ -58,6 +59,7 @@ REQUIRED_REACHABLE_RENDERER = frozenset(
         "PassiveFullColorPrepareBattleHandoff",
         "PassiveFullColorShouldColorOverlay",
         "PassiveFullColorPrepareMenuOverlay",
+        "PassiveFullColorPrepareTextOverlay",
         "PassiveFullColorAutoBgMapTransfer",
         "PassiveFullColorVBlank",
     }
@@ -72,6 +74,9 @@ PRODUCTION_ROOTS = (
     "LoadMapData",
     "ScheduleSouthRowRedraw",
     "DisplayStartMenu",
+    # DisplayStartMenu pins bank 4 before its ROM0 trampoline jumps here; the
+    # static walker cannot infer that bank state from BankswitchCommon.
+    "FullColorDisplayStartMenu",
     "DisplayPartyMenu",
     "InitBattle",
     "DisplayBattleMenu",
@@ -96,9 +101,11 @@ RETURN_PROBE = 0x0100
 HARNESS_LOOP = 0xFF80
 
 
-def _symbols(product: str) -> tuple[dict[str, tuple[int, int]], dict[tuple[int, int], str]]:
+def _symbols(
+    product: str,
+) -> tuple[dict[str, tuple[int, int]], dict[tuple[int, int], set[str]]]:
     by_name: dict[str, tuple[int, int]] = {}
-    by_address: dict[tuple[int, int], str] = {}
+    by_address: dict[tuple[int, int], set[str]] = {}
     for line in (REPOSITORY_ROOT / f"{product}.sym").read_text(encoding="utf-8").splitlines():
         match = re.fullmatch(r"([0-9a-fA-F]+):([0-9a-fA-F]+) (\S+)", line)
         if match is None:
@@ -106,7 +113,7 @@ def _symbols(product: str) -> tuple[dict[str, tuple[int, int]], dict[tuple[int, 
         location = (int(match.group(1), 16), int(match.group(2), 16))
         by_name[match.group(3)] = location
         if "." not in match.group(3):
-            by_address.setdefault(location, match.group(3))
+            by_address.setdefault(location, set()).add(match.group(3))
     return by_name, by_address
 
 
@@ -288,8 +295,7 @@ def _reachable_symbols(
             continue
         visited_instructions.add(location)
         if location in by_address:
-            symbol = by_address[location]
-            reached.add(symbol)
+            reached.update(by_address[location])
         offset = address if bank == 0 else bank * 0x4000 + address - 0x4000
         opcode = rom[offset]
         mnemonic = CPU_COMMANDS[opcode]

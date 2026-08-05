@@ -14,6 +14,10 @@
       "current_sha256": "2d29d2e6ecf9c9a7d376bb42bd0eca6baf635155a7a45c9360e8c9556e0a034a",
       "reviewed_sha256": "b9413152b2b6c846ca918544f6f517ca9c775446d0bb2d93e231adb7e5aec4ee"
     },
+    "data/tilesets/full_color_interiors.asm": {
+      "current_sha256": "83d59e7439b8e8eb97deffe46d267f61b5e0a8f1a0c97ee365bddad71deea6e3",
+      "reviewed_sha256": null
+    },
     "data/tilesets/full_color_overworld.asm": {
       "current_sha256": "ac6b1799eebf455359aaf8ba2940f8d66fa670025b5daed8535838ca4fcb1916",
       "reviewed_sha256": null

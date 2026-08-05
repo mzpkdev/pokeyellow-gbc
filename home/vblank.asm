@@ -31,8 +31,9 @@ VBlank::
 	ldh [rWY], a
 .ok
 
-	; A Color overlay alternates two hidden bank-1 rows with the matching Yellow
-	; bank-0 rows. Never execute both 40-byte transfers in one interrupt.
+	; A fresh Color overlay publishes two hidden bank-1 attribute rows per
+	; VBlank. Once complete, Yellow's stock transfer owns bank-0 tile updates;
+	; never execute both transfers in one interrupt.
 	ldh a, [hAutoBGTransferEnabled]
 	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
 	jr z, .ordinaryAutoBgMapTransfer
@@ -42,9 +43,17 @@ VBlank::
 	; armed so it runs, then receives its passive mirror, after the overlay.
 	jr .passiveFullColorVBlankDone
 .ordinaryAutoBgMapTransfer
+	ldh a, [hAutoBGTransferEnabled]
+	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_COMPLETE, a
+	jr nz, .completedOverlayTransfer
 	call AutoBgMapTransfer
 	call VBlankCopyBgMap
+	jr .ordinaryVisibleOperations
+.completedOverlayTransfer
+	farcall PassiveFullColorCompletedOverlayVBlank
+	jr nc, .vblankSensitiveOperationsDone
 
+.ordinaryVisibleOperations
 	; RedrawRowOrColumn consumes its mode. Freeze that one byte so the passive
 	; bank-1 mirror can follow the completed Yellow bank-0 write geometrically.
 	ldh a, [hRedrawRowOrColumnMode]
@@ -64,6 +73,7 @@ VBlank::
 
 :
 	; VBlank-sensitive operations end.
+.vblankSensitiveOperationsDone
 	call TrackPlayTime ; keep track of time played
 
 	call Random

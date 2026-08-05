@@ -7,21 +7,25 @@ handoff, reconstruction, and write behavior remains defined in
 ## Bounded production inclusion
 
 Color production scope is only ordinary base-map presentation in the 34 city
-and route maps whose headers select the `OVERWORLD` tileset while the saved
-preference is `COLOR`. Within those intervals the
-full-color owner includes:
+and route maps whose headers select `OVERWORLD` plus conventional interiors
+using tileset IDs `REDS_HOUSE_1` through `FACILITY`, excluding `FOREST`,
+`SHIP_PORT`, and `CAVERN` (19 tilesets and 162 maps), while the saved preference
+is `COLOR`. `PLATEAU` and `BEACH_HOUSE`
+remain unsupported. Within those intervals the passive Color layer includes:
 
 - the supported maps' CGB BG palettes, map-specific roof palettes, and tile-ID-to-attribute data;
 - initial map entry and reload, horizontal and vertical scrolling, and the
-  connections between supported maps;
-- animated tiles and field replacements, with paired tile/attribute commits;
-- player, follower Pikachu, NPC, and map-object OAM palette bits; and
-- complete ownership handoffs to and from Yellow-owned contexts.
+  connections between supported maps; and
+- restoration of the authored background after Yellow-owned overlays close.
+
+Yellow remains authoritative for bank-0 tile graphics, animation and field-
+replacement tile data, OAM and sprites, mechanics, timing, fades, overlays,
+menus, battles, and cutscenes.
 
 The saved preference is policy input only. It never grants write authority.
-The effective owner is Color if and only if the preference is `COLOR`, the
-lifecycle is ordinary map presentation, and the map is a city or route whose
-header selects `OVERWORLD`.
+The effective background presentation is Color if and only if the preference
+is `COLOR`, the lifecycle is ordinary map presentation, and the map is in the
+supported outdoor/conventional-interior slice.
 Every other cell is Yellow-owned. Exactly one effective owner is selected at
 every instant.
 
@@ -43,14 +47,12 @@ Yellow's existing renderer continues to own:
 - Pikachu's Beach and Surfing Pikachu; and
 - any other standalone or unlisted lifecycle.
 
-Follower Pikachu is included in Color only as an overworld object during an
-eligible ordinary base-map interval. Its dialogue, emotion-picture, menu,
-battle, and standalone presentation remains Yellow-owned.
+Follower Pikachu and every other sprite remain Yellow-owned in all contexts.
 
 ## Classification and ownership rule
 
 `ORDINARY_BASE_MAP` means the ordinary simulation and viewport of a supported
-`OVERWORLD` map without dialogue, text, a menu, or any other overlay active.
+map without dialogue, text, a menu, or any other overlay active.
 `FORCED_YELLOW` means any overlay, dialogue, menu, battle, standalone,
 boot/reset, unsupported-map, or `YELLOW`-preference lifecycle.
 `SCENE_BOUNDARY` means a concrete directed edge on which the effective owner
@@ -79,7 +81,9 @@ Transition and reconstruction behavior is defined by
 | Lifecycle or directed edge | Classification | Effective owner or transfer |
 |---|---|---|
 | ordinary supported `OVERWORLD` map presentation with `COLOR` preference | `ORDINARY_BASE_MAP` | Color |
+| ordinary supported interior map presentation with `COLOR` preference | `ORDINARY_BASE_MAP` | Color |
 | ordinary supported `OVERWORLD` map presentation with `YELLOW` preference | `FORCED_YELLOW` | Yellow |
+| ordinary supported interior map presentation with `YELLOW` preference | `FORCED_YELLOW` | Yellow |
 | any unsupported map under either preference | `FORCED_YELLOW` | Yellow |
 | dialogue, text, menu, or transient overlay on any map | `FORCED_YELLOW` | Yellow; `OVERWORLD_OVERLAY` is unreachable |
 | battle or standalone presentation | `FORCED_YELLOW` | Yellow |
@@ -95,7 +99,7 @@ The all-25-tileset palette/attribute corpus, overlay request oracle, precedence
 and clipping matrices, and diagnostic `OVERWORLD_OVERLAY` model may remain as
 authoring, synthetic-conformance, or audit evidence only. They are explicitly
 non-production and non-gating for this bounded release. They cannot expand the
-`OVERWORLD`-map allowlist, make a production Color overlay reachable, select an owner,
+supported-map allowlist, make a production Color overlay reachable, select an owner,
 or authorize any production write.
 
 Production completion does not require Color authoring for maps using other
@@ -126,7 +130,7 @@ Implementation work must not expand into:
 - species/trainer picture palettes;
 - standalone menu redesign;
 - title/intro/minigame renderer replacement;
-- Color ownership outside ordinary presentation of the supported `OVERWORLD` maps;
+- Color ownership outside ordinary presentation of the supported map slice;
 - treating the preference as write authority; or
 - concurrent or overlapping ownership by the two renderers.
 

@@ -10,22 +10,31 @@ PassiveFullColorRefreshAfterLoadGBPal:
 	ret nz
 	ldh a, [rBGPI]
 	push af
+	push bc
+	push hl
+	call PassiveFullColorSelectBGPalettePayload
 	xor a
 	ldh [rBGPI], a
 	ldh a, [rBGPD]
-	cp $fb ; low byte of donor RGB 27, 31, 27
+	cp [hl]
 	jr nz, .schedule
+	inc hl
 	ld a, 1
 	ldh [rBGPI], a
 	ldh a, [rBGPD]
-	cp $03 ; high byte of donor RGB 27, 31, 27
+	cp [hl]
 	jr nz, .schedule
+	pop hl
+	pop bc
 	pop af
 	ldh [rBGPI], a
 	ret
 .schedule
+	pop hl
+	pop bc
 	pop af
 	ldh [rBGPI], a
 	jp PassiveFullColorHandleConnection
 
 EXPORT PassiveFullColorRefreshAfterLoadGBPal
+ASSERT BANK(PassiveFullColorRefreshAfterLoadGBPal) == BANK(PassiveFullColorSelectBGPalettePayload)

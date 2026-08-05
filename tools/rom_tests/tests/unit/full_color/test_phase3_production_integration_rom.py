@@ -459,7 +459,7 @@ def test_display_text_id_reaches_passive_overlay_after_yellow_finishes_window(
         observe=(
             "PassiveFullColorShouldColorOverlay",
             "LoadFontTilePatterns",
-            "PassiveFullColorPrepareMenuOverlay",
+            "PassiveFullColorPrepareTextOverlay",
         ),
         stub_returns={
             "TextBoxBorder": None,
@@ -473,7 +473,7 @@ def test_display_text_id_reaches_passive_overlay_after_yellow_finishes_window(
     assert state.events == (
         "PassiveFullColorShouldColorOverlay",
         "LoadFontTilePatterns",
-        "PassiveFullColorPrepareMenuOverlay",
+        "PassiveFullColorPrepareTextOverlay",
         "PassiveFullColorShouldColorOverlay",
         "Delay3",
     )

@@ -1,4 +1,4 @@
-; Shipped passive CGB coloring for maps using the OVERWORLD tileset.
+; Shipped passive CGB coloring for the authored overworld/interior slice.
 ;
 ; Yellow remains authoritative for tiles, OAM, timing, overlays, fades, and
 ; mechanics. This code writes only BG palette RAM and VRAM bank 1 attributes.
@@ -27,7 +27,20 @@ PassiveFullColorIsSliceMap:
 PassiveFullColorIsPresentedSliceMap:
 	ld a, [wCurMapTileset]
 	cp OVERWORLD
-	ret nz
+	jr z, .overworld
+	cp REDS_HOUSE_1
+	jr c, .ineligible
+	cp FACILITY + 1
+	jr nc, .ineligible
+	cp FOREST
+	jr z, .ineligible
+	cp SHIP_PORT
+	jr z, .ineligible
+	cp CAVERN
+	jr z, .ineligible
+	xor a
+	ret
+.overworld
 	ld a, [wCurMap]
 	cp NUM_CITY_MAPS
 	jr c, .eligible
@@ -371,6 +384,8 @@ PassiveFullColorClearState:
 	ld [wPassiveFullColorDeferredRedrawState], a
 	restore_renderer_state_e
 	ldh a, [hAutoBGTransferEnabled]
+	res BIT_PASSIVE_FULL_COLOR_OVERLAY_FINITE_SWEEP, a
+	res BIT_PASSIVE_FULL_COLOR_OVERLAY_STOCK_SWEEP, a
 	res BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
 	res BIT_PASSIVE_FULL_COLOR_OVERLAY_ATTRIBUTE_PHASE, a
 	res BIT_PASSIVE_FULL_COLOR_OVERLAY_COMPLETE, a
@@ -401,18 +416,15 @@ PassiveFullColorPrepareBattleHandoff:
 PUSHS
 SECTION "Passive Full Color Window Transfer", ROMX, BANK[FULL_COLOR_PHASE2_ROM_BANK]
 
-; hAutoBGTransferEnabled bit 7 owns the bounded overlay lifecycle. Bit 6 is
-; private phase state during initial publication: one means publish the pending
-; bank-1 pair of rows, zero means publish the matching Yellow bank-0 rows. Bit 5
-; marks the completed coherent plane while the overlay stays open.
-DEF BIT_PASSIVE_FULL_COLOR_OVERLAY_ATTRIBUTE_PHASE EQU 6
-DEF BIT_PASSIVE_FULL_COLOR_OVERLAY_COMPLETE EQU 5
+; hAutoBGTransferEnabled bit 7 owns the bounded initial attribute publication.
+; Bit 6 marks that private phase, bit 5 latches the coherent plane, bit 4 owns a
+; stock three-frame bank-0 sweep, and bit 3 makes that sweep finite for menus.
 DEF PASSIVE_FULL_COLOR_OVERLAY_ROWS_PER_PHASE EQU 2
 DEF PASSIVE_FULL_COLOR_OVERLAY_WAIT_FRAMES EQU \
-	2 * SCREEN_HEIGHT / PASSIVE_FULL_COLOR_OVERLAY_ROWS_PER_PHASE - 3
+	SCREEN_HEIGHT / PASSIVE_FULL_COLOR_OVERLAY_ROWS_PER_PHASE + 1
 
-; Carry means the active supported OVERWORLD Color slice owns bank-1 attributes for
-; this overlay. Yellow mode and every other scene remain on the stock path.
+; Carry means the active supported Color slice owns bank-1 attributes for this
+; overlay. Yellow mode and every other scene remain on the stock path.
 PassiveFullColorShouldColorOverlay:
 	call PassiveFullColorIsPresentedSliceMap
 	jr nz, .inactive
@@ -425,27 +437,57 @@ PassiveFullColorShouldColorOverlay:
 	and a
 	ret
 
-; Translate Yellow's finalized 20x18 window tilemap outside VBlank. The window
-; remains hidden while eighteen VBlanks alternate two bank-1 rows and the
-; matching Yellow bank-0 rows. Callers retain their established Delay3 before
-; reveal; this wait supplies the preceding fifteen bounded phases.
+; Translate Yellow's finalized 20x18 window tilemap once outside VBlank. A fresh
+; hidden plane publishes two bank-1 rows over nine VBlanks. A tenth no-copy
+; VBlank completes the private lifecycle and relinquishes bank-0 publication to
+; Yellow. Callers' established Delay3 completes the stock six-row sweep before
+; reveal. A coherent plane returns immediately, so cursor movement retains only
+; that stock three-frame transfer.
 PassiveFullColorPrepareMenuOverlay:
 	call PassiveFullColorShouldColorOverlay
-	jr nc, .inactive
+	jr nc, PassiveFullColorPrepareOverlayInactive
+	ldh a, [hAutoBGTransferEnabled]
+	set BIT_PASSIVE_FULL_COLOR_OVERLAY_FINITE_SWEEP, a
+	ldh [hAutoBGTransferEnabled], a
+	jr PassiveFullColorPrepareOverlay
+
+; Dialogue needs Yellow's continuous tile publication while letters print. It
+; yields every fourth VBlank so OAM and queued video writers cannot starve.
+PassiveFullColorPrepareTextOverlay:
+	call PassiveFullColorShouldColorOverlay
+	jr nc, PassiveFullColorPrepareOverlayInactive
+	ldh a, [hAutoBGTransferEnabled]
+	res BIT_PASSIVE_FULL_COLOR_OVERLAY_FINITE_SWEEP, a
+	ldh [hAutoBGTransferEnabled], a
+PassiveFullColorPrepareOverlay:
+	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_COMPLETE, a
+	jr nz, .armStockSweep
 	call PassiveFullColorTranslateTileMap
 	xor a
 	ldh [hAutoBGTransferPortion], a
 	ldh a, [hAutoBGTransferEnabled]
 	set BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
 	set BIT_PASSIVE_FULL_COLOR_OVERLAY_ATTRIBUTE_PHASE, a
+	res BIT_PASSIVE_FULL_COLOR_OVERLAY_STOCK_SWEEP, a
 	res BIT_PASSIVE_FULL_COLOR_OVERLAY_COMPLETE, a
 	ldh [hAutoBGTransferEnabled], a
 	ld c, PASSIVE_FULL_COLOR_OVERLAY_WAIT_FRAMES
 	call DelayFrames
 	scf
 	ret
-.inactive
+.armStockSweep
+	xor a
+	ldh [hAutoBGTransferPortion], a
 	ldh a, [hAutoBGTransferEnabled]
+	set BIT_PASSIVE_FULL_COLOR_OVERLAY_STOCK_SWEEP, a
+	set 0, a
+	ldh [hAutoBGTransferEnabled], a
+	scf
+	ret
+PassiveFullColorPrepareOverlayInactive:
+	ldh a, [hAutoBGTransferEnabled]
+	res BIT_PASSIVE_FULL_COLOR_OVERLAY_FINITE_SWEEP, a
+	res BIT_PASSIVE_FULL_COLOR_OVERLAY_STOCK_SWEEP, a
 	res BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
 	res BIT_PASSIVE_FULL_COLOR_OVERLAY_ATTRIBUTE_PHASE, a
 	res BIT_PASSIVE_FULL_COLOR_OVERLAY_COMPLETE, a
@@ -470,15 +512,20 @@ PassiveFullColorTranslateTileMap:
 	jr nz, .translate
 	restore_renderer_state_e
 	ret
-; VBlank entry for the paired overlay. Exactly one 40-byte pair of rows is
-; published. During initial publication an attribute pair leaves the row cursor
-; unchanged, then the next frame's matching tile pair advances it. Once the
-; hidden plane is coherent, continuous Yellow updates use the same bounded
-; two-row cursor. No phase consumes the OAM/input/audio portion of VBlank.
+; VBlank entry for initial overlay attributes. Exactly one 40-byte pair of rows
+; is published. The ninth copy stores SCREEN_HEIGHT as an explicit terminal
+; cursor without doing lifecycle work. The next no-copy VBlank clears the
+; private transfer and resets Yellow's cursor for the stock three-frame bank-0
+; sweep. No phase consumes the OAM/input/audio portion of VBlank.
 PassiveFullColorAutoBgMapTransfer:
 	ldh a, [hAutoBGTransferEnabled]
 	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
 	ret z
+	ldh a, [hAutoBGTransferPortion]
+	cp SCREEN_HEIGHT
+	jp nc, .complete
+	bit 0, a
+	jp nz, .complete
 	ld [hSPTemp], sp
 
 	; Build the source address as base + row * SCREEN_WIDTH. The cursor is an
@@ -493,23 +540,12 @@ PassiveFullColorAutoBgMapTransfer:
 	add hl, hl ; row * 8
 	add hl, hl ; row * 16
 	add hl, de ; row * 20
-	ldh a, [hAutoBGTransferEnabled]
-	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_ATTRIBUTE_PHASE, a
-	jr z, .tiles
-.attributes
 	ld de, wPassiveFullColorAttributeRectangle
 	add hl, de
 	ld sp, hl
 	ld a, FULL_COLOR_PHASE2_WRAM_BANK
 	ldh [rSVBK], a
 	ld a, 1
-	ldh [rVBK], a
-	jr .destination
-.tiles
-	ld de, wTileMap
-	add hl, de
-	ld sp, hl
-	xor a
 	ldh [rVBK], a
 
 .destination
@@ -557,38 +593,61 @@ PassiveFullColorAutoBgMapTransfer:
 	ldh a, [hSPTemp + 1]
 	ld h, a
 	ld sp, hl
+	ldh a, [hAutoBGTransferPortion]
+	add PASSIVE_FULL_COLOR_OVERLAY_ROWS_PER_PHASE
+	ldh [hAutoBGTransferPortion], a
+	scf
+	ret
+.complete
+	xor a
+	ldh [hAutoBGTransferPortion], a
 	ldh a, [hAutoBGTransferEnabled]
-	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_ATTRIBUTE_PHASE, a
-	jr z, .advance_tiles
-	; The next VBlank publishes this exact pair from Yellow's bank-0 tilemap.
+	res BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
 	res BIT_PASSIVE_FULL_COLOR_OVERLAY_ATTRIBUTE_PHASE, a
+	set BIT_PASSIVE_FULL_COLOR_OVERLAY_COMPLETE, a
+	set BIT_PASSIVE_FULL_COLOR_OVERLAY_STOCK_SWEEP, a
+	set 0, a
 	ldh [hAutoBGTransferEnabled], a
 	scf
 	ret
 
-.advance_tiles
-	ldh a, [hAutoBGTransferPortion]
-	add PASSIVE_FULL_COLOR_OVERLAY_ROWS_PER_PHASE
-	cp SCREEN_HEIGHT
-	jr c, .store_row
-	xor a
-.store_row
-	ldh [hAutoBGTransferPortion], a
+; Carry returns VBlank to its ordinary visible writers. A completed dialogue
+; runs three stock chunks followed by one such recovery frame; a menu runs one
+; finite three-chunk sweep, disables bit 0, then stays on ordinary frames.
+PassiveFullColorCompletedOverlayVBlank:
 	ldh a, [hAutoBGTransferEnabled]
-	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_COMPLETE, a
-	jr nz, .done
+	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_STOCK_SWEEP, a
+	jr nz, .stock
+	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_FINITE_SWEEP, a
+	jr nz, .stock
+	bit 0, a
+	jr z, .ordinary
+	; Continuous dialogue reached its recovery frame. Arm the next sweep, but
+	; leave this frame to queued video work and OAM preparation.
+	set BIT_PASSIVE_FULL_COLOR_OVERLAY_STOCK_SWEEP, a
+	ldh [hAutoBGTransferEnabled], a
+	call VBlankCopyBgMap
+	scf
+	ret
+.stock
+	call AutoBgMapTransfer
+	call VBlankCopyBgMap
 	ldh a, [hAutoBGTransferPortion]
 	and a
-	jr z, .initial_complete
+	jr nz, .consumed
 	ldh a, [hAutoBGTransferEnabled]
-	set BIT_PASSIVE_FULL_COLOR_OVERLAY_ATTRIBUTE_PHASE, a
+	res BIT_PASSIVE_FULL_COLOR_OVERLAY_STOCK_SWEEP, a
+	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_FINITE_SWEEP, a
+	jr z, .store
+	res BIT_PASSIVE_FULL_COLOR_OVERLAY_FINITE_SWEEP, a
+	res 0, a
+.store
 	ldh [hAutoBGTransferEnabled], a
-	jr .done
-.initial_complete
-	ldh a, [hAutoBGTransferEnabled]
-	set BIT_PASSIVE_FULL_COLOR_OVERLAY_COMPLETE, a
-	ldh [hAutoBGTransferEnabled], a
-.done
+.consumed
+	and a
+	ret
+.ordinary
+	call VBlankCopyBgMap
 	scf
 	ret
 
@@ -598,11 +657,13 @@ POPS
 ; bank-0 write. A consumed redraw becomes a bank-1 commit for the next idle
 ; VBlank so each frame retains the complete Yellow interrupt tail.
 PassiveFullColorVBlank:
-	; The paired overlay already consumed this frame's one visible operation.
-	; The lifecycle remains marked complete until the overlay closes, so ordinary
-	; passive palette/redraw work cannot combine with its bounded bank-0 updates.
+	; Initial overlay publication already consumed this frame's one visible
+	; operation. Once complete, Yellow's stock bank-0 transfer owns presentation;
+	; keep ordinary passive palette/redraw work out until the overlay closes.
 	ldh a, [hAutoBGTransferEnabled]
 	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
+	ret nz
+	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_COMPLETE, a
 	ret nz
 	ld h, d ; freeze Yellow's consumed redraw mode without touching the stack
 	; VBlank has IME clear and its prologue selected Yellow's WRAM1 stack.
@@ -688,10 +749,36 @@ PassiveFullColorVBlank:
 PUSHS
 SECTION "Passive Full Color Map Palettes", ROMX, BANK[FULL_COLOR_PHASE2_ROM_BANK]
 
+; Select the complete authored palette payload for the current admitted tileset.
+; Callers have already passed PassiveFullColorIsSliceMap. Returns HL at byte 0;
+; clobbers A and BC. All callers are in this bank and use a direct call.
+PassiveFullColorSelectBGPalettePayload:
+	ld a, [wCurMapTileset]
+	add a
+	ld c, a
+	ld b, 0
+	ld hl, FullColorBGPalettePointers
+	add hl, bc
+	ld a, [hli]
+	ld h, [hl]
+	ld l, a
+	ret
+
 PassiveFullColorCommitPalettes:
 	ld a, $80
 	ldh [rBGPI], a
-	ld hl, FullColorOverworldBGPalettes
+	call PassiveFullColorSelectBGPalettePayload
+	ld a, [wCurMapTileset]
+	and a
+	jr z, .overworld
+	ld b, 8 * 4 * 2
+.interior
+	ld a, [hli]
+	ldh [rBGPD], a
+	dec b
+	jr nz, .interior
+	ret
+.overworld
 	ld b, 6 * 4 * 2 + 2 ; palettes 0-5 and roof color 0
 .prefix
 	ld a, [hli]
@@ -750,19 +837,80 @@ PassiveFullColorRoofPaletteForMap:
 
 POPS
 
-; Translate tile A through the donor-authored 256-byte authority table.
+; Translate tile A through the current tileset's donor-authored 256-byte table.
 ; Preserves DE, returns the attribute in A.
+PUSHS
+SECTION "Passive Full Color Tile Dispatch", ROMX, BANK[FULL_COLOR_PHASE2_ROM_BANK]
+
 PassiveFullColorAttributeForTile:
 	push hl
 	push de
+	push bc
+	ld c, a
+	; Redraw preparation keeps WRAM2 selected, while Yellow's map identity is
+	; in WRAM1. Read both identities under a bounded, interrupt-closed bank
+	; switch, restoring the raw caller state before touching the stack again.
+	ldh a, [rIE]
+	ld b, a
+	xor a
+	ldh [rIE], a
+	ldh a, [rSVBK]
+	ld d, a
+	ld a, 1
+	ldh [rSVBK], a
+	ld a, [wCurMap]
+	ld e, a
+	ld a, [wCurMapTileset]
+	ld h, a
+	ld a, d
+	ldh [rSVBK], a
+	ld a, b
+	ldh [rIE], a
+	ld a, e
+	cp CELADON_MART_ROOF
+	jr nz, .not_celadon_mart_roof
+	ld a, c
+	cp $4b
+	jr c, .lookup
+	cp $50
+	jr nc, .lookup
+	ld a, FULL_COLOR_INTERIOR_BLUE
+	jr .done
+.not_celadon_mart_roof
+	cp CELADON_MART_1F
+	jr nz, .lookup
+	ld a, c
+	cp $07
+	jr z, .celadon_mart_1f
+	cp $08
+	jr z, .celadon_mart_1f
+	cp $17
+	jr z, .celadon_mart_1f
+	cp $18
+	jr nz, .lookup
+.celadon_mart_1f
+	ld a, FULL_COLOR_INTERIOR_YELLOW
+	jr .done
+.lookup
+	ld a, h
+	add a
 	ld e, a
 	ld d, 0
-	ld hl, FullColorOverworldTileAttributes
+	ld hl, FullColorTileAttributePointers
 	add hl, de
+	ld a, [hli]
+	ld h, [hl]
+	ld l, a
+	ld b, 0 ; B previously held the saved interrupt mask; BC is now a tile offset.
+	add hl, bc
 	ld a, [hl]
+.done
+	pop bc
 	pop de
 	pop hl
 	ret
+
+POPS
 
 ; LCD-off map path: mirror the complete bank-0 tilemap address-for-address.
 ; This covers both ordinary entries and scrolled seamless connections without
@@ -1143,6 +1291,8 @@ EXPORT PassiveFullColorPrepareColumnAttributes
 EXPORT PassiveFullColorScheduleAttributeRestore, PassiveFullColorRestoreAfterMenu
 EXPORT PassiveFullColorPrepareMenuHandoff
 EXPORT PassiveFullColorShouldColorOverlay, PassiveFullColorPrepareMenuOverlay
+EXPORT PassiveFullColorPrepareTextOverlay
 EXPORT PassiveFullColorPrepareBattleHandoff
 EXPORT PassiveFullColorAutoBgMapTransfer
+EXPORT PassiveFullColorCompletedOverlayVBlank
 EXPORT PassiveFullColorVBlank

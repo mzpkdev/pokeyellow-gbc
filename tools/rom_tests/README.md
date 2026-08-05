@@ -35,8 +35,10 @@ running that file directly preserves its narrow
 `test-results/full-color-cold-boot/` default.
 
 The normal, debug, and VC products all include the saved Color/Yellow toggle
-and passive renderer for the 34 supported `OVERWORLD` maps. Production-linkage proves
-that shared runtime surface while excluding Phase 2-only diagnostics. Natural
+and passive renderer for the supported `OVERWORLD` and conventional-interior
+map slice. Production-linkage proves the previously retained shared runtime
+surface while excluding Phase 2-only diagnostics; it does not by itself prove
+the expanded interior content. Natural
 runtime tests select Color and Yellow inside one shipped binary; the
 `PHASE2_AUDIT` product is an additional diagnostic/certification surface, not a
 behavioral variant.

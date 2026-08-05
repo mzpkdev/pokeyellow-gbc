@@ -126,7 +126,7 @@ RedrawRowOrColumn::
 ; improve efficiency.
 AutoBgMapTransfer::
 	ldh a, [hAutoBGTransferEnabled]
-	and a
+	bit 0, a
 	ret z
 	ld [hSPTemp], sp ; save stack pointer
 	ldh a, [hAutoBGTransferPortion]
