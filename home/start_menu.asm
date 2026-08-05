@@ -14,17 +14,14 @@ FullColorDisplayStartMenu:
 	call PlaySound
 
 RedisplayStartMenu::
-	; A forced-Yellow submenu may have suspended passive overlay projection.
-	; Start is an explicitly paired Color overlay, while the base-map dirty bit
-	; remains held for reconstruction when the outer menu closes.
-	farcall PassiveFullColorResumeOverlays
-	farcall PassiveFullColorShouldColorOverlay
-	jr nc, .windowReady
-	ld a, $90
-	ldh [hWY], a
-.windowReady
+	call FullColorResumeStartMenuOverlay
 	farcall DrawStartMenu
+	jr RedisplayStartMenu_PrepareOverlay
 RedisplayStartMenu_DoNotDrawStartMenu::
+	; Trainer Info returns through this direct entry after a forced-Yellow
+	; packet, so it shares the normal entry's hidden palette reconciliation.
+	call FullColorResumeStartMenuOverlay
+RedisplayStartMenu_PrepareOverlay:
 	; Both paths install a fresh Start-menu structure. Invalidate the completed
 	; Color attribute plane before the first cursor placement prepares it again.
 	farcall PassiveFullColorInvalidateOverlayAttributes
@@ -108,6 +105,19 @@ CloseStartMenu::
 ; start-menu implementation instead of consuming the last Home bytes.
 FullColorStartMenuReveal:
 	farcall PrintSafariZoneSteps
+	ret
+
+; A forced-Yellow submenu may have suspended passive overlay projection and
+; invalidated the authored palettes. Start is explicitly paired: resume once,
+; hide only after Color admission succeeds, then restore the complete current-
+; BGP palette unit before either Start redisplay path prepares its structure.
+FullColorResumeStartMenuOverlay:
+	farcall PassiveFullColorResumeOverlays
+	farcall PassiveFullColorShouldColorOverlay
+	ret nc
+	ld a, SCREEN_HEIGHT_PX
+	ldh [hWY], a
+	farcall PassiveFullColorRestoreInvalidatedPalettes
 	ret
 
 ; Mirror HandleMenuInput through its first visible cursor placement, enqueue

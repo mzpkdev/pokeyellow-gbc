@@ -996,7 +996,7 @@ PikachuBillsHouseCheck:
 Pikachu_LoadCurrentMapViewUpdateSpritesAndDelay3:
 	call LoadCurrentMapView
 	call UpdateSprites
-	call Delay3
+	farcall PassiveFullColorRedisplayMapView
 	ret
 
 Cosine_e: ; cosine?

@@ -36,6 +36,7 @@ REDRAW_COL = 1
 REDRAW_ROW = 2
 PAD_RIGHT = 1 << 4
 YELLOW_NORMAL_BGP = 0xE4
+SET_PAL_OVERWORLD = 9
 SCREEN_WIDTH = 20
 SCREEN_HEIGHT = 18
 PRODUCTS = ("pokeyellow", "pokeyellow_debug", "pokeyellow_vc")
@@ -677,6 +678,55 @@ def test_fades_transform_all_eight_authored_palettes(
     assert phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated") == b"\x00"
 
 
+def test_suspended_overlay_fade_keeps_yellow_palette_writer_authoritative(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    banks = phase2_rom.emulator.symbol_banks
+    bgp = 0x1B
+    palette_ids = (1, 2, 3, 4)
+    _activate_passive_map(phase2_rom, ROUTE_1)
+    authored = phase2_rom.emulator.read_palette_ram()
+    pointers = b"".join(
+        (symbols["CGBBasePalettes"] + index * 8).to_bytes(2, "little")
+        for index in palette_ids
+    )
+    phase2_rom.write_fixed(symbols["wCGBBasePalPointers"], pointers)
+    phase2_rom.write_wram2("wPassiveFullColorOverlaySuspended", 1)
+    phase2_rom.write_wram2("wPassiveFullColorPaletteInvalidated", 0)
+    emu.memory[symbols["hOnCGB"]] = 1
+    emu.memory[RBGP] = bgp
+    emu.memory[symbols["wLastBGP"]] = bgp ^ 0xFF
+    events: list[str] = []
+    observed = (
+        "_UpdateCGBPal_BGP",
+        "PassiveFullColorTransferFadedPalettes",
+        "PassiveFullColorRecordPalettePublished",
+    )
+    for name in observed:
+        emu.hook_register(
+            banks[name],
+            symbols[name],
+            lambda _context, label=name: events.append(label),
+            name,
+        )
+    try:
+        phase2_rom.call("UpdateCGBPal_BGP")
+    finally:
+        for name in reversed(observed):
+            emu.hook_deregister(banks[name], symbols[name])
+
+    yellow = _apply_dmg_palette_mapping(
+        b"".join(_linked_palette_entry(phase2_rom, index) for index in palette_ids),
+        bgp,
+    )
+    assert events == ["_UpdateCGBPal_BGP"]
+    assert phase2_rom.emulator.read_palette_ram() == yellow + authored[32:]
+    assert emu.memory[symbols["wLastBGP"]] == bgp
+    assert phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated") == b"\x01"
+
+
 def test_yellow_attribute_packet_suspends_overlays_until_explicit_resume(
     phase2_rom: Phase2Rom,
 ) -> None:
@@ -715,6 +765,45 @@ def test_scoped_redraw_protection_suppresses_whole_screen_attribute_packet(
 
     assert phase2_rom.emulator.read_vram_bank(1, 0x9800, 32 * 32) == original
     assert phase2_rom.read_wram2("wPassiveFullColorAttributesInvalidated") == b"\x00"
+
+
+def test_protected_default_palette_command_reaches_writer_without_publishing(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    banks = phase2_rom.emulator.symbol_banks
+    _activate_passive_map(phase2_rom, ROUTE_1)
+    authored = phase2_rom.emulator.read_palette_ram()
+    emu.memory[symbols["wCurMapTileset"]] = 0
+    emu.memory[symbols["wDefaultPaletteCommand"]] = SET_PAL_OVERWORLD
+    emu.memory[symbols["wOnSGB"]] = 1
+    emu.memory[symbols["hOnCGB"]] = 1
+    emu.memory[BOOTROM_DISABLE] = 1
+    protected_at_writer: list[bytes] = []
+
+    def observe_writer(_: object) -> None:
+        protected_at_writer.append(
+            phase2_rom.read_wram2("wPassiveFullColorBGPaletteProtected")
+        )
+
+    emu.hook_register(
+        banks["TransferCurBGPData"],
+        symbols["TransferCurBGPData"],
+        observe_writer,
+        None,
+    )
+    try:
+        phase2_rom.call("PassiveFullColorRunDefaultPaletteCommand")
+    finally:
+        emu.hook_deregister(
+            banks["TransferCurBGPData"], symbols["TransferCurBGPData"]
+        )
+
+    assert protected_at_writer == [b"\x01"] * 4
+    assert phase2_rom.emulator.read_palette_ram() == authored
+    assert phase2_rom.read_wram2("wPassiveFullColorBGPaletteProtected") == b"\x00"
+    assert phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated") == b"\x00"
 
 
 @pytest.mark.parametrize("writer", ("TransferBGPPals", "TransferCurBGPData"))

@@ -50,6 +50,8 @@ PassiveFullColorUpdateCGBPal_BGPFade:
 	call PassiveFullColorReadActive
 	cp 1
 	jr nz, .yellow
+	call PassiveFullColorReadOverlaySuspended
+	jr nz, .yellow
 	; Preserve Yellow's cache contract without letting its four-palette writer
 	; expose half of an eight-palette fade unit.
 	ldh a, [rBGP]
@@ -77,6 +79,31 @@ PassiveFullColorReadBGPaletteProtected:
 	ld a, b
 	and a
 	ret
+
+PassiveFullColorReadOverlaySuspended:
+	select_renderer_state_e
+	ld a, [wPassiveFullColorOverlaySuspended]
+	ld b, a
+	restore_renderer_state_e
+	ld a, b
+	and a
+	ret
+
+; A forced-Yellow submenu may leave the active presentation's BG palettes
+; invalid when Start resumes its paired overlay. Once admission is restored,
+; republish the complete authored current-BGP unit before overlay construction.
+PassiveFullColorRestoreInvalidatedPalettes:
+	call PassiveFullColorShouldColorOverlay
+	ret nc
+	select_renderer_state_e
+	ld a, [wPassiveFullColorPaletteInvalidated]
+	ld b, a
+	restore_renderer_state_e
+	ld a, b
+	and a
+	ret z
+	call PassiveFullColorTransferFadedPalettes
+	jp PassiveFullColorRecordPalettePublished
 
 PassiveFullColorTransferFadedPalettes:
 	call PassiveFullColorWaitForRedrawSlot
@@ -369,5 +396,6 @@ EXPORT PassiveFullColorRunDefaultPaletteCommand
 EXPORT PassiveFullColorShouldSuppressBGAttributesWrite
 EXPORT PassiveFullColorObserveBGAttributesWrite, PassiveFullColorRedisplayMapView
 EXPORT PassiveFullColorInvalidateAttributes, PassiveFullColorResumeOverlays
+EXPORT PassiveFullColorRestoreInvalidatedPalettes
 EXPORT PassiveFullColorCompleteAttributeRestore, PassiveFullColorRoofRegionChanged
 EXPORT PassiveFullColorScheduleAttributeRestore

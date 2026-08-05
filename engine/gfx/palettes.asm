@@ -843,6 +843,13 @@ DMGPalToCGBPal::
 	ret
 
 TransferCurBGPData::
+	push af
+	call IsPassiveFullColorBGPaletteProtected
+	jr z, .transfer
+	pop af
+	ret
+.transfer
+	pop af
 	push de
 	add a
 	add a

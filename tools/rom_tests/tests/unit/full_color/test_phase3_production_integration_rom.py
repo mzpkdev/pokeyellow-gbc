@@ -28,6 +28,8 @@ from tools.rom_tests.tests.unit.full_color.test_phase2_vblank_routing_rom import
     _run_actual_vblank,
 )
 from tools.rom_tests.tests.unit.full_color.test_passive_overworld_rom import (
+    _apply_dmg_palette_mapping,
+    _linked_palette_entry,
     _linked_overworld_bg_palettes,
 )
 
@@ -42,11 +44,13 @@ ENTRY_SP = 0xCFFE
 ENTRY_IE = 0x15
 ENTRY_IF = 0x1A
 BOOTROM_DISABLE = 0xFF50
+RBGP = 0xFF47
 VBLANK_INTERRUPT = 1 << 0
 VBG_MAP_1 = 0x9800
 PASSIVE_OVERLAY_COMPLETE = 1 << 5
 PALLET_TOWN = 0
 VIRIDIAN_CITY = 1
+ROUTE_1 = 0x0C
 POKECENTER_TILESET = 6
 PRODUCTS = ("pokeyellow", "pokeyellow_debug", "pokeyellow_vc")
 
@@ -81,6 +85,7 @@ class BoundaryState:
     wram_bank: int
     vram_bank: int
     sp: int
+    return_address: int
     ie: int
     interrupt_flags: int
 
@@ -105,6 +110,7 @@ def _run_to_boundary(
     terminal: str,
     *,
     observe: Iterable[str] = (),
+    observe_actions: dict[str, Callable[[], None]] | None = None,
     stub_returns: dict[str, Callable[[], None] | None] | None = None,
     entry_rom_bank: int = 5,
     entry_wram_bank: int = 1,
@@ -128,16 +134,27 @@ def _run_to_boundary(
         hooks.append(key)
 
     observed = tuple(observe)
+    actions = observe_actions or {}
     stubs = stub_returns or {}
     for name in observed:
         if name in stubs:
             continue
-        register(name, lambda _context, label=name: events.append(label))
+
+        def observe_label(_context: object, label: str = name) -> None:
+            events.append(label)
+            action = actions.get(label)
+            if action is not None:
+                action()
+
+        register(name, observe_label)
     for name, action in stubs.items():
         if name in observed:
 
             def observed_action(label: str = name, inner=action) -> None:
                 events.append(label)
+                observation = actions.get(label)
+                if observation is not None:
+                    observation()
                 if inner is not None:
                     inner()
 
@@ -154,6 +171,9 @@ def _run_to_boundary(
             wram_bank=(memory[RSVBK] & 7) or 1,
             vram_bank=memory[RVBK] & 1,
             sp=regs.SP,
+            return_address=(
+                memory[regs.SP] | memory[(regs.SP + 1) & 0xFFFF] << 8
+            ),
             ie=memory[IE],
             interrupt_flags=memory[IF],
         )
@@ -992,6 +1012,7 @@ def test_display_start_menu_reaches_passive_overlay_after_yellow_draw(
     )
     assert state.events == (
         "PassiveFullColorShouldColorOverlay",
+        "PassiveFullColorShouldColorOverlay",
         "PassiveFullColorInvalidateOverlayAttributes",
         "FullColorStartMenuReveal",
         "PassiveFullColorShouldColorOverlay",
@@ -1001,6 +1022,215 @@ def test_display_start_menu_reaches_passive_overlay_after_yellow_draw(
         "HandleMenuInput_.loop2",
     )
     assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x01"
+
+
+@pytest.mark.parametrize(
+    ("entry", "expected_events"),
+    (
+        (
+            "RedisplayStartMenu",
+            (
+                "PassiveFullColorResumeOverlays",
+                "PassiveFullColorRestoreInvalidatedPalettes",
+                "DrawStartMenu",
+                "PassiveFullColorInvalidateOverlayAttributes",
+                "PassiveFullColorPrepareMenuOverlay",
+                "Delay3",
+                "HandleMenuInput_.loop2",
+            ),
+        ),
+        (
+            "RedisplayStartMenu_DoNotDrawStartMenu",
+            (
+                "PassiveFullColorResumeOverlays",
+                "PassiveFullColorRestoreInvalidatedPalettes",
+                "PassiveFullColorInvalidateOverlayAttributes",
+                "PassiveFullColorPrepareMenuOverlay",
+                "Delay3",
+                "HandleMenuInput_.loop2",
+            ),
+        ),
+    ),
+)
+def test_start_menu_redisplay_resumes_once_before_rebuilding_overlay(
+    phase2_rom: Phase2Rom,
+    entry: str,
+    expected_events: tuple[str, ...],
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = ROUTE_1
+    emu.memory[symbols["wCurMapTileset"]] = 0
+    emu.memory[symbols["wUnusedObtainedBadges"]] = 0
+    emu.memory[0xFF40] &= 0x7F
+    phase2_rom.call("PassiveFullColorApplyMap")
+    authored = _linked_overworld_bg_palettes(phase2_rom, ROUTE_1, y_coord=0)
+    bgp = 0x1B
+    palette_ids = (1, 2, 3, 4)
+    pointers = b"".join(
+        (symbols["CGBBasePalettes"] + index * 8).to_bytes(2, "little")
+        for index in palette_ids
+    )
+    phase2_rom.write_fixed(symbols["wCGBBasePalPointers"], pointers)
+    phase2_rom.write_wram2("wPassiveFullColorOverlaySuspended", 1)
+    phase2_rom.write_wram2("wPassiveFullColorPaletteInvalidated", 0)
+    emu.memory[symbols["hOnCGB"]] = 1
+    emu.memory[RBGP] = bgp
+    emu.memory[symbols["wLastBGP"]] = bgp ^ 0xFF
+    phase2_rom.call("UpdateCGBPal_BGP")
+    yellow = _apply_dmg_palette_mapping(
+        b"".join(_linked_palette_entry(phase2_rom, index) for index in palette_ids),
+        bgp,
+    )
+    expected = _apply_dmg_palette_mapping(authored, bgp)
+    assert phase2_rom.emulator.read_palette_ram() == yellow + authored[32:]
+    assert phase2_rom.emulator.read_palette_ram() != expected
+    assert phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated") == b"\x01"
+    _enable_production_overlay_video(phase2_rom)
+    emu.memory[symbols["hAutoBGTransferEnabled"]] = PASSIVE_OVERLAY_COMPLETE
+    emu.memory[symbols["hWY"]] = 0
+    preparation_boundaries: list[tuple[bytes, bytes, int]] = []
+
+    def observe_preparation_boundary() -> None:
+        preparation_boundaries.append(
+            (
+                phase2_rom.emulator.read_palette_ram(),
+                phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated"),
+                emu.memory[symbols["hWY"]],
+            )
+        )
+
+    state = _run_to_boundary(
+        phase2_rom,
+        entry,
+        "HandleMenuInput_.loop2",
+        observe=(
+            "PassiveFullColorResumeOverlays",
+            "PassiveFullColorRestoreInvalidatedPalettes",
+            "DrawStartMenu",
+            "PassiveFullColorInvalidateOverlayAttributes",
+            "PassiveFullColorPrepareMenuOverlay",
+            "Delay3",
+        ),
+        observe_actions={
+            "PassiveFullColorPrepareMenuOverlay": observe_preparation_boundary,
+            "Delay3": observe_preparation_boundary,
+        },
+        stub_returns={
+            "DrawStartMenu": None,
+            "PrintSafariZoneSteps": None,
+            "UpdateSprites": None,
+            "Delay3": None,
+        },
+        entry_rom_bank=4,
+        run_vblank_interrupts=True,
+    )
+
+    assert state.events == expected_events
+    assert state.events.count("PassiveFullColorResumeOverlays") == 1
+    assert state.events.count("PassiveFullColorRestoreInvalidatedPalettes") == 1
+    assert preparation_boundaries == [(expected, b"\x00", 144)] * 2
+    assert phase2_rom.emulator.read_palette_ram() == expected
+    assert phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated") == b"\x00"
+    assert phase2_rom.read_wram2("wPassiveFullColorOverlaySuspended") == b"\x00"
+
+
+@pytest.mark.parametrize(
+    ("entry", "expected_events"),
+    (
+        (
+            "RedisplayStartMenu",
+            (
+                "PassiveFullColorResumeOverlays",
+                "DrawStartMenu",
+                "PassiveFullColorInvalidateOverlayAttributes",
+            ),
+        ),
+        (
+            "RedisplayStartMenu_DoNotDrawStartMenu",
+            (
+                "PassiveFullColorResumeOverlays",
+                "PassiveFullColorInvalidateOverlayAttributes",
+            ),
+        ),
+    ),
+)
+def test_start_menu_redisplay_preserves_yellow_window_and_palette_behavior(
+    phase2_rom: Phase2Rom,
+    entry: str,
+    expected_events: tuple[str, ...],
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = ROUTE_1
+    emu.memory[symbols["wUnusedObtainedBadges"]] = 1
+    emu.memory[symbols["hWY"]] = 37
+    palettes = phase2_rom.emulator.read_palette_ram()
+
+    state = _run_to_boundary(
+        phase2_rom,
+        entry,
+        "PassiveFullColorInvalidateOverlayAttributes",
+        observe=(
+            "PassiveFullColorResumeOverlays",
+            "PassiveFullColorRestoreInvalidatedPalettes",
+            "DrawStartMenu",
+        ),
+        stub_returns={"DrawStartMenu": None},
+        entry_rom_bank=4,
+    )
+
+    assert state.events == expected_events
+    assert state.events.count("PassiveFullColorResumeOverlays") == 1
+    assert emu.memory[symbols["hWY"]] == 37
+    assert phase2_rom.emulator.read_palette_ram() == palettes
+
+
+def test_pikachu_map_redisplay_reaches_paired_barrier_before_its_delay(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    banks = phase2_rom.emulator.symbol_banks
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = 0x0C
+    emu.memory[symbols["wUnusedObtainedBadges"]] = 0
+    emu.memory[0xFF40] &= 0x7F
+    phase2_rom.call("PassiveFullColorApplyMap")
+    _enable_production_overlay_video(phase2_rom)
+    emu.memory[symbols["hAutoBGTransferEnabled"]] = PASSIVE_OVERLAY_COMPLETE
+
+    state = _run_to_boundary(
+        phase2_rom,
+        "Pikachu_LoadCurrentMapViewUpdateSpritesAndDelay3",
+        "Delay3",
+        observe=(
+            "LoadCurrentMapView",
+            "UpdateSprites",
+            "PassiveFullColorRedisplayMapView",
+            "PassiveFullColorInvalidateOverlayAttributes",
+            "PassiveFullColorPrepareMenuOverlay",
+        ),
+        stub_returns={"LoadCurrentMapView": None, "UpdateSprites": None},
+        run_vblank_interrupts=True,
+    )
+
+    assert state.events == (
+        "LoadCurrentMapView",
+        "UpdateSprites",
+        "PassiveFullColorRedisplayMapView",
+        "PassiveFullColorInvalidateOverlayAttributes",
+        "PassiveFullColorPrepareMenuOverlay",
+        "Delay3",
+    )
+    assert state.rom_bank == banks["PassiveFullColorRedisplayMapView"]
+    assert (
+        symbols["PassiveFullColorRedisplayMapView"]
+        < state.return_address
+        < symbols["PassiveFullColorRedisplayMapView.yellow"]
+    )
 
 
 def test_initial_options_screen_invalidates_prior_completed_overlay(
