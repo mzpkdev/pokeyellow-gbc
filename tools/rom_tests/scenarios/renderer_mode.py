@@ -1,13 +1,39 @@
 """Natural controller-input helpers for the saved renderer preference."""
 
+from collections.abc import Callable
+
 from tools.rom_tests.emulator import Emulator
 
 
 YELLOW_MODE_MASK = 1
 PAD_DOWN = 1 << 7
+PAD_RIGHT = 1 << 4
+PAD_B = 1 << 1
 START_MENU_OPTIONS_INDEX = 4
 OPTIONS_COLOR_MODE_INDEX = 5
 INPUT_RESPONSE_FRAMES = 90
+
+
+def _press_until(
+    emulator: Emulator,
+    button: str,
+    predicate: Callable[[], bool],
+    *,
+    description: str,
+) -> None:
+    for _ in range(3):
+        emulator.pyboy.button(button, delay=10)
+        for _ in range(INPUT_RESPONSE_FRAMES * 2):
+            emulator.tick()
+            if predicate():
+                for _ in range(INPUT_RESPONSE_FRAMES):
+                    if emulator.read("hJoyLast") & PAD_B == 0:
+                        return
+                    emulator.tick()
+                raise AssertionError(
+                    f"Timed out waiting for {button} release after {description}"
+                )
+    raise AssertionError(f"Timed out waiting for {description}")
 
 
 def _wait_for_down_release(
@@ -82,7 +108,21 @@ def select_renderer_mode(emulator: Emulator, *, yellow_mode: bool) -> None:
     )
     is_yellow = bool(emulator.read("wUnusedObtainedBadges") & YELLOW_MODE_MASK)
     if is_yellow != yellow_mode:
-        emulator.press("right", wait_frames=30)
+        emulator.pyboy.button("right", delay=10)
+        for _ in range(INPUT_RESPONSE_FRAMES):
+            emulator.tick()
+            if bool(
+                emulator.read("wUnusedObtainedBadges") & YELLOW_MODE_MASK
+            ) == yellow_mode:
+                break
+        else:
+            raise AssertionError("Color Mode did not change through Options")
+        for _ in range(INPUT_RESPONSE_FRAMES):
+            if emulator.read("hJoyLast") & PAD_RIGHT == 0:
+                break
+            emulator.tick()
+        else:
+            raise AssertionError("Timed out waiting for Right release in Options")
     else:
         # Match the real directional input's frame cadence for paired journeys.
         emulator.tick(33)
@@ -92,5 +132,16 @@ def select_renderer_mode(emulator: Emulator, *, yellow_mode: bool) -> None:
     if selected_yellow != yellow_mode:
         raise AssertionError("Color Mode did not change through Options")
 
-    emulator.press("b", wait_frames=60)
-    emulator.press("b", wait_frames=120)
+    options_tiles = emulator.read_bytes("wTileMap", 20 * 18)
+    _press_until(
+        emulator,
+        "b",
+        lambda: emulator.read_bytes("wTileMap", 20 * 18) != options_tiles,
+        description="Options to return to Start",
+    )
+    _press_until(
+        emulator,
+        "b",
+        lambda: emulator.read("hWY") >= 144 and emulator.read("wJoyIgnore") == 0,
+        description="Start to return to the overworld",
+    )

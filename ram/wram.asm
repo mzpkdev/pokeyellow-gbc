@@ -2698,17 +2698,22 @@ wPassiveFullColorActive:: db
 wPassiveFullColorPalettePending:: db
 wPassiveFullColorClearChunks:: db
 wPassiveFullColorGeneration:: db
-wPassiveFullColorAttributeRectangle:: ds SCREEN_AREA
+wPassiveFullColorPaletteInvalidated:: db
+wPassiveFullColorBGPaletteProtected:: db
+	ds PASSIVE_FULL_COLOR_ATTRIBUTE_RECTANGLE_START - @
+wPassiveFullColorAttributeRectangle:: ds PASSIVE_FULL_COLOR_ATTRIBUTE_RECTANGLE_BYTES
 wPassiveFullColorStateEnd::
 
 ASSERT wPassiveFullColorStateStart == PASSIVE_FULL_COLOR_WRAM_START
+ASSERT wPassiveFullColorAttributeRectangle == PASSIVE_FULL_COLOR_ATTRIBUTE_RECTANGLE_START
+ASSERT LOW(wPassiveFullColorAttributeRectangle) & $f == 0
 ASSERT wPassiveFullColorStateEnd == PASSIVE_FULL_COLOR_WRAM_END
 ASSERT BANK(wPassiveFullColorStateStart) == PASSIVE_FULL_COLOR_WRAM_BANK
 ASSERT wPassiveFullColorStateStart >= FULL_COLOR_PHASE3_WRAM_END
 
 ; A Yellow redraw may remain armed for the entire paired-overlay lifecycle.
-; Keep its frozen destination/attribute records outside the overlay's 20x18
-; translation plane so either producer can stage after the other safely.
+; Keep its frozen destination/attribute records outside the overlay's padded
+; 32x18 translation plane so either producer can stage after the other safely.
 SECTION "Passive Full Color Redraw Staging", WRAMX[PASSIVE_FULL_COLOR_WRAM_END], BANK[PASSIVE_FULL_COLOR_WRAM_BANK]
 wPassiveFullColorDeferredRedrawState:: db
 wPassiveFullColorRedrawStaging:: ds SCREEN_WIDTH * 4

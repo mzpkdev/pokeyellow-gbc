@@ -45,13 +45,9 @@ OverworldLoop::
 OverworldLoopLessDelay::
 	call DelayFrame
 	call IsSurfingPikachuInParty
-	call LoadGBPal
-	; Yellow's fade and menu restoration stay authoritative.
-	; Probe donor state afterward; publication stays VBlank-deferred.
-	; Hardware access remains isolated in the passive module.
-	; Prep helpers derive their extents after the farcall bank switch.
-	; Keep this hook line-neutral with frozen Yellow writer coordinates.
-	farcall PassiveFullColorRefreshAfterLoadGBPal
+	; Yellow still computes its steady BGP cache and object palettes. An active
+	; authored map suppresses only the buffered BG hardware publication.
+	farcall PassiveFullColorLoadGBPal
 	call HandleMidJump
 	ld a, [wWalkCounter]
 	and a

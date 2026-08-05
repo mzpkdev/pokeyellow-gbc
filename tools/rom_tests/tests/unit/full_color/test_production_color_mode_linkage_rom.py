@@ -60,7 +60,7 @@ REQUIRED_REACHABLE_RENDERER = frozenset(
         "PassiveFullColorShouldColorOverlay",
         "PassiveFullColorPrepareMenuOverlay",
         "PassiveFullColorPrepareTextOverlay",
-        "PassiveFullColorAutoBgMapTransfer",
+        "PassiveFullColorOverlayAttributeGDMA",
         "PassiveFullColorVBlank",
     }
 )
@@ -130,7 +130,8 @@ def test_shipped_products_link_renderer_and_exclude_audit_machinery(product: str
     assert symbols["wRendererStateStart"] == (2, 0xD000)
     assert symbols["wRendererStateEnd"] == (2, 0xD00D)
     assert symbols["wPassiveFullColorStateStart"] == (2, 0xD800)
-    assert symbols["wPassiveFullColorStateEnd"] == (2, 0xD96C)
+    assert symbols["wPassiveFullColorAttributeRectangle"] == (2, 0xD810)
+    assert symbols["wPassiveFullColorStateEnd"] == (2, 0xDA50)
     assert symbols["FullColorOverworldBGPalettesEnd"][1] - symbols[
         "FullColorOverworldBGPalettes"
     ][1] == 64

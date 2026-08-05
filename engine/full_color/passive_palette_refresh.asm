@@ -1,40 +1,33 @@
-; Yellow has already completed LoadGBPal. If a fade or menu restoration
-; replaced donor color zero on an active slice map, defer republication to
-; the existing bounded VBlank path. Ordinary frames perform no writes.
+; Scope the steady overworld LoadGBPal call. An active authored presentation
+; keeps BG palette hardware ownership while Yellow updates its BGP cache and
+; object palettes. Other contexts retain Yellow's ordinary palette publication.
 ;
 ; This audit-only writer lives beyond the frozen Phase 2 pipeline range so
 ; adding it cannot move the reviewed source-to-ROM subjects in that range.
 
-PassiveFullColorRefreshAfterLoadGBPal:
+PassiveFullColorLoadGBPal:
 	call PassiveFullColorIsSliceMap
-	ret nz
-	ldh a, [rBGPI]
-	push af
-	push bc
-	push hl
-	call PassiveFullColorSelectBGPalettePayload
-	xor a
-	ldh [rBGPI], a
-	ldh a, [rBGPD]
-	cp [hl]
-	jr nz, .schedule
-	inc hl
+	jr nz, .yellow
+	call PassiveFullColorReadActive
+	cp 1
+	jr nz, .yellow
+	select_renderer_state_e
 	ld a, 1
-	ldh [rBGPI], a
-	ldh a, [rBGPD]
-	cp [hl]
-	jr nz, .schedule
-	pop hl
-	pop bc
-	pop af
-	ldh [rBGPI], a
-	ret
-.schedule
-	pop hl
-	pop bc
-	pop af
-	ldh [rBGPI], a
+	ld [wPassiveFullColorBGPaletteProtected], a
+	restore_renderer_state_e
+	call LoadGBPal
+	select_renderer_state_e
+	xor a
+	ld [wPassiveFullColorBGPaletteProtected], a
+	ld a, [wPassiveFullColorPaletteInvalidated]
+	ld b, a
+	restore_renderer_state_e
+	ld a, b
+	and a
+	ret z
 	jp PassiveFullColorHandleConnection
+.yellow
+	call LoadGBPal
+	ret
 
-EXPORT PassiveFullColorRefreshAfterLoadGBPal
-ASSERT BANK(PassiveFullColorRefreshAfterLoadGBPal) == BANK(PassiveFullColorSelectBGPalettePayload)
+EXPORT PassiveFullColorLoadGBPal

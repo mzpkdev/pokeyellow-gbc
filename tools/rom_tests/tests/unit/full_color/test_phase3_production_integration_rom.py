@@ -405,7 +405,43 @@ def test_connected_map_transition_is_disable_yellow_command_publish_enable(
     assert "wFullColorRequestCount" not in phase2_rom.emulator.symbols
 
 
-def test_overworld_palette_change_detector_schedules_passive_vblank_refresh(
+def test_overworld_palette_guard_suppresses_steady_yellow_bg_publication(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = 0x0C
+    emu.memory[symbols["wUnusedObtainedBadges"]] = 0
+    emu.memory[0xFF40] &= 0x7F
+    phase2_rom.call("PassiveFullColorApplyMap")
+    emu.memory[symbols["hOnCGB"]] = 1
+    emu.memory[RSVBK] = 1
+    emu.memory[symbols["wMapPalOffset"]] = 0
+    emu.memory[symbols["wLastBGP"]] = 0
+    expected_palette = phase2_rom.emulator.read_palette_ram()
+
+    state = _run_to_boundary(
+        phase2_rom,
+        "OverworldLoopLessDelay",
+        "HandleMidJump",
+        observe=("TransferBGPPals", "PassiveFullColorHandleConnection"),
+        stub_returns={
+            "DelayFrame": None,
+            "IsSurfingPikachuInParty": None,
+        },
+        entry_rom_bank=0,
+    )
+
+    assert state.events == ("TransferBGPPals", "HandleMidJump")
+    assert phase2_rom.emulator.read_palette_ram() == expected_palette
+    assert phase2_rom.read_wram2("wPassiveFullColorPalettePending") == b"\x00"
+    assert phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated") == b"\x00"
+    assert phase2_rom.read_wram2("wPassiveFullColorBGPaletteProtected") == b"\x00"
+    assert "wFullColorRequestCount" not in phase2_rom.emulator.symbols
+
+
+def test_overworld_palette_change_detector_ignores_unchanged_yellow_state(
     phase2_rom: Phase2Rom,
 ) -> None:
     emu = phase2_rom.emulator.pyboy
@@ -416,12 +452,6 @@ def test_overworld_palette_change_detector_schedules_passive_vblank_refresh(
     emu.memory[0xFF40] &= 0x7F
     phase2_rom.call("PassiveFullColorApplyMap")
 
-    def yellow_changes_palette() -> None:
-        prior = emu.memory[0xFF68]
-        emu.memory[0xFF68] = 0
-        emu.memory[0xFF69] = 0
-        emu.memory[0xFF68] = prior
-
     state = _run_to_boundary(
         phase2_rom,
         "OverworldLoopLessDelay",
@@ -430,13 +460,14 @@ def test_overworld_palette_change_detector_schedules_passive_vblank_refresh(
         stub_returns={
             "DelayFrame": None,
             "IsSurfingPikachuInParty": None,
-            "LoadGBPal": yellow_changes_palette,
+            "LoadGBPal": None,
         },
         entry_rom_bank=0,
     )
 
-    assert state.events == ("PassiveFullColorHandleConnection", "HandleMidJump")
-    assert phase2_rom.read_wram2("wPassiveFullColorPalettePending") == b"\x01"
+    assert state.events == ("HandleMidJump",)
+    assert phase2_rom.read_wram2("wPassiveFullColorPalettePending") == b"\x00"
+    assert phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated") == b"\x00"
     assert "wFullColorRequestCount" not in phase2_rom.emulator.symbols
 
 

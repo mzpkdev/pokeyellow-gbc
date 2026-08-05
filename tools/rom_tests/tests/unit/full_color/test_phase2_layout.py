@@ -51,7 +51,8 @@ def test_shipped_products_keep_passive_state_outside_audit_allocation(
     assert linked["wRendererStateStart"] == (2, 0xD000)
     assert linked["wRendererStateEnd"] == (2, 0xD00D)
     assert linked["wPassiveFullColorStateStart"] == (2, 0xD800)
-    assert linked["wPassiveFullColorStateEnd"] == (2, 0xD96C)
+    assert linked["wPassiveFullColorAttributeRectangle"] == (2, 0xD810)
+    assert linked["wPassiveFullColorStateEnd"] == (2, 0xDA50)
     assert linked["RouteRendererOwnershipVBlank"] == (0x3B, 0x44AC)
     assert linked["FullColorOverworldBGPalettes"] == (0x3B, 0x452B)
     assert "wFullColorPhase2StateStart" not in linked

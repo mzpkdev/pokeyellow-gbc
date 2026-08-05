@@ -197,12 +197,6 @@ ENDR
 	ldh a, [hSPTemp + 1]
 	ld h, a
 	ld sp, hl
-	; Return carry only when the Color menu paired an attribute plane with this
-	; transfer. VBlank can skip the banked helper without another HRAM read.
-	ldh a, [hAutoBGTransferEnabled]
-	and 1 << BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER
-	ret z
-	scf
 	ret
 
 ; Copies [hVBlankCopyBGNumRows] rows from hVBlankCopyBGSource to hVBlankCopyBGDest.
@@ -360,13 +354,6 @@ UpdateMovingBgTiles::
 	ldh a, [hTileAnimations]
 	and a
 	ret z
-
-	; A bounded Color overlay phase reserves this frame's visible VRAM write.
-	; Defer moving tiles until the overlay closes instead of letting an occasional
-	; water/flower update consume the headroom reserved for OAM and input/audio.
-	ldh a, [hAutoBGTransferEnabled]
-	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
-	ret nz
 
 	ldh a, [rLY]
 	cp $90 ; reject active display after a wrapped, overlong VBlank

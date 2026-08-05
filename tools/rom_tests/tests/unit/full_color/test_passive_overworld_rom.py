@@ -413,6 +413,7 @@ def test_pending_palette_refresh_commits_exact_payload_on_next_vblank_only(
     damaged = bytes(value ^ 0x1F for value in expected)
     _activate_passive_map(phase2_rom, ROUTE_1)
     _write_palette(phase2_rom, damaged)
+    phase2_rom.write_wram2("wPassiveFullColorPaletteInvalidated", 1)
 
     phase2_rom.call("PassiveFullColorHandleConnection")
 
@@ -421,6 +422,22 @@ def test_pending_palette_refresh_commits_exact_payload_on_next_vblank_only(
     phase2_rom.call("PassiveFullColorVBlank", de=0)
     assert phase2_rom.emulator.read_palette_ram() == expected
     assert phase2_rom.read_wram2("wPassiveFullColorPalettePending") == b"\x00"
+    assert phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated") == b"\x00"
+
+
+@pytest.mark.parametrize("writer", ("TransferBGPPals", "TransferCurBGPData"))
+def test_yellow_bg_palette_writers_invalidate_authored_palette_authority(
+    phase2_rom: Phase2Rom,
+    writer: str,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    _activate_passive_map(phase2_rom, ROUTE_1)
+    assert phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated") == b"\x00"
+
+    emu.memory[0xFF40] &= 0x7F
+    phase2_rom.call(writer)
+
+    assert phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated") == b"\x01"
 
 
 def test_generation_mismatch_deactivates_persistently_across_low_byte_wrap(
@@ -462,7 +479,7 @@ def test_exit_makes_stale_attributes_inert_then_clears_every_bank1_address(
     symbols = phase2_rom.emulator.symbols
     _activate_passive_map(phase2_rom)
     _write_vram(phase2_rom, 1, VBG_MAP_0, b"\x07" * TILEMAP_AREA)
-    emu.memory[symbols["wCurMap"]] = 1  # VIRIDIAN_CITY, outside the slice
+    emu.memory[symbols["wCurMap"]] = 0x33  # VIRIDIAN_FOREST, outside the slice
 
     phase2_rom.call("PassiveFullColorHandleConnection")
     assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x00"

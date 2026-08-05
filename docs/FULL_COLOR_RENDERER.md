@@ -67,8 +67,9 @@ While Start or Options is open, the active presentation remains
 latched; the saved preference is reconciled only when the outer menu closes.
 
 [engine/full_color/passive_palette_refresh.asm](../engine/full_color/passive_palette_refresh.asm)
-detects a legitimate Yellow palette replacement after a fade or restoration
-and queues passive republication for a bounded VBlank.
+scopes the steady overworld `LoadGBPal`: an active authored map keeps BG palette
+hardware ownership while Yellow still updates its BGP cache and object palettes.
+Yellow-mode, fade, and menu contexts retain their ordinary palette publications.
 
 The following modules preserve measured contracts, debug observability, and
 future migration seams but do not drive the current passive display:
@@ -155,26 +156,29 @@ reuse the single slot. Column records carry destination addresses so the
 critical section does not reconstruct them per row.
 
 The hidden overlay activation barrier is the exception. A fresh menu translates
-the finalized 20x18 tilemap once, then publishes two attribute rows in each of
-the first nine VBlanks. A tenth no-copy VBlank observes the terminal row cursor,
-completes the private transfer lifecycle, and arms Yellow's stock six-row
-`AutoBgMapTransfer`; the caller's existing `Delay3` therefore completes the
-bank-0 sweep before reveal. Fresh presentation takes ten passive frames plus
-those three caller frames. Later cursor movement rearms only that finite
-three-frame sweep because the completed attribute plane returns immediately.
-The sweep then disables stock publication so ordinary OAM and queued video work
-resume on the next VBlank. A submenu that clears `hAutoBGTransferEnabled` also
-clears the completion latch, so returning to the menu correctly performs a
-fresh attribute publication.
+the finalized 20x18 tilemap once into an aligned WRAM2 plane with Yellow's
+32-byte BG-map row stride. One dedicated VBlank publishes that complete 32x18
+plane to VRAM bank 1 with GDMA. The caller's unchanged `Delay3` then gives
+Yellow's stock six-row `AutoBgMapTransfer` exactly three bank-0 frames before
+reveal. Fresh presentation therefore takes four frames. Later cursor movement
+rearms only the stock three-frame sweep because the completed attribute plane
+returns immediately. Yellow's OAM DMA and shadow-OAM preparation continue on
+the attribute frame because sprites are a separate Yellow-owned resource. Each
+stock tile frame commits that frozen shadow OAM without rebuilding it, which
+keeps the combined tile-and-OAM work inside VBlank. The sweep then disables
+stock publication so queued VRAM work resumes on the next VBlank.
+A submenu that clears `hAutoBGTransferEnabled` also clears the completion latch,
+so returning to the menu correctly performs a fresh attribute publication.
 
-Initial attribute publication owns one bounded 40-byte transfer per frame, and
-any pending Yellow redraw remains armed until the barrier finishes. While the
-completed plane is latched, ordinary passive palette and redraw work stays
-excluded. Each stock six-row bank-0 publication owns that frame's visible-write
-budget and resumes at the common non-video interrupt tail. Dialogue retains
-continuous Yellow tile publication while letters print, but inserts one full
-visible-work recovery VBlank after every three stock chunks; menus use one
-finite sweep and then remain on ordinary VBlanks until another update.
+The attribute GDMA is the only VRAM writer in its frame, and any pending Yellow
+redraw or queued VRAM work remains armed until the barrier finishes.
+While the completed plane is latched, ordinary passive palette and redraw work
+stays excluded. Each stock six-row bank-0 publication likewise owns its frame's
+VRAM-write budget, then performs only Yellow's OAM DMA before the common tail.
+Dialogue retains continuous Yellow tile publication while letters print, but
+inserts one full visible-work recovery VBlank after every three stock chunks;
+menus use one finite sweep and then remain on ordinary VBlanks until another
+update.
 
 The scrolling invariant is strict: prepare outside VBlank, Yellow tile write
 first, matching passive attribute write second, and apply producer backpressure
@@ -183,9 +187,13 @@ attribute plane before Yellow's three-frame bank-0 sweep. Overlay attributes and
 redraw records use separate WRAM2 storage, so either may be staged first without
 corrupting the other.
 
-After `LoadGBPal`, `PassiveFullColorRefreshAfterLoadGBPal` checks the active
-map's palette zero. If the donor palette is absent, it queues republication
-instead of writing palette RAM during visible time.
+Yellow's complete and single background-palette writers mark the authored
+payload invalidated at their hardware publication seam. During steady Color
+gameplay, `PassiveFullColorLoadGBPal` suppresses only Yellow's buffered BG
+hardware transfer while retaining its BGP cache and object-palette work. This
+prevents a Yellow-colored frame after map entry. Any earlier unscoped writer
+still queues bounded VBlank republication, and the authored commit clears the
+signal without probing palette RAM.
 
 At most one passive visible operation runs per frame:
 
@@ -245,7 +253,13 @@ Passive state is declared in [ram/wram.asm](../ram/wram.asm) and lives in WRAM2:
   loaded Pallet Town;
 - `wPassiveFullColorPalettePending` records deferred palette work;
 - `wPassiveFullColorClearChunks` records bounded cleanup;
-- `wPassiveFullColorGeneration` binds state to `wRendererGeneration`; and
+- `wPassiveFullColorGeneration` binds state to `wRendererGeneration`;
+- `wPassiveFullColorPaletteInvalidated` records a Yellow background-palette
+  publication that has not yet been superseded by an authored commit;
+- `wPassiveFullColorBGPaletteProtected` scopes the steady overworld call whose
+  Yellow BG hardware transfer is suppressed;
+- `wPassiveFullColorAttributeRectangle` is an aligned, padded 32x18 overlay
+  plane whose first 20 bytes per row hold translated visible attributes; and
 - `wPassiveFullColorDeferredRedrawState` owns one prepared or mirror-pending
   redraw transaction; `wPassiveFullColorRedrawStaging` holds its immutable
   destination and attribute records outside the overlay translation plane.
@@ -314,7 +328,7 @@ are in [TESTING.md](TESTING.md).
 - [engine/full_color/passive_overworld.asm](../engine/full_color/passive_overworld.asm):
   live activation, translation, redraw, VBlank, and cleanup.
 - [engine/full_color/passive_palette_refresh.asm](../engine/full_color/passive_palette_refresh.asm):
-  post-Yellow refresh detection.
+  steady overworld palette-publication scope and stale-authority reconciliation.
 - [data/tilesets/full_color_overworld.asm](../data/tilesets/full_color_overworld.asm):
   current palette and attribute authority.
 - [home/overworld.asm](../home/overworld.asm) and
