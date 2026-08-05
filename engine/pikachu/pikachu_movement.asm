@@ -996,7 +996,18 @@ PikachuBillsHouseCheck:
 Pikachu_LoadCurrentMapViewUpdateSpritesAndDelay3:
 	call LoadCurrentMapView
 	call UpdateSprites
+	; Pikapic's whole-screen packet suspends paired projection and its palette
+	; setup replaces only the first four authored palettes. Resume explicitly,
+	; then hide an admitted Color overlay before restoring the complete payload.
+	farcall PassiveFullColorResumeOverlays
+	farcall PassiveFullColorShouldColorOverlay
+	jr nc, .redisplay
+	ld a, SCREEN_HEIGHT_PX
+	ldh [hWY], a
+	farcall PassiveFullColorRestoreInvalidatedPalettes
+.redisplay
 	farcall PassiveFullColorRedisplayMapView
+.done
 	ret
 
 Cosine_e: ; cosine?

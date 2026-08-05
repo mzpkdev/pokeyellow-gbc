@@ -45,6 +45,7 @@ ENTRY_IE = 0x15
 ENTRY_IF = 0x1A
 BOOTROM_DISABLE = 0xFF50
 RBGP = 0xFF47
+YELLOW_NORMAL_BGP = 0xE4
 VBLANK_INTERRUPT = 1 << 0
 VBG_MAP_1 = 0x9800
 PASSIVE_OVERLAY_COMPLETE = 1 << 5
@@ -1188,31 +1189,86 @@ def test_start_menu_redisplay_preserves_yellow_window_and_palette_behavior(
     assert phase2_rom.emulator.read_palette_ram() == palettes
 
 
-def test_pikachu_map_redisplay_reaches_paired_barrier_before_its_delay(
+def test_pikachu_map_redisplay_restores_pikapic_state_before_paired_barrier(
     phase2_rom: Phase2Rom,
 ) -> None:
     emu = phase2_rom.emulator.pyboy
     symbols = phase2_rom.emulator.symbols
-    banks = phase2_rom.emulator.symbol_banks
     phase2_rom.call("InitRendererOwnership")
-    emu.memory[symbols["wCurMap"]] = 0x0C
+    emu.memory[symbols["wCurMap"]] = ROUTE_1
+    emu.memory[symbols["wCurMapTileset"]] = 0
     emu.memory[symbols["wUnusedObtainedBadges"]] = 0
+    emu.memory[symbols["hOnCGB"]] = 1
+    emu.memory[RBGP] = YELLOW_NORMAL_BGP
+    emu.memory[BOOTROM_DISABLE] = 1
+    emu.memory[IF] = 0
     emu.memory[0xFF40] &= 0x7F
     phase2_rom.call("PassiveFullColorApplyMap")
+    authored = phase2_rom.emulator.read_palette_ram()
+    phase2_rom.call("LoadOverworldPikachuFrontpicPalettes")
+    mixed = phase2_rom.emulator.read_palette_ram()
+
+    assert mixed[:32] != authored[:32]
+    assert mixed[32:] == authored[32:]
+    assert phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated") == b"\x01"
+    assert phase2_rom.read_wram2("wPassiveFullColorOverlaySuspended") == b"\x01"
+
     _enable_production_overlay_video(phase2_rom)
     emu.memory[symbols["hAutoBGTransferEnabled"]] = PASSIVE_OVERLAY_COMPLETE
+    emu.memory[symbols["hWY"]] = 0
+    boundaries: dict[str, tuple[bytes, bytes, bytes, int]] = {}
+    delay_frames: list[tuple[bytes, bytes, bytes, int]] = []
+
+    def capture_boundary(label: str) -> None:
+        boundaries[label] = (
+            phase2_rom.emulator.read_palette_ram(),
+            phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated"),
+            phase2_rom.read_wram2("wPassiveFullColorOverlaySuspended"),
+            emu.memory[symbols["hWY"]],
+        )
+
+    boundary_labels = (
+        "PassiveFullColorRestoreInvalidatedPalettes",
+        "PassiveFullColorTransferFadedPalettes",
+        "PassiveFullColorRecordPalettePublished",
+        "PassiveFullColorRedisplayMapView",
+        "PassiveFullColorPrepareMenuOverlay",
+        "PassiveFullColorOverlayAttributeGDMA",
+        "Delay3",
+    )
 
     state = _run_to_boundary(
         phase2_rom,
         "Pikachu_LoadCurrentMapViewUpdateSpritesAndDelay3",
-        "Delay3",
+        "Pikachu_LoadCurrentMapViewUpdateSpritesAndDelay3.done",
         observe=(
             "LoadCurrentMapView",
             "UpdateSprites",
+            "PassiveFullColorResumeOverlays",
+            "PassiveFullColorRestoreInvalidatedPalettes",
+            "PassiveFullColorTransferFadedPalettes",
+            "PassiveFullColorRecordPalettePublished",
             "PassiveFullColorRedisplayMapView",
             "PassiveFullColorInvalidateOverlayAttributes",
             "PassiveFullColorPrepareMenuOverlay",
+            "PassiveFullColorOverlayAttributeGDMA",
+            "Delay3",
+            "DelayFrame",
         ),
+        observe_actions={
+            **{
+                label: lambda label=label: capture_boundary(label)
+                for label in boundary_labels
+            },
+            "DelayFrame": lambda: delay_frames.append(
+                (
+                    phase2_rom.emulator.read_palette_ram(),
+                    phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated"),
+                    phase2_rom.read_wram2("wPassiveFullColorOverlaySuspended"),
+                    emu.memory[symbols["hWY"]],
+                )
+            ),
+        },
         stub_returns={"LoadCurrentMapView": None, "UpdateSprites": None},
         run_vblank_interrupts=True,
     )
@@ -1220,17 +1276,114 @@ def test_pikachu_map_redisplay_reaches_paired_barrier_before_its_delay(
     assert state.events == (
         "LoadCurrentMapView",
         "UpdateSprites",
+        "PassiveFullColorResumeOverlays",
+        "PassiveFullColorRestoreInvalidatedPalettes",
+        "PassiveFullColorTransferFadedPalettes",
+        "PassiveFullColorRecordPalettePublished",
         "PassiveFullColorRedisplayMapView",
         "PassiveFullColorInvalidateOverlayAttributes",
         "PassiveFullColorPrepareMenuOverlay",
+        "DelayFrame",
+        "PassiveFullColorOverlayAttributeGDMA",
         "Delay3",
+        "DelayFrame",
+        "DelayFrame",
+        "DelayFrame",
+        "Pikachu_LoadCurrentMapViewUpdateSpritesAndDelay3.done",
     )
-    assert state.rom_bank == banks["PassiveFullColorRedisplayMapView"]
-    assert (
-        symbols["PassiveFullColorRedisplayMapView"]
-        < state.return_address
-        < symbols["PassiveFullColorRedisplayMapView.yellow"]
+    assert boundaries["PassiveFullColorRestoreInvalidatedPalettes"] == (
+        mixed,
+        b"\x01",
+        b"\x00",
+        144,
     )
+    assert boundaries["PassiveFullColorTransferFadedPalettes"] == (
+        mixed,
+        b"\x01",
+        b"\x00",
+        144,
+    )
+    assert boundaries["PassiveFullColorRecordPalettePublished"] == (
+        authored,
+        b"\x01",
+        b"\x00",
+        144,
+    )
+    assert all(
+        boundaries[label] == (authored, b"\x00", b"\x00", 144)
+        for label in (
+            "PassiveFullColorRedisplayMapView",
+            "PassiveFullColorPrepareMenuOverlay",
+            "PassiveFullColorOverlayAttributeGDMA",
+            "Delay3",
+        )
+    )
+    assert delay_frames == [(authored, b"\x00", b"\x00", 144)] * 4
+    assert phase2_rom.emulator.read_palette_ram() == authored
+    assert phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated") == b"\x00"
+    assert phase2_rom.read_wram2("wPassiveFullColorOverlaySuspended") == b"\x00"
+    assert emu.memory[symbols["hWY"]] == 0
+    assert state.sp == ENTRY_SP
+
+
+def test_pikachu_map_redisplay_keeps_yellow_palette_window_and_delay(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = ROUTE_1
+    emu.memory[symbols["wCurMapTileset"]] = 0
+    emu.memory[symbols["wUnusedObtainedBadges"]] = 1
+    emu.memory[symbols["hOnCGB"]] = 1
+    emu.memory[RBGP] = YELLOW_NORMAL_BGP
+    emu.memory[BOOTROM_DISABLE] = 1
+    emu.memory[IF] = 0
+    emu.memory[0xFF40] &= 0x7F
+    phase2_rom.call("PassiveFullColorApplyMap")
+    phase2_rom.call("LoadOverworldPikachuFrontpicPalettes")
+    stock_palettes = phase2_rom.emulator.read_palette_ram()
+    _enable_production_overlay_video(phase2_rom)
+    emu.memory[symbols["hWY"]] = 37
+    delay_frames: list[tuple[bytes, int]] = []
+
+    state = _run_to_boundary(
+        phase2_rom,
+        "Pikachu_LoadCurrentMapViewUpdateSpritesAndDelay3",
+        "Pikachu_LoadCurrentMapViewUpdateSpritesAndDelay3.done",
+        observe=(
+            "LoadCurrentMapView",
+            "UpdateSprites",
+            "PassiveFullColorResumeOverlays",
+            "PassiveFullColorRestoreInvalidatedPalettes",
+            "PassiveFullColorRedisplayMapView",
+            "Delay3",
+            "DelayFrame",
+        ),
+        observe_actions={
+            "DelayFrame": lambda: delay_frames.append(
+                (phase2_rom.emulator.read_palette_ram(), emu.memory[symbols["hWY"]])
+            )
+        },
+        stub_returns={"LoadCurrentMapView": None, "UpdateSprites": None},
+        run_vblank_interrupts=True,
+    )
+
+    assert state.events == (
+        "LoadCurrentMapView",
+        "UpdateSprites",
+        "PassiveFullColorResumeOverlays",
+        "PassiveFullColorRedisplayMapView",
+        "Delay3",
+        "DelayFrame",
+        "DelayFrame",
+        "DelayFrame",
+        "Pikachu_LoadCurrentMapViewUpdateSpritesAndDelay3.done",
+    )
+    assert delay_frames == [(stock_palettes, 37)] * 3
+    assert phase2_rom.emulator.read_palette_ram() == stock_palettes
+    assert emu.memory[symbols["hWY"]] == 37
+    assert state.sp == ENTRY_SP
 
 
 def test_initial_options_screen_invalidates_prior_completed_overlay(
