@@ -204,17 +204,6 @@ PassiveFullColorPrepareColumnAttributes:
 	restore_renderer_state_e
 	ret
 
-; Party entry hook. Mark only an active slice; the close path performs the
-; atomic LCD-off restore after Yellow has rebuilt wTileMap.
-PassiveFullColorScheduleAttributeRestore:
-	call PassiveFullColorIsSliceMap
-	ret nz
-	call PassiveFullColorReadActive
-	cp 1
-	ret nz
-	ld bc, $200
-	jp PassiveFullColorWriteState
-
 ; Color-to-Yellow menu close must retire donor attributes before LoadGBPal can
 ; install Yellow palettes. Yellow's whole-screen GDMA packet clears both bank-1
 ; maps during safe video periods, matching the established battle handoff.
@@ -243,13 +232,12 @@ PassiveFullColorRestoreAfterMenu:
 	call PassiveFullColorReadActive
 	cp 1
 	jr nz, .activate_color
-	; Party presentation overwrites bank 1 without the paired overlay path.
-	; Its held restore marker keeps Color latched through the returned Start
-	; menu, then forces the same bounded visible-plane activation used by a
-	; Yellow-to-Color mode change when the outer menu finally closes.
-	ld a, c
-	cp 2
-	jr z, .activate_color
+	; Any Yellow attribute packet invalidates the base-map certificate. Keep
+	; Color latched through a returned Start overlay, then rebuild the complete
+	; visible plane when the outer menu finally closes.
+	call PassiveFullColorReadAttributesInvalidated
+	and a
+	jr nz, .activate_color
 	call PassiveFullColorClearState
 	ldh a, [rLCDC]
 	bit B_LCDC_ENABLE, a
@@ -329,6 +317,10 @@ PassiveFullColorReadActive:
 	ld [wPassiveFullColorActive], a
 	ld [wPassiveFullColorPalettePending], a
 	ld [wPassiveFullColorClearChunks], a
+	ld [wPassiveFullColorBGPaletteProtected], a
+	ld [wPassiveFullColorBGAttributesProtected], a
+	ld [wPassiveFullColorAttributesInvalidated], a
+	ld [wPassiveFullColorOverlaySuspended], a
 .generation_ok
 	ld a, [wPassiveFullColorPalettePending]
 	ld c, a
@@ -336,17 +328,6 @@ PassiveFullColorReadActive:
 	ld e, a
 	restore_renderer_state_e
 	ld a, b
-	ret
-
-; B=pending palette commit, C=remaining cleanup chunks. State lives in the
-; passive renderer's private WRAM2 allocation; raw SVBK is always restored.
-PassiveFullColorWriteState:
-	select_renderer_state_e
-	ld a, b
-	ld [wPassiveFullColorPalettePending], a
-	ld a, c
-	ld [wPassiveFullColorClearChunks], a
-	restore_renderer_state_e
 	ret
 
 PUSHS
@@ -382,6 +363,10 @@ PassiveFullColorClearState:
 	select_renderer_state_e
 	xor a
 	ld [wPassiveFullColorDeferredRedrawState], a
+	ld [wPassiveFullColorBGPaletteProtected], a
+	ld [wPassiveFullColorBGAttributesProtected], a
+	ld [wPassiveFullColorAttributesInvalidated], a
+	ld [wPassiveFullColorOverlaySuspended], a
 	restore_renderer_state_e
 	ldh a, [hAutoBGTransferEnabled]
 	res BIT_PASSIVE_FULL_COLOR_OVERLAY_FINITE_SWEEP, a
@@ -426,6 +411,13 @@ PassiveFullColorShouldColorOverlay:
 	jr nz, .inactive
 	call PassiveFullColorReadActive
 	cp 1
+	jr nz, .inactive
+	select_renderer_state_e
+	ld a, [wPassiveFullColorOverlaySuspended]
+	ld b, a
+	restore_renderer_state_e
+	ld a, b
+	and a
 	jr nz, .inactive
 	scf
 	ret
@@ -498,7 +490,9 @@ PassiveFullColorPrepareOverlayInactive:
 	ret
 
 PassiveFullColorTranslateTileMap:
-	select_renderer_state_e
+	; The Yellow stack is in switchable WRAM1, so interrupts cannot remain
+	; admitted while WRAM2 is selected. Resolve each attribute with WRAM1
+	; present, then mask only its bounded store into the WRAM2 plane.
 	ld hl, wTileMap
 	ld de, wPassiveFullColorAttributeRectangle
 	ld b, SCREEN_HEIGHT
@@ -506,21 +500,30 @@ PassiveFullColorTranslateTileMap:
 	ld c, SCREEN_WIDTH
 .translate_tile
 	ld a, [hli]
-	call PassiveFullColorAttributeForTile
+	call PassiveFullColorAttributeForTileWRAM1
+	push bc
+	ld b, a
+	select_renderer_state_e
+	ld a, b
 	ld [de], a
+	restore_renderer_state_e
+	pop bc
 	inc de
 	dec c
 	jr nz, .translate_tile
-	ld c, TILEMAP_WIDTH - SCREEN_WIDTH
+	push bc
+	select_renderer_state_e
+	ld b, TILEMAP_WIDTH - SCREEN_WIDTH
 	xor a
 .pad_row
 	ld [de], a
 	inc de
-	dec c
+	dec b
 	jr nz, .pad_row
+	restore_renderer_state_e
+	pop bc
 	dec b
 	jr nz, .row
-	restore_renderer_state_e
 	ret
 
 ; VBlank entry for initial overlay attributes. The padded and aligned WRAM2
@@ -657,6 +660,10 @@ PassiveFullColorVBlank:
 	ld [wPassiveFullColorPalettePending], a
 	ld [wPassiveFullColorClearChunks], a
 	ld [wPassiveFullColorDeferredRedrawState], a
+	ld [wPassiveFullColorBGPaletteProtected], a
+	ld [wPassiveFullColorBGAttributesProtected], a
+	ld [wPassiveFullColorAttributesInvalidated], a
+	ld [wPassiveFullColorOverlaySuspended], a
 .generation_ok
 	ld a, [wPassiveFullColorPalettePending]
 	ld c, a
@@ -751,7 +758,7 @@ PassiveFullColorCommitPalettes:
 	ldh [rBGPD], a
 	dec b
 	jr nz, .interior
-	jr .published
+	jr PassiveFullColorRecordPalettePublished
 .overworld
 	ld b, 6 * 4 * 2 + 2 ; palettes 0-5 and roof color 0
 .prefix
@@ -774,11 +781,15 @@ PassiveFullColorCommitPalettes:
 	dec b
 	jr nz, .suffix
 
-.published
+PassiveFullColorRecordPalettePublished:
 	; This authored payload supersedes every Yellow publication observed so far.
+	call PassiveFullColorCurrentRoofRegion
+	ld b, a
 	select_renderer_state_e
 	xor a
 	ld [wPassiveFullColorPaletteInvalidated], a
+	ld a, b
+	ld [wPassiveFullColorRoofRegion], a
 	restore_renderer_state_e
 	ret
 
@@ -847,6 +858,7 @@ PassiveFullColorAttributeForTile:
 	ldh [rSVBK], a
 	ld a, b
 	ldh [rIE], a
+PassiveFullColorResolveAttributeForIdentity:
 	ld a, e
 	cp CELADON_MART_ROOF
 	jr nz, .not_celadon_mart_roof
@@ -1265,7 +1277,7 @@ PassiveFullColorClearBGMapChunk:
 EXPORT PassiveFullColorApplyMap, PassiveFullColorHandleConnection
 EXPORT PassiveFullColorPrepareRedrawAttributes
 EXPORT PassiveFullColorPrepareColumnAttributes
-EXPORT PassiveFullColorScheduleAttributeRestore, PassiveFullColorRestoreAfterMenu
+EXPORT PassiveFullColorRestoreAfterMenu
 EXPORT PassiveFullColorPrepareMenuHandoff
 EXPORT PassiveFullColorShouldColorOverlay
 EXPORT PassiveFullColorInvalidateOverlayAttributes, PassiveFullColorPrepareMenuOverlay

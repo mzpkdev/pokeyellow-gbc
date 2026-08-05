@@ -58,7 +58,7 @@ RedrawMapView:
 	ldh [hAutoBGTransferEnabled], a
 	ldh [hTileAnimations], a
 	call LoadCurrentMapView
-	call RunDefaultPaletteCommand
+	farcall PassiveFullColorRunDefaultPaletteCommand
 	ld hl, wMapViewVRAMPointer
 	ld a, [hli]
 	ld h, [hl]
@@ -101,6 +101,7 @@ RedrawMapView:
 	ldh [hRedrawRowOrColumnDest + 1], a
 	ld a, l
 	ldh [hRedrawRowOrColumnDest], a
+	farcall PassiveFullColorPrepareRedrawAttributes
 	ld a, REDRAW_ROW
 	ldh [hRedrawRowOrColumnMode], a
 	call DelayFrame
@@ -111,6 +112,7 @@ RedrawMapView:
 	pop bc
 	dec c
 	jr nz, .redrawRowLoop
+	farcall PassiveFullColorCompleteAttributeRestore
 	pop af
 	ldh [hTileAnimations], a
 	pop af

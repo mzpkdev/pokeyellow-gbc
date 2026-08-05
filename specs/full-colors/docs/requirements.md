@@ -78,7 +78,7 @@ authority. Numeric enum values are not part of this contract.
 - **R2.3:** A handoff shall establish a fresh non-aliasing generation and invalidate all older work before the arriving owner can write.
 - **R2.4:** A handoff shall select and initialize the arriving owner, reconstruct every destination authority from fresh logical state, cross exactly one presentation barrier, and only then reopen admission.
 - **R2.5:** Entry to Color-owned ordinary presentation of a supported map shall load tileset palette and attribute data and complete full reconstruction before presentation.
-- **R2.6:** Every Color-to-Yellow boundary, including overlay, dialogue, menu, battle, standalone, unsupported-map, preference, reset, and soft-reset boundaries, shall enter `YELLOW_RECONSTRUCTING`, treat the complete R2.10 resource set as unknown, rebuild the complete R2.11 ledger from fresh logical authority, cross exactly one R2.12 barrier, and only then reopen admission or permit the destination's first owner-gated display write.
+- **R2.6:** Every retained-owner Color-to-Yellow boundary, including overlay, dialogue, menu, battle, standalone, unsupported-map, preference, reset, and soft-reset boundaries, shall enter `YELLOW_RECONSTRUCTING`, treat the complete R2.10 resource set as unknown, rebuild the complete R2.11 ledger from fresh logical authority, cross exactly one R2.12 barrier, and only then reopen admission or permit the destination's first owner-gated display write. A Yellow-owned overlay receiving only the shipped passive bank-1 projection is not a retained-owner boundary; it follows R6.13 and R7.3 instead.
 - **R2.7:** Every concrete Yellow-to-Color boundary for eligible ordinary presentation of a supported map shall run the complete map-entry protocol; a same-owner decision shall preserve generation and perform no synthetic handoff or reconstruction.
 - **R2.8:** Soft reset shall cancel all work, invalidate all generations, restore machine state, select Yellow, and re-enter normal boot. Reset and soft reset from Color ownership shall additionally complete the R2.6 Color-to-Yellow contract before presentation: if the display stays provably hidden, admission shall remain closed through fresh Yellow reconstruction and its one barrier; otherwise the ordinary complete handoff shall finish before any reset-owned video write.
 - **R2.9:** A generation value shall not be reused while any work carrying that value can execute.
@@ -135,7 +135,7 @@ authority. Numeric enum values are not part of this contract.
 - **R6.10:** Overlay classification, tile identity, and attribute generation shall never sample either VRAM bank as oracle input.
 - **R6.11:** The same overlay oracle shall govern unclipped, partially clipped, edge, connection, alternate-BG, alternate-map-identity, and empty-after-clipping requests without consulting ambient active-map state.
 - **R6.12:** RGB's standalone-screen 20×18 palette-map mode shall not be imported for an overworld overlay.
-- **R6.13:** Production overlays, dialogue, text, and transient menus shall be Yellow-owned and shall not enter the Color pipeline; `OVERWORLD_OVERLAY` remains reserved and unreachable in this bounded product.
+- **R6.13:** Production overlays, dialogue, text, and transient menus shall keep Yellow authority for construction, bank-0 tiles, and timing and shall not enter the retained Color owner or scheduler pipeline; `OVERWORLD_OVERLAY` remains reserved and unreachable in this bounded product. The shipped passive layer may project paired bank-1 attributes only at explicitly integrated seams after Yellow finalizes the structure. A Yellow full-screen attribute publication shall suspend that projection and invalidate the passive base certificate until reconstruction.
 
 ## R7 Paired transfers and visible commit units
 
@@ -151,7 +151,7 @@ authority. Numeric enum values are not part of this contract.
 | load, reload, or actual Yellow-to-Color eligible-map boundary | complete reconstruction before presentation | R2.11, R2.12 |
 | actual Color-to-Yellow boundary, including reset or soft reset from Color | complete fresh Yellow reconstruction and exactly one barrier before admission or presentation | R2.6, R2.10, R2.11, R2.12 |
 | horizontal or vertical streaming, all four connection directions, one-third window/tilemap transfer, explicit row, or rectangle transfer | all bank-0 IDs and matching bank-1 attributes | R7.1, R7.3 |
-| dialogue, text, transient-menu, or field-move overlay | Yellow-owned declared baseline unit; Color pipeline unreachable | R6.13, R7.3 |
+| dialogue, text, transient-menu, or field-move overlay | Yellow-owned bank-0 unit; any explicitly integrated passive bank-1 projection is paired behind one hidden barrier; retained Color pipeline unreachable | R6.13, R7.3 |
 | alternate BG map destination | every declared tile/attribute pair | R7.1, R7.3 |
 | animation or field replacement | tile ID, attribute, and declared tile-data dependency | R7.1, R7.3 |
 | palette change | complete requested 64-byte BG or OBJ payload | R5.8 |

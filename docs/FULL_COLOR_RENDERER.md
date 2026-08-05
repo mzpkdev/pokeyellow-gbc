@@ -38,9 +38,13 @@ selection, never `PHASE2_AUDIT`, decides whether Color is presented.
 ## Ownership contract
 
 Yellow MUST retain authority for every bank-0 background tile and tile pattern;
-sprite graphics, OAM, movement, and gameplay; map construction, scrolling,
-menus, dialogue, battle, and cutscenes; and animations, overlays, fades,
-scheduling, and lifecycle behavior.
+sprite graphics, OAM, movement, and gameplay; map and overlay construction,
+scrolling, menus, dialogue, battle, and cutscenes; and animations, fade
+progression, scheduling, and lifecycle behavior. Explicitly integrated overlays
+may receive a passive bank-1 attribute projection after Yellow finishes their
+bank-0 structure. Active-map fades may transform all eight authored passive BG
+palettes using Yellow's current `BGP` mapping. Neither operation activates the
+retained Color owner or its scheduler pipeline.
 
 The passive Color path MAY publish only:
 
@@ -68,8 +72,10 @@ latched; the saved preference is reconciled only when the outer menu closes.
 
 [engine/full_color/passive_palette_refresh.asm](../engine/full_color/passive_palette_refresh.asm)
 scopes the steady overworld `LoadGBPal`: an active authored map keeps BG palette
-hardware ownership while Yellow still updates its BGP cache and object palettes.
-Yellow-mode, fade, and menu contexts retain their ordinary palette publications.
+hardware authority while Yellow still updates its BGP cache and object palettes.
+During a real fade, Yellow chooses the step and timing while the passive layer
+streams the same mapping across all eight authored BG palettes. Yellow-mode and
+forced-menu contexts retain their ordinary palette publications.
 
 The following modules preserve measured contracts, debug observability, and
 future migration seams but do not drive the current passive display:
@@ -177,6 +183,16 @@ border and restoring the covered tiles on dismissal as structural changes.
 The dismissal rebuild is gated to the active Color slice; Yellow presentation
 keeps its original return path and timing.
 
+Overlay construction remains Yellow-owned. The passive work above is only the
+paired bank-1 half of that already-finalized structure; it never enters the
+retained `OVERWORLD_OVERLAY` phase. A Yellow full-screen attribute packet marks
+the base attribute certificate dirty and suspends overlay projection. Explicit
+Start/Options redisplay may resume paired overlays, while final close rebuilds
+the base map before clearing that dirty state. Pokecenter map redisplays use the
+same hidden four-frame barrier so bank 0 and bank 1 cannot diverge on reveal.
+Translation keeps WRAM1 selected and interrupts admitted between cells, masking
+only each bounded WRAM2 store.
+
 The attribute GDMA is the only VRAM writer in its frame, and any pending Yellow
 redraw or queued VRAM work remains armed until the barrier finishes.
 While the completed plane is latched, ordinary passive palette and redraw work
@@ -201,6 +217,19 @@ hardware transfer while retaining its BGP cache and object-palette work. This
 prevents a Yellow-colored frame after map entry. Any earlier unscoped writer
 still queues bounded VBlank republication, and the authored commit clears the
 signal without probing palette RAM.
+
+Yellow owns fade progression and delay timing. On active authored maps the
+fade seam resolves each output shade from immutable authored data, stages all
+eight BG palettes, and publishes one complete 64-byte LCD-safe unit. The protected
+steady `LoadGBPal` call never performs that live transfer. Route 6 records its
+last committed roof region, so crossing y=1/2 queues the normal bounded VBlank
+palette refresh instead of publishing a coordinate-dependent roof mid-frame.
+
+`RedrawMapView` scopes both sides of its default palette command: Yellow still
+updates its palette cache and object palettes, but the command's whole-screen
+bank-1 packet is suppressed while the active authored plane is authoritative.
+Each subsequent bank-0 row is paired with its passive row mirror, and the base
+attribute dirty state clears only after the final mirror completes.
 
 At most one passive visible operation runs per frame:
 
@@ -235,11 +264,15 @@ The passive renderer is a bounded map layer, not global display ownership.
 - Conventional interiors in the admitted tileset range use their selected
   donor payload. `FOREST`, `SHIP_PORT`, `CAVERN`, `PLATEAU`, `BEACH_HOUSE`, and any other
   unsupported map use Yellow palettes with cleared bank-1 attributes.
-- Menus and dialogue can overwrite the visible attribute window. On close,
-  a Color-to-Yellow handoff clears donor attributes before Yellow can replace
-  the palettes. Yellow then rebuilds `wTileMap`, and
+- Selected dialogue, Start/Options, and two-option overlays keep Yellow's
+  bank-0 construction and timing, then receive a paired passive bank-1
+  projection behind the hidden four-frame barrier. Full-screen Yellow menus
+  that publish their own attribute packet suspend projection and mark the base
+  attributes dirty. On close, Yellow rebuilds `wTileMap`, and
   `PassiveFullColorRestoreAfterMenu` reconciles the selected presentation. An
-  already-active Color presentation refreshes its palettes. Yellow-to-Color
+  already-active presentation with dirty base attributes performs a complete
+  passive rebuild; a palette-only invalidation remains a bounded refresh.
+  Yellow-to-Color
   activation keeps Color inactive and donor palettes unpublished while two
   wrapped visible rows are published per VBlank, then commits all donor
   palettes and activates Color in one later VBlank. Yellow mode reruns Yellow's
@@ -249,8 +282,8 @@ The passive renderer is a bounded map layer, not global display ownership.
 - Sprites, battle effects, moving tiles, and cutscene objects are never inferred
   from background tile IDs.
 
-Donor attributes appearing in an overlay, unsupported map, or battle are an
-ownership leak, not evidence of broader renderer support.
+Donor attributes appearing in an unsupported overlay, unsupported map, or
+battle are an ownership leak, not evidence of broader renderer support.
 
 ## State and fail-closed behavior
 
@@ -265,11 +298,21 @@ Passive state is declared in [ram/wram.asm](../ram/wram.asm) and lives in WRAM2:
   publication that has not yet been superseded by an authored commit;
 - `wPassiveFullColorBGPaletteProtected` scopes the steady overworld call whose
   Yellow BG hardware transfer is suppressed;
+- `wPassiveFullColorBGAttributesProtected` scopes `RedrawMapView` while its
+  default palette command must not replace the authored bank-1 plane;
+- `wPassiveFullColorAttributesInvalidated` records that Yellow replaced the
+  base bank-1 authority and a complete passive rebuild is required;
+- `wPassiveFullColorOverlaySuspended` prevents passive projection while a
+  forced-Yellow full-screen attribute packet is authoritative;
+- `wPassiveFullColorRoofRegion` records the coordinate-dependent Route 6 roof
+  identity from the last authored palette commit;
 - `wPassiveFullColorAttributeRectangle` is an aligned, padded 32x18 overlay
   plane whose first 20 bytes per row hold translated visible attributes; and
 - `wPassiveFullColorDeferredRedrawState` owns one prepared or mirror-pending
   redraw transaction; `wPassiveFullColorRedrawStaging` holds its immutable
   destination and attribute records outside the overlay translation plane.
+  The same serialized slot is named `wPassiveFullColorPaletteStaging` while an
+  eight-palette fade is prepared, after redraw backpressure proves it idle.
 
 `InitRendererOwnership` clears the complete private passive allocation before
 any map can be treated as active. The allocation is unconditional and does not
@@ -291,7 +334,9 @@ raw `SVBK`, and leaves `rVBK` as Yellow expects.
    `PHASE2_AUDIT` may add diagnostics but MUST NOT gate its behavior.
 2. Only the saved Color preference on admitted `OVERWORLD` or conventional
    interior maps is active.
-3. Yellow owns bank-0 tiles, sprites, mechanics, timing, fades, and overlays.
+3. Yellow owns bank-0 tiles, sprites, mechanics, overlay construction, fade
+   progression, and timing; passive work is limited to paired bank-1 projection
+   and authored eight-palette transformation.
 4. Passive code writes only complete BG palettes and bank-1 BG attributes.
 5. Every attribute comes from the selected authored 256-byte table or one of
    the two authored Celadon Mart map overrides.
@@ -350,7 +395,8 @@ remaining work and exit gates:
 
 - **Phase 3 — palette and transfers:** map-aware palette selection; effects,
   reloads, connections, overlays, animations, replacements, and paired
-  transfer destinations.
+  transfer destinations under retained renderer ownership. The shipped passive
+  layer already covers its explicitly documented subset.
 - **Phase 4 — overworld OAM:** authored picture-ID OBJ palettes after Yellow's
   final tile calculation, preserving follower offsets and DMA behavior.
 - **Phase 5 — architecture stress:** combined pressure, poisoned handoff
@@ -368,9 +414,10 @@ remaining work and exit gates:
 All-25-tileset and all-map color authoring remains future non-gating work after
 the bounded release. It is not implied by the shipped toggle.
 
-Until the relevant phases are proved, maps outside the current city/route
-`OVERWORLD` set remain Yellow-owned. Phase 3 can introduce wider tileset-aware
-selection; Phase 6 still has to author and accept other map-specific content.
+Until the relevant phases are proved, maps outside the current outdoor and
+conventional-interior passive set remain Yellow-owned. The migration plan may
+widen retained ownership only after its phase gates; it does not narrow or
+silently redefine the shipped passive set documented above.
 Follow
 [ADDING_CONTENT.md](ADDING_CONTENT.md) instead of editing the allowlist in
 isolation.

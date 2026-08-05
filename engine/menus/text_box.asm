@@ -203,6 +203,18 @@ DoBuySellQuitMenu:
 ; c = X of upper left corner of text region
 ; hl = address where the text box border should be drawn
 DisplayTwoOptionMenu:
+	; Hide a paired Color window before changing either plane. Yellow and every
+	; forced-Yellow screen retain their original visible construction path.
+	push bc
+	push hl
+	farcall PassiveFullColorShouldColorOverlay
+	pop hl
+	pop bc
+	jr nc, .windowReady
+	ld a, SCREEN_HEIGHT_PX
+	ldh [hWY], a
+	ldh [rWY], a
+.windowReady
 	push hl
 	ld a, [wStatusFlags5]
 	set BIT_NO_TEXT_DELAY, a
@@ -276,15 +288,39 @@ DisplayTwoOptionMenu:
 	pop hl
 	add hl, bc
 	call PlaceString
-	; The menu border and labels are now structurally final. Publish their fresh
-	; attributes before HandleMenuInput runs its existing three-frame tile sweep.
-	farcall PassiveFullColorInvalidateOverlayAttributes
-	farcall PassiveFullColorPrepareMenuOverlay
 	xor a
 	ld [wTwoOptionMenuID], a
 	ld hl, wStatusFlags5
 	res BIT_NO_TEXT_DELAY, [hl]
+	farcall PassiveFullColorShouldColorOverlay
+	jr nc, .yellowInput
+	; Build HandleMenuInput's exact stack shape: its continuation sits below
+	; the two saved blink bytes, just as it would after a regular HOME call.
+	xor a
+	ld [wPartyMenuAnimMonEnabled], a
+	ld hl, .inputReady
+	push hl
+	ldh a, [hDownArrowBlinkCount1]
+	push af
+	ldh a, [hDownArrowBlinkCount2]
+	push af
+	xor a
+	ldh [hDownArrowBlinkCount1], a
+	ld a, 6
+	ldh [hDownArrowBlinkCount2], a
+	xor a
+	ld [wAnimCounter], a
+	call PlaceMenuCursor
+	farcall PassiveFullColorInvalidateOverlayAttributes
+	farcall PassiveFullColorPrepareMenuOverlay
+	call Delay3
+	xor a
+	ldh [hWY], a
+	ldh [rWY], a
+	jp HandleMenuInput_.loop2
+.yellowInput
 	call HandleMenuInput
+.inputReady
 	pop hl
 	bit B_PAD_B, a
 	jr nz, .choseSecondMenuItem ; automatically choose the second option if B is pressed
@@ -336,6 +372,14 @@ TwoOptionMenu_SaveScreenTiles:
 	ret
 
 TwoOptionMenu_RestoreScreenTiles:
+	push hl
+	farcall PassiveFullColorShouldColorOverlay
+	pop hl
+	jr nc, .windowReady
+	ld a, SCREEN_HEIGHT_PX
+	ldh [hWY], a
+	ldh [rWY], a
+.windowReady
 	ld de, wBuffer
 	lb bc, 5, 6
 .loop
@@ -360,6 +404,12 @@ TwoOptionMenu_RestoreScreenTiles:
 	farcall PassiveFullColorInvalidateOverlayAttributes
 	farcall PassiveFullColorPrepareMenuOverlay
 	call Delay3
+	xor a
+	ldh [hWY], a
+	ldh [rWY], a
+	; Let one complete frame observe the coherent restored planes before the
+	; caller performs any subsequent full-screen transition.
+	call DelayFrame
 .restored
 	ret
 

@@ -130,9 +130,10 @@ normal, debug, and VC products offer Color for the 34 city and route maps using
 through `FACILITY`, except `FOREST`, `SHIP_PORT`, and `CAVERN`; the 19
 admitted interior tilesets cover 162 maps.
 Yellow mode and unsupported maps use Yellow presentation. Yellow still owns
-bank-0 tile graphics, sprites, animations, overlays, menus, battles, mechanics,
-and scheduling. The passive layer may install complete BG palettes and
-VRAM-bank-1 attributes only. `PHASE2_AUDIT` adds diagnostics and certification
+bank-0 tile graphics, sprites, animations, overlay/menu construction, battles,
+mechanics, fade progression, and scheduling. The passive layer may install
+complete BG palettes, transform those palettes at Yellow's fade seam, and
+publish paired VRAM-bank-1 attributes only. `PHASE2_AUDIT` adds diagnostics and certification
 surfaces; it never gates this player-visible behavior.
 
 ### Add a map compatible with the Phase 2 slice
@@ -236,9 +237,11 @@ the gates, and review natural gameplay captures.
 
 ### Know the roadmap boundary
 
-Do not hide later ownership work in a palette edit. The playable slice now has
-map-aware roof selection; Phase 3 still owns broader paired transfers and
-effects, Phase 4 owns overworld OAM; Phase 5 stress-tests the architecture;
+Do not hide later ownership work in a palette edit. The playable passive slice
+already has map-aware roof selection, paired scroll/redraw and selected overlay
+transfers, and eight-palette fade transforms. The roadmap phases describe
+migration into retained renderer ownership, not missing passive behavior.
+Phase 4 owns overworld OAM; Phase 5 stress-tests the architecture;
 Phase 6 closes map-specific overrides, animation, and field-replacement work;
 Phase 7 closes every handoff; Phase 8 removes old overworld ownership; and Phase 9 hardens
 release timing and products. Remaining special-tileset and all-map authoring

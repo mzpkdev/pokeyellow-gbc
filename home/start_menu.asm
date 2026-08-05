@@ -14,6 +14,10 @@ FullColorDisplayStartMenu:
 	call PlaySound
 
 RedisplayStartMenu::
+	; A forced-Yellow submenu may have suspended passive overlay projection.
+	; Start is an explicitly paired Color overlay, while the base-map dirty bit
+	; remains held for reconstruction when the outer menu closes.
+	farcall PassiveFullColorResumeOverlays
 	farcall PassiveFullColorShouldColorOverlay
 	jr nc, .windowReady
 	ld a, $90

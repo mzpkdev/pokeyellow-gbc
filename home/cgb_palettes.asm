@@ -11,7 +11,7 @@ UpdateCGBPal_BGP::
 	ld a, [wLastBGP]
 	cp b
 	jr z, .noChangeInBGP
-	farcall _UpdateCGBPal_BGP
+	farcall PassiveFullColorUpdateCGBPal_BGPFade
 .noChangeInBGP
 	pop hl
 	pop de

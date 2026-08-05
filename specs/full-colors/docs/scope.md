@@ -19,10 +19,18 @@ remain unsupported. Within those intervals the passive Color layer includes:
 - restoration of the authored background after Yellow-owned overlays close.
 
 Yellow remains authoritative for bank-0 tile graphics, animation and field-
-replacement tile data, OAM and sprites, mechanics, timing, fades, overlays,
-menus, battles, and cutscenes.
+replacement tile data, OAM and sprites, mechanics, overlay/menu construction,
+fade progression, timing, battles, and cutscenes. The shipped passive layer may
+project paired bank-1 attributes for its explicitly integrated overlays and
+transform authored BG palettes at Yellow's fade seam without entering retained
+Color ownership.
 
 The saved preference is policy input only. It never grants write authority.
+The effective-owner rules below describe the retained renderer target. In the
+shipped passive product, `COLOR` is a presentation policy label rather than an
+acquired `RENDERER_FULL_COLOR_OVERWORLD` token: the retained owner stays Yellow
+and the bounded hooks may write only the palette/attribute resources listed
+above.
 The effective background presentation is Color if and only if the preference
 is `COLOR`, the lifecycle is ordinary map presentation, and the map is in the
 supported outdoor/conventional-interior slice.
@@ -60,11 +68,15 @@ changes. A real owner change completes the ordered handoff and destination
 reconstruction contract before the arriving owner's first display write.
 
 `OVERWORLD_OVERLAY` is reserved and unreachable in this bounded production
-product. An overlay never preserves Color ownership and never enters the Color
-pipeline: it causes a complete Color-to-Yellow handoff when departing an
-eligible Color interval. A later return to eligible ordinary presentation may
-cause a complete Yellow-to-Color handoff. Same-owner edges preserve generation
-and do not invent a handoff, reconstruction, or map return.
+product. An overlay never acquires or preserves retained Color ownership and
+never enters the retained Color scheduler pipeline. In the shipped passive
+product, selected Yellow-owned dialogue, Start/Options, two-option, and
+Pokecenter redisplay structures may receive a paired bank-1 projection while
+the passive base-map presentation remains latched. A Yellow full-screen
+attribute packet instead suspends projection and invalidates the passive base
+certificate until explicit reconstruction. A retained-owner implementation
+would use the complete handoffs below; passive projection does not invent such
+an owner transition.
 
 Every unlisted lifecycle or directed transition must receive a reviewed
 `SC-...` row in [replacement-inventory.md](replacement-inventory.md) before an
@@ -85,11 +97,11 @@ Transition and reconstruction behavior is defined by
 | ordinary supported `OVERWORLD` map presentation with `YELLOW` preference | `FORCED_YELLOW` | Yellow |
 | ordinary supported interior map presentation with `YELLOW` preference | `FORCED_YELLOW` | Yellow |
 | any unsupported map under either preference | `FORCED_YELLOW` | Yellow |
-| dialogue, text, menu, or transient overlay on any map | `FORCED_YELLOW` | Yellow; `OVERWORLD_OVERLAY` is unreachable |
+| dialogue, text, menu, or transient overlay on any map | `FORCED_YELLOW` | Yellow construction; selected shipped seams may receive paired passive bank-1 projection; `OVERWORLD_OVERLAY` is unreachable |
 | battle or standalone presentation | `FORCED_YELLOW` | Yellow |
 | boot, reset, soft reset, new-game, or continue presentation | `FORCED_YELLOW` | Yellow |
-| Color-eligible base presentation to any forced-Yellow context | `SCENE_BOUNDARY` | complete Color-to-Yellow handoff |
-| Yellow-owned context to eligible ordinary base presentation with `COLOR` preference | `SCENE_BOUNDARY` | complete Yellow-to-Color handoff |
+| retained Color-owned base presentation to any forced-Yellow context | `SCENE_BOUNDARY` | complete Color-to-Yellow handoff |
+| Yellow-owned context to eligible retained Color presentation with `COLOR` preference | `SCENE_BOUNDARY` | complete Yellow-to-Color handoff |
 | supported-map connection while Color remains effective | `ORDINARY_BASE_MAP` | Color to Color; no handoff |
 | any edge whose effective owner remains Yellow | `FORCED_YELLOW` | Yellow to Yellow; no handoff |
 
@@ -125,7 +137,7 @@ baseline and handoff regression gates.
 
 Implementation work must not expand into:
 
-- Color ownership of dialogue, text, menus, or overlays;
+- retained Color ownership of dialogue, text, menus, or overlays;
 - recoloring battles or battle animations;
 - species/trainer picture palettes;
 - standalone menu redesign;

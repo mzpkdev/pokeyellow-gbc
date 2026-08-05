@@ -17,6 +17,7 @@ HandleMenuInput_::
 	call PlaceMenuCursor
 	call Delay3
 .loop2
+	EXPORT HandleMenuInput_.loop2
 	push hl
 	ld a, [wPartyMenuAnimMonEnabled]
 	and a ; is it a pokemon selection menu?

@@ -113,6 +113,18 @@ def _linked_overworld_bg_palettes(
     return bytes(palettes)
 
 
+def _apply_dmg_palette_mapping(payload: bytes, bgp: int) -> bytes:
+    transformed = bytearray()
+    for palette_start in range(0, len(payload), 8):
+        palette = payload[palette_start : palette_start + 8]
+        mapping = bgp
+        for _ in range(4):
+            color = mapping & 0b11
+            transformed.extend(palette[color * 2 : color * 2 + 2])
+            mapping >>= 2
+    return bytes(transformed)
+
+
 def _write_palette(rom: Phase2Rom, payload: bytes) -> None:
     assert len(payload) == 64
     emu = rom.emulator.pyboy
@@ -601,6 +613,108 @@ def test_pending_palette_refresh_commits_exact_payload_on_next_vblank_only(
     assert phase2_rom.emulator.read_palette_ram() == expected
     assert phase2_rom.read_wram2("wPassiveFullColorPalettePending") == b"\x00"
     assert phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated") == b"\x00"
+
+
+def test_route6_crossing_queues_and_commits_new_roof_region(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = ROUTE_6
+    emu.memory[symbols["wCurMapTileset"]] = 0
+    emu.memory[symbols["wYCoord"]] = 1
+    _write_player_data(phase2_rom, "wUnusedObtainedBadges", 0)
+    emu.memory[0xFF40] &= 0x7F
+    phase2_rom.call("PassiveFullColorApplyMap")
+
+    saffron = _linked_overworld_bg_palettes(phase2_rom, ROUTE_6, y_coord=1)
+    vermilion = _linked_overworld_bg_palettes(phase2_rom, ROUTE_6, y_coord=2)
+    assert phase2_rom.emulator.read_palette_ram() == saffron
+    assert phase2_rom.read_wram2("wPassiveFullColorRoofRegion") == b"\x00"
+
+    emu.memory[symbols["wYCoord"]] = 2
+    phase2_rom.call("PassiveFullColorLoadGBPal")
+
+    assert phase2_rom.emulator.read_palette_ram() == saffron
+    assert phase2_rom.read_wram2("wPassiveFullColorPalettePending") == b"\x01"
+    phase2_rom.call("PassiveFullColorVBlank", de=0)
+    assert phase2_rom.emulator.read_palette_ram() == vermilion
+    assert phase2_rom.read_wram2("wPassiveFullColorRoofRegion") == b"\x01"
+    assert phase2_rom.read_wram2("wPassiveFullColorPalettePending") == b"\x00"
+
+
+@pytest.mark.parametrize("bgp", (0x00, 0x1B, 0xE4, 0xFF))
+def test_fades_transform_all_eight_authored_palettes(
+    phase2_rom: Phase2Rom,
+    bgp: int,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    expected_base = _linked_overworld_bg_palettes(
+        phase2_rom, ROUTE_1, y_coord=0
+    )
+    _activate_passive_map(phase2_rom, ROUTE_1)
+    symbols = phase2_rom.emulator.symbols
+    emu.memory[symbols["hOnCGB"]] = 1
+    emu.memory[RBGP] = bgp
+    emu.memory[symbols["wLastBGP"]] = bgp ^ 0xFF
+
+    phase2_rom.call(
+        "UpdateCGBPal_BGP", b=0x5A, c=0xA5, de=0xC123, hl=0xC456
+    )
+
+    assert phase2_rom.emulator.read_palette_ram() == _apply_dmg_palette_mapping(
+        expected_base, bgp
+    )
+    regs = emu.register_file
+    assert (regs.B, regs.C, regs.D, regs.E, regs.HL) == (
+        0x5A,
+        0xA5,
+        0xC1,
+        0x23,
+        0xC456,
+    )
+    assert phase2_rom.read_wram2("wPassiveFullColorPaletteInvalidated") == b"\x00"
+
+
+def test_yellow_attribute_packet_suspends_overlays_until_explicit_resume(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    _activate_passive_map(phase2_rom, ROUTE_1)
+    emu.memory[0xFF40] &= 0x7F
+
+    phase2_rom.call("LoadBGMapAttributes", c=5)  # party menu packet
+
+    assert phase2_rom.read_wram2("wPassiveFullColorAttributesInvalidated") == b"\x01"
+    assert phase2_rom.read_wram2("wPassiveFullColorOverlaySuspended") == b"\x01"
+    _, flags = phase2_rom.call("PassiveFullColorShouldColorOverlay")
+    assert not flags & 0x10
+
+    phase2_rom.call("PassiveFullColorResumeOverlays")
+    _, flags = phase2_rom.call("PassiveFullColorShouldColorOverlay")
+    assert flags & 0x10
+    assert phase2_rom.read_wram2("wPassiveFullColorAttributesInvalidated") == b"\x01"
+
+    phase2_rom.call("PassiveFullColorRestoreAfterMenu")
+    assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x01"
+    assert phase2_rom.read_wram2("wPassiveFullColorAttributesInvalidated") == b"\x00"
+    assert phase2_rom.read_wram2("wPassiveFullColorOverlaySuspended") == b"\x00"
+
+
+def test_scoped_redraw_protection_suppresses_whole_screen_attribute_packet(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    _activate_passive_map(phase2_rom, ROUTE_1)
+    emu.memory[0xFF40] &= 0x7F
+    original = phase2_rom.emulator.read_vram_bank(1, 0x9800, 32 * 32)
+
+    phase2_rom.write_wram2("wPassiveFullColorBGAttributesProtected", 1)
+    phase2_rom.call("LoadBGMapAttributes", c=5)
+
+    assert phase2_rom.emulator.read_vram_bank(1, 0x9800, 32 * 32) == original
+    assert phase2_rom.read_wram2("wPassiveFullColorAttributesInvalidated") == b"\x00"
 
 
 @pytest.mark.parametrize("writer", ("TransferBGPPals", "TransferCurBGPData"))

@@ -2700,6 +2700,10 @@ wPassiveFullColorClearChunks:: db
 wPassiveFullColorGeneration:: db
 wPassiveFullColorPaletteInvalidated:: db
 wPassiveFullColorBGPaletteProtected:: db
+wPassiveFullColorBGAttributesProtected:: db
+wPassiveFullColorAttributesInvalidated:: db
+wPassiveFullColorOverlaySuspended:: db
+wPassiveFullColorRoofRegion:: db
 	ds PASSIVE_FULL_COLOR_ATTRIBUTE_RECTANGLE_START - @
 wPassiveFullColorAttributeRectangle:: ds PASSIVE_FULL_COLOR_ATTRIBUTE_RECTANGLE_BYTES
 wPassiveFullColorStateEnd::
@@ -2711,11 +2715,12 @@ ASSERT wPassiveFullColorStateEnd == PASSIVE_FULL_COLOR_WRAM_END
 ASSERT BANK(wPassiveFullColorStateStart) == PASSIVE_FULL_COLOR_WRAM_BANK
 ASSERT wPassiveFullColorStateStart >= FULL_COLOR_PHASE3_WRAM_END
 
-; A Yellow redraw may remain armed for the entire paired-overlay lifecycle.
-; Keep its frozen destination/attribute records outside the overlay's padded
-; 32x18 translation plane so either producer can stage after the other safely.
-SECTION "Passive Full Color Redraw Staging", WRAMX[PASSIVE_FULL_COLOR_WRAM_END], BANK[PASSIVE_FULL_COLOR_WRAM_BANK]
+; Redraw records and fade palettes share one serialized transfer slot. A fade
+; waits for redraw backpressure to retire before reusing its first 64 bytes.
+; Keep the slot outside the overlay's padded 32x18 translation plane.
+SECTION "Passive Full Color Transfer Staging", WRAMX[PASSIVE_FULL_COLOR_WRAM_END], BANK[PASSIVE_FULL_COLOR_WRAM_BANK]
 wPassiveFullColorDeferredRedrawState:: db
+wPassiveFullColorPaletteStaging::
 wPassiveFullColorRedrawStaging:: ds SCREEN_WIDTH * 4
 wPassiveFullColorRedrawStagingEnd::
 

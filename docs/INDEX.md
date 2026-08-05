@@ -22,8 +22,11 @@ ROMhack, including future features unrelated to color.
   `REDS_HOUSE_1` through `FACILITY`, except `FOREST`, `SHIP_PORT`, and `CAVERN`.
   Those 19 tilesets cover 162 maps. `PLATEAU`, `BEACH_HOUSE`, and every
   unsupported map use Yellow presentation. Yellow
-  still owns gameplay, bank-0 tile graphics, sprites,
-  animations, overlays, menus, battles, cutscenes, fades, and scheduling.
+  still owns gameplay, bank-0 tile graphics, sprites, animations, overlay/menu
+  construction, battles, cutscenes, fade progression, and scheduling. The
+  passive layer may project paired bank-1 attributes for explicitly integrated
+  map overlays and transform all eight authored BG palettes at Yellow's fade
+  seam; it does not acquire retained renderer ownership for either operation.
 - `pokeyellow_phase2_audit.gbc` retains extra diagnostics and certification
   surfaces only. `PHASE2_AUDIT` never decides whether the player-visible
   toggle or passive renderer exists or runs.

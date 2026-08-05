@@ -44,6 +44,11 @@ class Phase2Rom:
         emu.pyboy.memory[0xFFFF] = 0
         if bank:
             emu.pyboy.memory[0x2000] = bank
+        # Mirror Bankswitch's software-visible ROM-bank state, including Home.
+        # Direct ROM entry used to update only MBC5, so a routine containing a
+        # nested farcall restored a stale bank and continued through unrelated
+        # code.
+        emu.pyboy.memory[emu.symbols["hLoadedROMBank"]] = bank
         regs.PC = address
         returned = False
 
