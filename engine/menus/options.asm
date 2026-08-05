@@ -505,6 +505,9 @@ InitOptionsMenu:
 	farcall PassiveFullColorShouldColorOverlay
 	jr nc, .yellowInitialCursor
 	call OptionsMenu_UpdateCursorPosition
+	; The initial Options screen replaces the prior window. Later loop updates
+	; move only the cursor and deliberately retain the completed-plane fast path.
+	farcall PassiveFullColorInvalidateOverlayAttributes
 	farcall PassiveFullColorPrepareMenuOverlay
 .yellowInitialCursor
 	ldh a, [hAutoBGTransferEnabled]

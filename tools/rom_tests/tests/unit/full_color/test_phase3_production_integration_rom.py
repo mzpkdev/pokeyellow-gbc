@@ -41,6 +41,7 @@ ENTRY_IF = 0x1A
 BOOTROM_DISABLE = 0xFF50
 VBLANK_INTERRUPT = 1 << 0
 VBG_MAP_1 = 0x9800
+PASSIVE_OVERLAY_COMPLETE = 1 << 5
 PRODUCTS = ("pokeyellow", "pokeyellow_debug", "pokeyellow_vc")
 
 
@@ -482,6 +483,7 @@ def test_display_text_id_reaches_passive_overlay_after_yellow_finishes_window(
     emu.memory[0xFF40] &= 0x7F
     phase2_rom.call("PassiveFullColorApplyMap")
     _enable_production_overlay_video(phase2_rom)
+    emu.memory[symbols["hAutoBGTransferEnabled"]] = PASSIVE_OVERLAY_COMPLETE
     emu.memory[symbols["hTextID"]] = 1
     state = _run_to_boundary(
         phase2_rom,
@@ -490,7 +492,9 @@ def test_display_text_id_reaches_passive_overlay_after_yellow_finishes_window(
         observe=(
             "PassiveFullColorShouldColorOverlay",
             "LoadFontTilePatterns",
+            "PassiveFullColorInvalidateOverlayAttributes",
             "PassiveFullColorPrepareTextOverlay",
+            "PassiveFullColorOverlayAttributeGDMA",
         ),
         stub_returns={
             "TextBoxBorder": None,
@@ -506,12 +510,211 @@ def test_display_text_id_reaches_passive_overlay_after_yellow_finishes_window(
         "LoadFontTilePatterns",
         "PassiveFullColorPrepareTextOverlay",
         "PassiveFullColorShouldColorOverlay",
+        "PassiveFullColorInvalidateOverlayAttributes",
+        "PassiveFullColorOverlayAttributeGDMA",
         "Delay3",
     )
     assert phase2_rom.read_wram2("wRendererOwner") == bytes(
         (phase2_rom.constants["RENDERER_YELLOW"],)
     )
     assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x01"
+
+
+def test_print_text_prepares_finalized_message_box_before_existing_delay(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = 0x0C
+    emu.memory[symbols["wUnusedObtainedBadges"]] = 0
+    emu.memory[0xFF40] &= 0x7F
+    phase2_rom.call("PassiveFullColorApplyMap")
+    _enable_production_overlay_video(phase2_rom)
+    emu.memory[symbols["hAutoBGTransferEnabled"]] = PASSIVE_OVERLAY_COMPLETE
+
+    state = _run_to_boundary(
+        phase2_rom,
+        "PrintText",
+        "Delay3",
+        observe=(
+            "DisplayTextBoxID",
+            "UpdateSprites",
+            "PassiveFullColorPrepareTextOverlay",
+            "PassiveFullColorShouldColorOverlay",
+            "PassiveFullColorInvalidateOverlayAttributes",
+            "PassiveFullColorOverlayAttributeGDMA",
+        ),
+        stub_returns={
+            "DisplayTextBoxID": None,
+            "UpdateSprites": None,
+        },
+        run_vblank_interrupts=True,
+    )
+
+    assert state.events == (
+        "DisplayTextBoxID",
+        "UpdateSprites",
+        "PassiveFullColorPrepareTextOverlay",
+        "PassiveFullColorShouldColorOverlay",
+        "PassiveFullColorInvalidateOverlayAttributes",
+        "PassiveFullColorOverlayAttributeGDMA",
+        "Delay3",
+    )
+    assert symbols["PrintText_NoCreatingTextBox"] - symbols["PrintText"] == 0x10
+    assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x01"
+
+
+def test_print_text_overlay_seam_is_inert_outside_active_color_slice(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = 0x33
+    emu.memory[symbols["hAutoBGTransferEnabled"]] = PASSIVE_OVERLAY_COMPLETE
+
+    state = _run_to_boundary(
+        phase2_rom,
+        "PrintText",
+        "Delay3",
+        observe=(
+            "DisplayTextBoxID",
+            "UpdateSprites",
+            "PassiveFullColorPrepareTextOverlay",
+            "PassiveFullColorShouldColorOverlay",
+            "PassiveFullColorInvalidateOverlayAttributes",
+            "PassiveFullColorOverlayAttributeGDMA",
+        ),
+        stub_returns={
+            "DisplayTextBoxID": None,
+            "UpdateSprites": None,
+        },
+    )
+
+    assert state.events == (
+        "DisplayTextBoxID",
+        "UpdateSprites",
+        "PassiveFullColorPrepareTextOverlay",
+        "PassiveFullColorShouldColorOverlay",
+        "Delay3",
+    )
+    assert not emu.memory[symbols["hAutoBGTransferEnabled"]] & (
+        PASSIVE_OVERLAY_COMPLETE | 1 << 7
+    )
+
+
+def test_two_option_menu_prepares_finalized_structure_before_input_delay(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = 0x0C
+    emu.memory[symbols["wUnusedObtainedBadges"]] = 0
+    emu.memory[0xFF40] &= 0x7F
+    phase2_rom.call("PassiveFullColorApplyMap")
+    _enable_production_overlay_video(phase2_rom)
+    emu.memory[symbols["hAutoBGTransferEnabled"]] = PASSIVE_OVERLAY_COMPLETE
+
+    state = _run_to_boundary(
+        phase2_rom,
+        "DisplayTwoOptionMenu",
+        "Delay3",
+        observe=(
+            "TextBoxBorder",
+            "UpdateSprites",
+            "PlaceString",
+            "PassiveFullColorInvalidateOverlayAttributes",
+            "PassiveFullColorPrepareMenuOverlay",
+            "PassiveFullColorShouldColorOverlay",
+            "PassiveFullColorOverlayAttributeGDMA",
+            "PlaceMenuCursor",
+        ),
+        stub_returns={
+            "TwoOptionMenu_SaveScreenTiles": None,
+            "TextBoxBorder": None,
+            "UpdateSprites": None,
+            "PlaceString": None,
+            "PlaceMenuCursor": None,
+        },
+        run_vblank_interrupts=True,
+    )
+
+    assert state.events == (
+        "TextBoxBorder",
+        "UpdateSprites",
+        "PlaceString",
+        "PassiveFullColorInvalidateOverlayAttributes",
+        "PassiveFullColorPrepareMenuOverlay",
+        "PassiveFullColorShouldColorOverlay",
+        "PassiveFullColorOverlayAttributeGDMA",
+        "PlaceMenuCursor",
+        "Delay3",
+    )
+
+
+def test_two_option_menu_restoration_rebuilds_attributes_before_tile_sweep(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = 0x0C
+    emu.memory[symbols["wUnusedObtainedBadges"]] = 0
+    emu.memory[0xFF40] &= 0x7F
+    phase2_rom.call("PassiveFullColorApplyMap")
+    _enable_production_overlay_video(phase2_rom)
+    emu.memory[symbols["hAutoBGTransferEnabled"]] = PASSIVE_OVERLAY_COMPLETE
+
+    state = _run_to_boundary(
+        phase2_rom,
+        "TwoOptionMenu_RestoreScreenTiles",
+        "Delay3",
+        observe=(
+            "UpdateSprites",
+            "PassiveFullColorShouldColorOverlay",
+            "PassiveFullColorInvalidateOverlayAttributes",
+            "PassiveFullColorPrepareMenuOverlay",
+            "PassiveFullColorOverlayAttributeGDMA",
+        ),
+        stub_returns={"UpdateSprites": None},
+        run_vblank_interrupts=True,
+    )
+
+    assert state.events == (
+        "UpdateSprites",
+        "PassiveFullColorShouldColorOverlay",
+        "PassiveFullColorInvalidateOverlayAttributes",
+        "PassiveFullColorPrepareMenuOverlay",
+        "PassiveFullColorShouldColorOverlay",
+        "PassiveFullColorOverlayAttributeGDMA",
+        "Delay3",
+    )
+
+
+def test_two_option_menu_restoration_keeps_stock_timing_outside_color_slice(
+    phase2_rom: Phase2Rom,
+) -> None:
+    state = _run_to_boundary(
+        phase2_rom,
+        "TwoOptionMenu_RestoreScreenTiles",
+        "TwoOptionMenu_RestoreScreenTiles.restored",
+        observe=(
+            "UpdateSprites",
+            "PassiveFullColorShouldColorOverlay",
+            "PassiveFullColorInvalidateOverlayAttributes",
+            "PassiveFullColorPrepareMenuOverlay",
+            "Delay3",
+        ),
+        stub_returns={"UpdateSprites": None},
+    )
+
+    assert state.events == (
+        "UpdateSprites",
+        "PassiveFullColorShouldColorOverlay",
+        "TwoOptionMenu_RestoreScreenTiles.restored",
+    )
 
 
 def test_display_start_menu_reaches_passive_overlay_after_yellow_draw(
@@ -529,6 +732,9 @@ def test_display_start_menu_reaches_passive_overlay_after_yellow_draw(
     phase2_rom.emulator.pyboy.memory[0xFF40] &= 0x7F
     phase2_rom.call("PassiveFullColorApplyMap")
     _enable_production_overlay_video(phase2_rom)
+    phase2_rom.emulator.pyboy.memory[
+        symbols["hAutoBGTransferEnabled"]
+    ] = PASSIVE_OVERLAY_COMPLETE
 
     state = _run_to_boundary(
         phase2_rom,
@@ -536,8 +742,10 @@ def test_display_start_menu_reaches_passive_overlay_after_yellow_draw(
         "HandleMenuInput_.loop2",
         observe=(
             "PassiveFullColorShouldColorOverlay",
+            "PassiveFullColorInvalidateOverlayAttributes",
             "FullColorStartMenuReveal",
             "PassiveFullColorPrepareMenuOverlay",
+            "PassiveFullColorOverlayAttributeGDMA",
         ),
         stub_returns={
             "PlaySound": None,
@@ -551,11 +759,55 @@ def test_display_start_menu_reaches_passive_overlay_after_yellow_draw(
     )
     assert state.events == (
         "PassiveFullColorShouldColorOverlay",
+        "PassiveFullColorInvalidateOverlayAttributes",
         "FullColorStartMenuReveal",
         "PassiveFullColorShouldColorOverlay",
         "PassiveFullColorPrepareMenuOverlay",
         "PassiveFullColorShouldColorOverlay",
+        "PassiveFullColorOverlayAttributeGDMA",
         "HandleMenuInput_.loop2",
+    )
+    assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x01"
+
+
+def test_initial_options_screen_invalidates_prior_completed_overlay(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = 0x0C
+    emu.memory[symbols["wUnusedObtainedBadges"]] = 0
+    emu.memory[0xFF40] &= 0x7F
+    phase2_rom.call("PassiveFullColorApplyMap")
+    _enable_production_overlay_video(phase2_rom)
+    emu.memory[symbols["hAutoBGTransferEnabled"]] = PASSIVE_OVERLAY_COMPLETE
+
+    state = _run_to_boundary(
+        phase2_rom,
+        "InitOptionsMenu",
+        "Delay3",
+        observe=(
+            "PassiveFullColorShouldColorOverlay",
+            "PassiveFullColorInvalidateOverlayAttributes",
+            "PassiveFullColorPrepareMenuOverlay",
+            "PassiveFullColorOverlayAttributeGDMA",
+        ),
+        stub_returns={
+            "TextBoxBorder": None,
+            "PlaceString": None,
+            "GetOptionPointer": None,
+        },
+        run_vblank_interrupts=True,
+    )
+
+    assert state.events == (
+        "PassiveFullColorShouldColorOverlay",
+        "PassiveFullColorInvalidateOverlayAttributes",
+        "PassiveFullColorPrepareMenuOverlay",
+        "PassiveFullColorShouldColorOverlay",
+        "PassiveFullColorOverlayAttributeGDMA",
+        "Delay3",
     )
     assert phase2_rom.read_wram2("wPassiveFullColorActive") == b"\x01"
 

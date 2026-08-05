@@ -155,20 +155,27 @@ VBlank commits the matching bank-1 row or column, before another producer may
 reuse the single slot. Column records carry destination addresses so the
 critical section does not reconstruct them per row.
 
-The hidden overlay activation barrier is the exception. A fresh menu translates
-the finalized 20x18 tilemap once into an aligned WRAM2 plane with Yellow's
-32-byte BG-map row stride. One dedicated VBlank publishes that complete 32x18
-plane to VRAM bank 1 with GDMA. The caller's unchanged `Delay3` then gives
-Yellow's stock six-row `AutoBgMapTransfer` exactly three bank-0 frames before
-reveal. Fresh presentation therefore takes four frames. Later cursor movement
-rearms only the stock three-frame sweep because the completed attribute plane
-returns immediately. Yellow's OAM DMA and shadow-OAM preparation continue on
+The hidden overlay activation barrier is the exception. A fresh dialogue
+window, initial or redisplayed Start menu, or initial Options screen explicitly
+invalidates the completed-plane latch after Yellow finalizes its structure. It
+then translates the finalized 20x18 tilemap once into an aligned WRAM2 plane
+with Yellow's 32-byte BG-map row stride. One dedicated VBlank publishes that
+complete 32x18 plane to VRAM bank 1 with GDMA. The caller's unchanged `Delay3`
+then gives Yellow's stock six-row `AutoBgMapTransfer` exactly three bank-0
+frames before reveal. Fresh presentation therefore takes four frames. The
+completion latch certifies only that structural tilemap. Later Start or Options
+cursor movement does not invalidate it and rearms only the stock three-frame
+sweep. Yellow's OAM DMA and shadow-OAM preparation continue on
 the attribute frame because sprites are a separate Yellow-owned resource. Each
 stock tile frame commits that frozen shadow OAM without rebuilding it, which
 keeps the combined tile-and-OAM work inside VBlank. The sweep then disables
 stock publication so queued VRAM work resumes on the next VBlank.
-A submenu that clears `hAutoBGTransferEnabled` also clears the completion latch,
-so returning to the menu correctly performs a fresh attribute publication.
+The Start redisplay seam invalidates the latch explicitly, so correctness does
+not depend on whether an intervening submenu happened to clear
+`hAutoBGTransferEnabled`. Two-option menus likewise treat both drawing their
+border and restoring the covered tiles on dismissal as structural changes.
+The dismissal rebuild is gated to the active Color slice; Yellow presentation
+keeps its original return path and timing.
 
 The attribute GDMA is the only VRAM writer in its frame, and any pending Yellow
 redraw or queued VRAM work remains armed until the barrier finishes.

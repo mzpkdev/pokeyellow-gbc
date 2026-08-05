@@ -276,6 +276,10 @@ DisplayTwoOptionMenu:
 	pop hl
 	add hl, bc
 	call PlaceString
+	; The menu border and labels are now structurally final. Publish their fresh
+	; attributes before HandleMenuInput runs its existing three-frame tile sweep.
+	farcall PassiveFullColorInvalidateOverlayAttributes
+	farcall PassiveFullColorPrepareMenuOverlay
 	xor a
 	ld [wTwoOptionMenuID], a
 	ld hl, wStatusFlags5
@@ -348,6 +352,15 @@ TwoOptionMenu_RestoreScreenTiles:
 	dec b
 	jr nz, .loop
 	call UpdateSprites
+	; Restoring the covered tiles changes the structural window again. Rebuild
+	; bank 1 before Yellow's existing whole-screen bank-0 publication can expose
+	; the restored screen with the dismissed menu's palette-7 attributes.
+	farcall PassiveFullColorShouldColorOverlay
+	jr nc, .restored
+	farcall PassiveFullColorInvalidateOverlayAttributes
+	farcall PassiveFullColorPrepareMenuOverlay
+	call Delay3
+.restored
 	ret
 
 INCLUDE "data/yes_no_menu_strings.asm"

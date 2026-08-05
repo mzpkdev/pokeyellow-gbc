@@ -806,6 +806,47 @@ def test_completed_menu_sweep_uses_only_stock_bank0_transfer(
         phase2_rom.emulator.close()
 
 
+def test_completed_overlay_cursor_prepare_keeps_three_frame_fast_path(
+    phase2_rom: Phase2Rom,
+) -> None:
+    _activate_passive_map(phase2_rom)
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    emu.memory[symbols["hAutoBGTransferPortion"]] = 2
+    emu.memory[symbols["hAutoBGTransferEnabled"]] = PASSIVE_OVERLAY_COMPLETE
+
+    phase2_rom.call("PassiveFullColorPrepareMenuOverlay")
+
+    enabled = emu.memory[symbols["hAutoBGTransferEnabled"]]
+    assert emu.memory[symbols["hAutoBGTransferPortion"]] == 0
+    assert enabled & AUTO_BG_TRANSFER_ENABLED
+    assert enabled & PASSIVE_OVERLAY_FINITE_SWEEP
+    assert enabled & PASSIVE_OVERLAY_STOCK_SWEEP
+    assert enabled & PASSIVE_OVERLAY_COMPLETE
+    assert not enabled & PASSIVE_OVERLAY_TRANSFER
+
+
+def test_structural_overlay_invalidation_clears_only_completion_certificate(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    prior = (
+        AUTO_BG_TRANSFER_ENABLED
+        | PASSIVE_OVERLAY_FINITE_SWEEP
+        | PASSIVE_OVERLAY_STOCK_SWEEP
+        | PASSIVE_OVERLAY_COMPLETE
+        | PASSIVE_OVERLAY_TRANSFER
+    )
+    emu.memory[symbols["hAutoBGTransferEnabled"]] = prior
+
+    phase2_rom.call("PassiveFullColorInvalidateOverlayAttributes")
+
+    assert emu.memory[symbols["hAutoBGTransferEnabled"]] == (
+        prior & ~PASSIVE_OVERLAY_COMPLETE
+    )
+
+
 def test_completed_menu_sweep_stops_after_three_frames_and_restores_video_tail(
     phase2_rom: Phase2Rom,
 ) -> None:

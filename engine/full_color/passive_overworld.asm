@@ -433,6 +433,15 @@ PassiveFullColorShouldColorOverlay:
 	and a
 	ret
 
+; The completion latch certifies only the current structural window contents.
+; Call this after Yellow replaces a dialogue/menu window and before preparing its
+; overlay. Cursor-only updates keep the latch and use the completed fast path.
+PassiveFullColorInvalidateOverlayAttributes:
+	ldh a, [hAutoBGTransferEnabled]
+	res BIT_PASSIVE_FULL_COLOR_OVERLAY_COMPLETE, a
+	ldh [hAutoBGTransferEnabled], a
+	ret
+
 ; Translate Yellow's finalized 20x18 window tilemap once outside VBlank. A fresh
 ; hidden plane uses one dedicated attribute-GDMA frame, then callers' established
 ; Delay3 runs Yellow's unchanged stock six-row sweep before reveal. A coherent
@@ -450,6 +459,7 @@ PassiveFullColorPrepareMenuOverlay:
 PassiveFullColorPrepareTextOverlay:
 	call PassiveFullColorShouldColorOverlay
 	jr nc, PassiveFullColorPrepareOverlayInactive
+	call PassiveFullColorInvalidateOverlayAttributes
 	ldh a, [hAutoBGTransferEnabled]
 	res BIT_PASSIVE_FULL_COLOR_OVERLAY_FINITE_SWEEP, a
 	ldh [hAutoBGTransferEnabled], a
@@ -1257,7 +1267,8 @@ EXPORT PassiveFullColorPrepareRedrawAttributes
 EXPORT PassiveFullColorPrepareColumnAttributes
 EXPORT PassiveFullColorScheduleAttributeRestore, PassiveFullColorRestoreAfterMenu
 EXPORT PassiveFullColorPrepareMenuHandoff
-EXPORT PassiveFullColorShouldColorOverlay, PassiveFullColorPrepareMenuOverlay
+EXPORT PassiveFullColorShouldColorOverlay
+EXPORT PassiveFullColorInvalidateOverlayAttributes, PassiveFullColorPrepareMenuOverlay
 EXPORT PassiveFullColorPrepareTextOverlay
 EXPORT PassiveFullColorPrepareBattleHandoff
 EXPORT PassiveFullColorOverlayAttributeGDMA

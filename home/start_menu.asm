@@ -21,6 +21,9 @@ RedisplayStartMenu::
 .windowReady
 	farcall DrawStartMenu
 RedisplayStartMenu_DoNotDrawStartMenu::
+	; Both paths install a fresh Start-menu structure. Invalidate the completed
+	; Color attribute plane before the first cursor placement prepares it again.
+	farcall PassiveFullColorInvalidateOverlayAttributes
 	call FullColorStartMenuReveal
 	call UpdateSprites
 .loop
