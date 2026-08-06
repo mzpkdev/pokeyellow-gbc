@@ -1,6 +1,6 @@
 {
   "baseline_manifest_sha256": "75c058f0d0df07a25918c710dc8ddebf43d3e5b809a06faaf7391cf015a9d774",
-  "current_source_sha256": "4500f9bc63abd4f704abc5586ca474aa49ab80fbd951606fc823195df0908ff2",
+  "current_source_sha256": "32648a656779a67a92ea61c0d3dbec82287acdf9eddf0c7d9b1f53f300e71b29",
   "reviewed_delta_paths": {
     "constants/full_color_constants.asm": {
       "current_sha256": "33ea30e6b29ba1c5b14ddade6fdb4e6a049640810404a4859b402721f5b2446c",
@@ -73,6 +73,10 @@
     "engine/gfx/bg_map_attributes.asm": {
       "current_sha256": "3a6e38eb0188d6ab01bfcc6b7016ce1497913f590e21e2c45b0e93bb0797de16",
       "reviewed_sha256": "d7b5b7e89c68b0c237ed384f8ad8f410e0068a0205c807619e400bb5b725fe0d"
+    },
+    "engine/gfx/oam_dma.asm": {
+      "current_sha256": "5691ddc6ebfdda98fa860e8a640c4665f2b77a2cd6a102c1ba8173f7c8d3bff1",
+      "reviewed_sha256": "841b3b744cfc1cd8c1b0932ec1db544d51def2075d4d2061cc8f032e02e3ef8d"
     },
     "engine/gfx/palettes.asm": {
       "current_sha256": "f86296951264ad2320cf37f29b499f69c4197f2dfb587ef9099713da2a2b1938",
@@ -155,7 +159,7 @@
       "reviewed_sha256": "ade9caba7e3e99c8047800fc9b46818a7407c01dcde74b150f9aa22de88daa61"
     },
     "ram/sram.asm": {
-      "current_sha256": "446a493d4c70507cdef36c60654394a11c4111ece1e4b56fc6b2908488c030f3",
+      "current_sha256": "7a47b2273a40f8624ea27c4717f2cfac90ba9f40def5fec9e0b47656fc62cf42",
       "reviewed_sha256": "dcbeca2292520e120f7c516bbbb3daa37507d644a7d60f1d678e3c4fd57dd26e"
     },
     "ram/wram.asm": {

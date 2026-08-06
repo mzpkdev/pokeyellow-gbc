@@ -20,6 +20,7 @@ from tools.rom_tests.full_color.enums import (
 from tools.rom_tests.full_color.errors import RendererConformanceError
 from tools.rom_tests.full_color.renderer_oracle import (
     CONFORMANCE_CASE_SCHEMA,
+    KNOWN_CHECK_IDS,
     MachineStatePredicate,
     OperationKind,
     ConformanceCase,
@@ -73,6 +74,10 @@ def test_oracle_public_seam_accepts_only_authoritative_case() -> None:
         "WriterTrace",
     ):
         assert forbidden not in source
+
+
+def test_oracle_accepts_the_evidence_check_identity() -> None:
+    assert "CHK-EVIDENCE-01" in KNOWN_CHECK_IDS
 
 
 def test_case_schema_is_closed_versioned_and_deeply_immutable() -> None:

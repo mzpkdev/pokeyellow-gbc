@@ -19,9 +19,9 @@ behavior and vocabulary remain defined in [requirements.md](requirements.md).
 - **AC-INV-01:** Phase 0 source plus built-ROM discovery closes the reviewed initial map-entry slice, and each implementation phase closes every writer, scene, boundary, and mutation row it touches before the changed path becomes reachable. Direct requirements: R1.7, R12.6, R12.8.
 - **AC-TRACE-01:** Every requirement maps to at least one named check, every named check maps to at least one requirement, and the definition-derived acceptance requirement sets equal their AC-MAP cells. Direct requirements: R11.4, R12.6.
 
-## Gate 0 prerequisite
+## Evidence prerequisite
 
-- **AC-G0-01:** The [prerequisite gates](prerequisite-gates.md) pass the deterministic environment, observability, semantic snapshots, ownership model, bank torture, reviewed initial inventory slice, visual artifact pipeline, implemented-gate mutations, stable commands, and CI execution twice against the baseline debug ROM before production renderer work begins; no renderer request, commit, return, overlay, OAM, representation, or operation-timing acceptance is claimed. Direct requirements: R1.7, R3.4, R3.5, R3.6, R11.3, R11.4, R11.5, R11.6, R12.6, R12.8.
+- **AC-EVIDENCE-01:** The [verification contracts](prerequisite-gates.md) pass deterministic environment, observability, semantic snapshots, ownership-model, bank-contract, reviewed baseline inventory, visual-pipeline, mutation, command-surface, and hosted-CI checks. Two independent evidence captures from the same debug ROM MUST have byte-identical semantic, traceability, and versioned-manifest outputs; no renderer request, commit, return, overlay, OAM, representation, or operation-timing acceptance is claimed. Direct requirements: R1.7, R3.4, R3.5, R3.6, R11.3, R11.4, R11.5, R11.6, R12.6, R12.8.
 
 ## Overworld
 
@@ -49,7 +49,7 @@ behavior and vocabulary remain defined in [requirements.md](requirements.md).
 - **AC-TECH-06:** Seeded ownership-model sequences match request, job, cancellation, generation, phase, owner, wrapper dispatch, and routed-VBlank state. Direct requirements: R1.2, R1.5, R1.19, R1.20, R2.9, R5.7, R10.2.
 - **AC-TECH-07:** Forced entry-bank and interrupt tests preserve selected WRAM placement, bank/stack state, MBC5 call behavior, LCD composition, and scheduled-work bank restoration. Direct requirements: R3.3, R3.5, R3.6, R4.5, R10.1, R10.6.
 - **AC-TECH-08:** Every activated selector, transition, reset, LCD, VBlank, palette, paired transfer, animation/field replacement, and OAM operation has a named numeric cycle equation, natural deadline, exact-fit completion, and threshold-plus-one whole-unit deferral. Direct requirements: R5.8, R9.7, R10.4, R10.5, R10.8, R10.9, R10.10, R10.11.
-- **AC-TECH-09:** Each currently implemented or phase-activated critical gate's mutation test proves that the prerequisite suite and CI detect its named target failure before the affected behavior expands. Direct requirements: R11.6, R12.6.
+- **AC-TECH-09:** Each currently implemented or phase-activated critical contract's mutation test proves that the prerequisite contracts and CI detect its named target failure before the affected behavior expands. Direct requirements: R11.6, R12.6.
 - **AC-TECH-10:** Every diagnostic checkpoint produces complete fallback, canary, screenshot, bounded frame-strip, semantic, trace, and LLM-visible evidence. Direct requirements: R9.4, R11.1, R11.3, R11.4, R11.5.
 
 ## Architecture expansion gate

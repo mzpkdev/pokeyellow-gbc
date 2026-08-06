@@ -44,7 +44,7 @@ def evidence(*, reviewed: bool = True) -> dict[str, object]:
         "rom_sha256": ROM_HASH,
         "sym_sha256": SYM_HASH,
         "map_sha256": MAP_HASH,
-        "reviewer": "gate-0-review",
+        "reviewer": "baseline-review",
         "reviewed": reviewed,
     }
 

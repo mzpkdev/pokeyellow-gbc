@@ -1,4 +1,4 @@
-"""Strict reviewed ACCEPT assignments for Gate 0 discovery findings.
+"""Strict reviewed ACCEPT assignments for baseline discovery findings.
 
 Assignments are exact review decisions, not classification heuristics.  Each
 row binds one complete discovery fingerprint to a concrete inventory row and
@@ -29,19 +29,17 @@ from .inventory import SceneRowKind
 from .rom_discovery import RomFinding
 from .source_discovery import SourceFinding
 
-ASSIGNMENT_SCHEMA = "full-color-discovery-assignments-v1"
+ASSIGNMENT_SCHEMA = "full-color-discovery-assignments-v2"
 NORMAL_PRODUCT = "pokeyellow"
 DEBUG_PRODUCT = "pokeyellow_debug"
 VC_PRODUCT = "pokeyellow_vc"
-GATE0_BASELINE_PRODUCT = "pokeyellow_debug_gate0"
-# Backwards-compatible name for the narrow Gate 0 baseline tranche.
-NORMAL_DEBUG_PRODUCT = GATE0_BASELINE_PRODUCT
+BASELINE_PRODUCT = "pokeyellow_debug_baseline"
 PHASE2_AUDIT_PRODUCT = "pokeyellow_phase2_audit"
 PRODUCTION_PRODUCTS = (NORMAL_PRODUCT, DEBUG_PRODUCT, VC_PRODUCT)
 ASSIGNMENT_PRODUCTS = frozenset(
-    (*PRODUCTION_PRODUCTS, GATE0_BASELINE_PRODUCT, PHASE2_AUDIT_PRODUCT)
+    (*PRODUCTION_PRODUCTS, BASELINE_PRODUCT, PHASE2_AUDIT_PRODUCT)
 )
-GATE0_BASELINE_ASSIGNMENT_IDS = frozenset({
+BASELINE_ASSIGNMENT_IDS = frozenset({
     "AS-MU-YELLOW-MAP-VIEW-INITIAL-ROM",
     "AS-MU-YELLOW-MAP-VIEW-INITIAL-SOURCE",
     "AS-SC-YELLOW-MAP-ENTRY-ROM",
@@ -125,6 +123,15 @@ def _string(value: object, path: str) -> str:
     if not isinstance(value, str) or not value:
         raise DiscoveryAssignmentValidationError(f"{path}: expected non-empty string")
     return value
+
+
+def _assignment_product(obj: Mapping[str, Any], path: str) -> str:
+    product = _string(obj["product"], f"{path}.product")
+    if product not in ASSIGNMENT_PRODUCTS:
+        raise DiscoveryAssignmentValidationError(
+            f"{path}.product: unknown link product {product!r}"
+        )
+    return product
 
 
 def _canonical_line(value: object, path: str) -> str:
@@ -311,8 +318,7 @@ class AssignmentRow:
     scene: SceneEnrichment | None
     mutation: MutationEnrichment | None
     evidence: AssignmentEvidence
-    product: str = NORMAL_DEBUG_PRODUCT
-    product_explicit: bool = False
+    product: str
 
     _FIELDS: ClassVar[set[str]] = {
         "id",
@@ -322,17 +328,13 @@ class AssignmentRow:
         "scene",
         "mutation",
         "evidence",
+        "product",
     }
 
     @classmethod
     def from_dict(cls, value: object, path: str) -> AssignmentRow:
-        obj = _object(value, path, cls._FIELDS, {"product"})
-        product_explicit = "product" in obj
-        product = obj.get("product", NORMAL_DEBUG_PRODUCT)
-        if product not in ASSIGNMENT_PRODUCTS:
-            raise DiscoveryAssignmentValidationError(
-                f"{path}.product: unknown link product {product!r}"
-            )
+        obj = _object(value, path, cls._FIELDS)
+        product = _assignment_product(obj, path)
         assignment_id = _string(obj["id"], f"{path}.id")
         if not _ASSIGNMENT_ID.fullmatch(assignment_id):
             raise DiscoveryAssignmentValidationError(
@@ -408,11 +410,10 @@ class AssignmentRow:
             mutation,
             AssignmentEvidence.from_dict(obj["evidence"], f"{path}.evidence"),
             product,
-            product_explicit,
         )
 
     def to_dict(self) -> dict[str, object]:
-        result = {
+        return {
             "id": self.id,
             "category": self.category.value,
             "row_id": self.row_id,
@@ -420,10 +421,8 @@ class AssignmentRow:
             "scene": None if self.scene is None else self.scene.to_dict(),
             "mutation": None if self.mutation is None else self.mutation.to_dict(),
             "evidence": self.evidence.to_dict(),
+            "product": self.product,
         }
-        if self.product_explicit:
-            result["product"] = self.product
-        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -500,7 +499,7 @@ class DiscoveryAssignmentAuthority:
         rom_sha256: str,
         sym_sha256: str,
         map_sha256: str,
-        product: str = NORMAL_DEBUG_PRODUCT,
+        product: str,
     ) -> AssignmentMatcher:
         if product not in ASSIGNMENT_PRODUCTS:
             raise StaleDiscoveryAssignmentError(f"unknown assignment product {product!r}")
@@ -510,7 +509,7 @@ class DiscoveryAssignmentAuthority:
             product=product,
         )
 
-    def for_product(self, product: str = NORMAL_DEBUG_PRODUCT) -> DiscoveryAssignmentAuthority:
+    def for_product(self, product: str) -> DiscoveryAssignmentAuthority:
         """Return one fail-closed link-product partition of the authority."""
         if product not in ASSIGNMENT_PRODUCTS:
             raise DiscoveryAssignmentValidationError(
@@ -527,7 +526,7 @@ class AssignmentMatcher:
         authority: DiscoveryAssignmentAuthority,
         baseline_hashes: tuple[str, str, str, str],
         *,
-        product: str = NORMAL_DEBUG_PRODUCT,
+        product: str,
     ) -> None:
         if any(not _SHA256.fullmatch(value) for value in baseline_hashes):
             raise StaleDiscoveryAssignmentError(

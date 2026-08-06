@@ -1,5 +1,6 @@
 """Shared pytest fixtures for ROM tests."""
 
+from collections.abc import Mapping
 import hashlib
 import os
 from pathlib import Path
@@ -11,14 +12,21 @@ from tools.rom_tests.emulator import Emulator
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-RESULTS = REPOSITORY_ROOT / "test-results"
+DEFAULT_RESULTS_ROOT = REPOSITORY_ROOT / "test-results"
+
+
+def configured_results_root(environment: Mapping[str, str] = os.environ) -> Path:
+    """Resolve the one evidence root used by ROM tests."""
+    return Path(
+        environment.get("ROM_TEST_RESULTS", str(DEFAULT_RESULTS_ROOT))
+    ).resolve()
 
 
 def result_directory(node_id: str) -> Path:
     """Return a stable, collision-resistant result directory for one test."""
     readable_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", node_id).strip("-")[-80:]
     digest = hashlib.sha1(node_id.encode("utf-8")).hexdigest()[:8]
-    return RESULTS / f"{readable_name}-{digest}"
+    return configured_results_root() / f"{readable_name}-{digest}"
 
 
 @pytest.fixture

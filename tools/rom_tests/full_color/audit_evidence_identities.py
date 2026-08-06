@@ -12,9 +12,9 @@ from typing import Any, Sequence
 from . import source_transition
 from .baseline_discovery import discover_baseline_sources
 from .discovery_assignment import (
+    BASELINE_ASSIGNMENT_IDS,
+    BASELINE_PRODUCT,
     DiscoveryAssignmentAuthority,
-    NORMAL_DEBUG_PRODUCT,
-    PHASE2_AUDIT_PRODUCT,
 )
 from .inventory import MutationInventory, SceneInventory, WriterInventory
 from .rom_discovery import load_map
@@ -35,7 +35,7 @@ REVIEWED_SOURCE_SHA256 = (
 BASELINE_MANIFEST_SHA256 = (
     "75c058f0d0df07a25918c710dc8ddebf43d3e5b809a06faaf7391cf015a9d774"
 )
-NORMAL_DEBUG_ARTIFACTS = {
+BASELINE_ARTIFACTS = {
     "rom_sha256": Path("pokeyellow_debug.gbc"),
     "map_sha256": Path("pokeyellow_debug.map"),
     "sym_sha256": Path("pokeyellow_debug.sym"),
@@ -45,19 +45,7 @@ AUDIT_ARTIFACTS = {
     "map_sha256": Path("pokeyellow_phase2_audit.map"),
     "sym_sha256": Path("pokeyellow_phase2_audit.sym"),
 }
-NORMAL_DEBUG_ASSIGNMENT_IDS = frozenset(
-    {
-        "AS-MU-YELLOW-MAP-VIEW-INITIAL-ROM",
-        "AS-MU-YELLOW-MAP-VIEW-INITIAL-SOURCE",
-        "AS-SC-YELLOW-MAP-ENTRY-ROM",
-        "AS-SC-YELLOW-MAP-ENTRY-SOURCE",
-        "AS-WR-YELLOW-LCDC-DISABLE-ROM",
-        "AS-WR-YELLOW-LCDC-DISABLE-SOURCE",
-        "AS-WR-YELLOW-MAP-VIEW-TILE-COPY-ROM",
-        "AS-WR-YELLOW-MAP-VIEW-TILE-COPY-SOURCE",
-    }
-)
-NORMAL_DEBUG_INVENTORY_IDS = {
+BASELINE_INVENTORY_IDS = {
     "mutations.json": frozenset({"MU-YELLOW-MAP-VIEW-INITIAL"}),
     "scenes.json": frozenset({"SC-YELLOW-MAP-ENTRY"}),
     "writers.json": frozenset(
@@ -138,8 +126,8 @@ def _artifact_hashes(
     return hashes
 
 
-def _normal_debug_hashes(root: Path, source_sha256: str) -> dict[str, str]:
-    return _artifact_hashes(root, source_sha256, NORMAL_DEBUG_ARTIFACTS)
+def _baseline_hashes(root: Path, source_sha256: str) -> dict[str, str]:
+    return _artifact_hashes(root, source_sha256, BASELINE_ARTIFACTS)
 
 
 def _audit_hashes(root: Path, source_sha256: str) -> dict[str, str]:
@@ -165,26 +153,24 @@ def _require_reviewed_audit_hashes(
 def _updated_assignments(
     authority: DiscoveryAssignmentAuthority,
     source_sha256: str,
-    normal_hashes: dict[str, str],
+    baseline_hashes: dict[str, str],
     audit_hashes: dict[str, str],
 ) -> DiscoveryAssignmentAuthority:
-    normal = tuple(row for row in authority.rows if row.id in NORMAL_DEBUG_ASSIGNMENT_IDS)
-    normal_ids = frozenset(row.id for row in normal)
-    if normal_ids != NORMAL_DEBUG_ASSIGNMENT_IDS or len(normal) != len(
-        NORMAL_DEBUG_ASSIGNMENT_IDS
+    baseline = tuple(
+        row for row in authority.rows if row.product == BASELINE_PRODUCT
+    )
+    baseline_ids = frozenset(row.id for row in baseline)
+    if baseline_ids != BASELINE_ASSIGNMENT_IDS or len(baseline) != len(
+        BASELINE_ASSIGNMENT_IDS
     ):
         raise AuditEvidenceIdentityError(
-            "normal-debug assignment scope changed: expected the eight reviewed "
+            "baseline assignment scope changed: expected the eight reviewed "
             "initial-map-entry assignments"
-        )
-    if any(row.product != NORMAL_DEBUG_PRODUCT for row in normal):
-        raise AuditEvidenceIdentityError(
-            "Gate 0 baseline assignments changed link product"
         )
     rows = []
     for row in authority.rows:
-        if row.product == NORMAL_DEBUG_PRODUCT:
-            evidence = replace(row.evidence, **normal_hashes)
+        if row.product == BASELINE_PRODUCT:
+            evidence = replace(row.evidence, **baseline_hashes)
         else:
             # Phase 2's producer owns all product-specific slice assignments.
             evidence = row.evidence
@@ -208,7 +194,7 @@ def _assert_assignment_delta(
             )
         allowed = (
             {"source_sha256", "rom_sha256", "map_sha256", "sym_sha256"}
-            if old.product == NORMAL_DEBUG_PRODUCT
+            if old.product == BASELINE_PRODUCT
             else set(HASH_FIELDS)
         )
         for key in set(old_evidence) | set(new_evidence):
@@ -222,23 +208,23 @@ def _updated_document(
     relative: Path,
     raw: dict[str, Any],
     source_sha256: str,
-    normal_hashes: dict[str, str],
+    baseline_hashes: dict[str, str],
     audit_hashes: dict[str, str],
 ) -> Any:
-    normal_ids = NORMAL_DEBUG_INVENTORY_IDS.get(relative.name, frozenset())
-    found_normal_ids = frozenset(
-        row.get("id") for row in raw["rows"] if row.get("id") in normal_ids
+    baseline_ids = BASELINE_INVENTORY_IDS.get(relative.name, frozenset())
+    found_baseline_ids = frozenset(
+        row.get("id") for row in raw["rows"] if row.get("id") in baseline_ids
     )
-    if found_normal_ids != normal_ids:
+    if found_baseline_ids != baseline_ids:
         raise AuditEvidenceIdentityError(
-            f"normal-debug inventory scope changed: {relative.name}"
+            f"baseline inventory scope changed: {relative.name}"
         )
     for row in raw["rows"]:
         evidence = row.get("evidence")
         if not isinstance(evidence, dict):
             continue
-        if row.get("id") in normal_ids:
-            evidence.update(normal_hashes)
+        if row.get("id") in baseline_ids:
+            evidence.update(baseline_hashes)
             continue
         # Phase 2 rows are refreshed by phase2_measurements for all products.
     return raw
@@ -301,7 +287,7 @@ def propose(root: Path, transition_proposal: Path) -> dict[str, object]:
         raise AuditEvidenceIdentityError(
             "source-transition authority does not match canonical recomputation"
         )
-    normal_hashes = _normal_debug_hashes(root, source_sha256)
+    baseline_hashes = _baseline_hashes(root, source_sha256)
     audit_hashes = _audit_hashes(root, source_sha256)
     documents: dict[str, object] = {}
     for relative, document_type in DOCUMENTS.items():
@@ -313,13 +299,13 @@ def propose(root: Path, transition_proposal: Path) -> dict[str, object]:
         if relative.name == "assignments.json":
             before = DiscoveryAssignmentAuthority.from_dict(raw)
             document = _updated_assignments(
-                before, source_sha256, normal_hashes, audit_hashes
+                before, source_sha256, baseline_hashes, audit_hashes
             )
             _assert_assignment_delta(before, document)
         else:
             document = document_type.from_dict(
                 _updated_document(
-                    relative, raw, source_sha256, normal_hashes, audit_hashes
+                    relative, raw, source_sha256, baseline_hashes, audit_hashes
                 )
             )
         proposed = json.loads(document.to_json())

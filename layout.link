@@ -258,7 +258,7 @@ SRAM $2
 	"Saved Boxes 1"
 SRAM $3
 	"Saved Boxes 2"
-	"Full Color Gate 0 Debug State"
+	"Full Color Harness Debug State"
 HRAM
 	"OAM DMA"
 	"HRAM"

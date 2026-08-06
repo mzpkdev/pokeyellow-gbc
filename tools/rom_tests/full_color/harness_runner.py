@@ -22,21 +22,23 @@ PRE_CLEANUP_SHA = "a8b62fb990a13da6add30c92f8440b296dddce49"
 FAST_COMPONENTS = (
     "build-products",
     "production-linkage",
-    "phase2-audit",
+    "audit-evidence",
     "smoke",
-    "renderer-conformance",
+    "renderer-contracts",
     "renderer-runtime",
 )
 CERTIFY_COMPONENTS = (
     "build-products",
-    "donor-provenance",
-    "gate0",
-    "phase2-audit",
-    "renderer-conformance",
+    "donor-contract",
+    "unit-tests",
+    "harness-contracts",
+    "evidence-determinism",
+    "audit-evidence",
+    "renderer-contracts",
     "renderer-runtime",
-    "cold-boot-journeys",
-    "handoffs",
-    "soak",
+    "e2e-core",
+    "e2e-renderer",
+    "e2e-journey",
 )
 
 
@@ -124,7 +126,7 @@ def components(
         None,
         production_junit,
     )
-    commands["phase2-audit"] = (
+    commands["audit-evidence"] = (
         (
             python,
             "-m",
@@ -132,7 +134,10 @@ def components(
             "--root",
             str(root),
             "--output",
-            str(root / "specs/full-colors/evidence/phase2-hostile-slice-representation.json"),
+            str(
+                root
+                / "specs/full-colors/evidence/phase2-hostile-slice-representation.json"
+            ),
             "--verify",
         ),
         root / "specs/full-colors/evidence/phase2-hostile-slice-representation.json",
@@ -153,7 +158,7 @@ def components(
         evidence / "smoke",
         None,
     )
-    commands["renderer-conformance"] = (
+    commands["renderer-contracts"] = (
         (
             python,
             "-m",
@@ -161,11 +166,11 @@ def components(
             "--root",
             str(root),
             "--results",
-            str(evidence / "renderer-conformance"),
+            str(evidence / "renderer-contracts"),
             "--output",
             OutputMode.JSON.value,
         ),
-        evidence / "renderer-conformance",
+        evidence / "renderer-contracts",
         None,
     )
     commands["renderer-runtime"] = (
@@ -186,63 +191,58 @@ def components(
     donor, donor_junit = _pytest(
         python,
         attempt,
-        "donor-provenance",
-        "tools/rom_tests/tests/unit/full_color/test_overworld_color_data_donor.py::test_exact_pokered_gbc_donor_contract",
+        "donor-contract",
+        "tools/rom_tests/tests/unit/full_color/test_overworld_color_data_donor.py",
+        "-q",
     )
-    commands["donor-provenance"] = (
+    commands["donor-contract"] = (
         donor,
         None,
         donor_junit,
     )
-    commands["gate0"] = (
+    unit_tests, unit_tests_junit = _pytest(
+        python,
+        attempt,
+        "unit-tests",
+        "tools/rom_tests/tests/unit",
+        "--ignore=tools/rom_tests/tests/unit/full_color/test_overworld_color_data_donor.py",
+        "-q",
+    )
+    commands["unit-tests"] = (unit_tests, None, unit_tests_junit)
+    commands["harness-contracts"] = (
+        (
+            "make",
+            "test-full-color-harness-contracts",
+            "ROM_TEST_PREBUILT_PRODUCTS=1",
+        ),
+        None,
+        None,
+    )
+    commands["evidence-determinism"] = (
         (
             python,
             "-m",
-            "tools.rom_tests.full_color.gate0_runner",
+            "tools.rom_tests.full_color.evidence_runner",
             "--root",
             str(root),
             "--results",
-            str(evidence / "gate0"),
+            str(evidence / "evidence-determinism"),
             "--output",
             OutputMode.JSON.value,
         ),
-        evidence / "gate0",
+        evidence / "evidence-determinism",
         None,
     )
-    cold_boot, cold_boot_junit = _pytest(
-        python,
-        attempt,
-        "cold-boot-journeys",
-        "tools/rom_tests/tests/e2e/test_full_color_cold_boot_journey.py",
-    )
-    cold_boot_evidence = evidence / "cold-boot-journeys"
-    commands["cold-boot-journeys"] = (
-        cold_boot,
-        cold_boot_evidence,
-        cold_boot_junit,
-    )
-    handoffs, handoffs_junit = _pytest(
-        python,
-        attempt,
-        "handoffs",
-        "tools/rom_tests/tests/unit/full_color/test_model.py",
-        "-k",
-        "handoff or reconstruction or reset",
-    )
-    commands["handoffs"] = (
-        handoffs,
-        None,
-        handoffs_junit,
-    )
-    soak, soak_junit = _pytest(
-        python,
-        attempt,
-        "soak",
-        "tools/rom_tests/tests/unit/full_color/test_model.py",
-        "-k",
-        "seeded_valid_sequences",
-    )
-    commands["soak"] = (soak, None, soak_junit)
+    for suite in ("core", "renderer", "journey"):
+        name = f"e2e-{suite}"
+        command, junit = _pytest(
+            python,
+            attempt,
+            name,
+            f"tools/rom_tests/tests/e2e/{suite}",
+            "-q",
+        )
+        commands[name] = (command, evidence / name, junit)
 
     names = FAST_COMPONENTS if profile == "fast" else CERTIFY_COMPONENTS
     return tuple(
@@ -254,8 +254,8 @@ def components(
             stderr=diagnostics / f"{name}.stderr.txt",
             junit=commands[name][2],
             environment=(
-                (("FULL_COLOR_COLD_BOOT_RESULTS", str(cold_boot_evidence)),)
-                if name == "cold-boot-journeys"
+                (("ROM_TEST_RESULTS", str(evidence / name)),)
+                if name in {"e2e-core", "e2e-renderer", "e2e-journey"}
                 else ()
             ),
         )
@@ -299,7 +299,9 @@ def _donor_authority(root: Path) -> Path:
     try:
         workspace = root.resolve().parents[2]
     except IndexError as exc:
-        raise SetupError("repository is not inside the expected uberepo task layout") from exc
+        raise SetupError(
+            "repository is not inside the expected uberepo task layout"
+        ) from exc
     authority = (workspace / ".references" / "pokered-gbc").resolve()
     configured = os.environ.get("POKERED_GBC_ROOT")
     if configured is not None and Path(configured).resolve() != authority:
@@ -309,7 +311,9 @@ def _donor_authority(root: Path) -> Path:
     if not authority.is_dir():
         raise SetupError(f"pinned pokered-gbc authority is missing: {authority}")
     if _git(authority, "rev-parse", "--is-inside-work-tree") != "true":
-        raise SetupError(f"pinned pokered-gbc authority is not a git worktree: {authority}")
+        raise SetupError(
+            f"pinned pokered-gbc authority is not a git worktree: {authority}"
+        )
     origin = _git(authority, "remote", "get-url", "origin")
     head = _git(authority, "rev-parse", "HEAD")
     parent = _git(authority, "rev-parse", f"{CLEANUP_SHA}^")
@@ -402,7 +406,9 @@ def run_profile(
         detail = attempt / "diagnostics" / "setup.stderr.txt"
         detail.parent.mkdir(parents=True, exist_ok=True)
         detail.write_text(f"{type(exc).__name__}: {exc}\n", encoding="utf-8")
-        summary.update(status="setup-error", exit_code=2, setup_error=_link(root, detail))
+        summary.update(
+            status="setup-error", exit_code=2, setup_error=_link(root, detail)
+        )
         _write_json(summary_path, summary)
         reporter.failed("setup", exc, detail)
         reporter.finish(summary, summary_path)

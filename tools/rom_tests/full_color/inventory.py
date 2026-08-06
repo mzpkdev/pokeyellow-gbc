@@ -1,4 +1,4 @@
-"""Strict Gate 0b inventory contracts and exact reconciliation.
+"""Strict baseline inventory contracts and exact reconciliation.
 
 The checked-in authorities are intentionally data, not Python.  This module
 defines their v1 wire format, rejects extensions by default, and emits

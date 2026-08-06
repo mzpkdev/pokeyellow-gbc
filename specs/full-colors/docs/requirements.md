@@ -208,7 +208,7 @@ all forced-Yellow contexts retain Yellow OAM ownership.
 - **R11.3:** Diagnostic checkpoints shall capture named screenshots and bounded frame strips.
 - **R11.4:** Every visual artifact shall be paired with semantic state and owner, generation, job, and writer traces.
 - **R11.5:** LLM screenshot inspection shall be a supported test-play workflow but shall not replace machine assertions.
-- **R11.6:** Production renderer work shall not begin until the lean Gate 0 harness passes twice against the baseline debug ROM with identical semantic outputs and identical contract-versioned artifact-manifest outputs, and later renderer paths shall not expand while their activated inventory, visual, mutation, or timing gates are red.
+- **R11.6:** Full-color evidence capture shall remain deterministic across two independent executions, and renderer scope shall not expand while an activated inventory, visual, mutation, timing, or gameplay contract is red.
 
 ## R12 Isolation and removal
 

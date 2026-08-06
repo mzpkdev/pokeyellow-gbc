@@ -904,13 +904,13 @@ def run_smoke(
         state = read_baseline_debug_state(emulator)
         first_snapshot = capture_yellow_baseline_snapshot(
             emulator,
-            scenario="gate-0-baseline",
+            scenario="full-color-evidence",
             seed=0,
             checkpoint="debug-ready",
         )
         second_snapshot = capture_yellow_baseline_snapshot(
             emulator,
-            scenario="gate-0-baseline",
+            scenario="full-color-evidence",
             seed=0,
             checkpoint="debug-ready",
         )
@@ -1003,7 +1003,7 @@ def run_retained_smoke(
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Boot the debug ROM and validate Gate 0 observability"
+        description="Boot the debug ROM and validate baseline evidence observability"
     )
     parser.add_argument(
         "--root",

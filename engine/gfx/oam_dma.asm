@@ -37,7 +37,7 @@ ENDC
 
 IF DEF(_DEBUG)
 InitFullColorDebugState::
-; Keep Gate 0 instrumentation isolated from the release ROM and from
+; Keep full-color harness instrumentation isolated from the release ROM and from
 ; gameplay WRAM. The caller has already selected this routine's ROM bank.
 	ldh a, [hOnCGB]
 	and a

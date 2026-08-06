@@ -1,7 +1,7 @@
-"""Deterministic synthetic bank-boundary fixtures for Gate 0.
+"""Deterministic synthetic bank-boundary verification-contract fixtures.
 
 These cases validate the future bank/owner/generation evidence contract. They
-do not claim that renderer runtime paths exist before their activation phase.
+are diagnostic evidence and do not prove renderer runtime activation.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from .errors import BankTortureError
 from .snapshots import BankState
 
 BANK_TORTURE_SCHEMA = "full-color-bank-torture-v1"
-FIXTURE_KIND = "SYNTHETIC_GATE0"
+FIXTURE_KIND = "SYNTHETIC_BANK_CONTRACT"
 CHECK_ID = "CHK-BANK-01"
 STACK_WINDOW_BYTES = 32
 VALID_WRAM_ENTRY_BANKS = tuple(range(8))
@@ -717,7 +717,7 @@ def report_json(rom: bytes) -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Emit deterministic synthetic Gate 0 bank-torture evidence."
+        description="Emit deterministic synthetic bank-contract evidence."
     )
     parser.add_argument("--rom", default="pokeyellow_debug.gbc")
     args = parser.parse_args(argv)

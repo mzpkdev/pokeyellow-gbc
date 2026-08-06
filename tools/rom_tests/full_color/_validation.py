@@ -1,4 +1,4 @@
-"""Small strict-schema helpers shared by Gate 0 contracts."""
+"""Small strict-schema helpers shared by full-color verification contracts."""
 
 from collections.abc import Mapping
 from enum import Enum

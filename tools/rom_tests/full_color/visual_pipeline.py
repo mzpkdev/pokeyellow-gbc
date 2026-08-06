@@ -1,4 +1,4 @@
-"""Deterministic, LLM-viewable Gate 0 baseline evidence."""
+"""Deterministic, LLM-viewable full-color baseline evidence."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from .snapshots import SemanticSnapshot
 from .trace import WriterTrace
 
 VISUAL_PIPELINE_SCHEMA = "full-color-visual-pipeline-v1"
-BASELINE_SCENARIO = "gate-0-baseline"
+BASELINE_SCENARIO = "full-color-evidence"
 BASELINE_CHECKPOINT = "debug-ready"
 BASELINE_SEED = 0
 BASELINE_FRAME_COUNT = 5
@@ -284,7 +284,7 @@ def run_baseline_visual_pipeline(root: Path, output: Path) -> dict[str, object]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Emit lean Gate 0 visual evidence")
+    parser = argparse.ArgumentParser(description="Emit lean full-color visual evidence")
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)

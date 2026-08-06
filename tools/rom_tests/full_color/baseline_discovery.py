@@ -317,7 +317,7 @@ def summary_json(repository: str | Path) -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Run deterministic full-color Gate 0 baseline discovery."
+        description="Run deterministic full-color baseline discovery."
     )
     parser.add_argument(
         "--repository",

@@ -1,4 +1,4 @@
-"""Pure-Python contracts for the full-color Gate 0 harness."""
+"""Pure-Python contracts for the full-color evidence harness."""
 
 from .enums import (
     CancellationReason,

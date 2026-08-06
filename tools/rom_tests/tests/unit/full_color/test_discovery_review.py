@@ -78,7 +78,7 @@ def rom_finding() -> RomFinding:
 def evidence(*, reviewed: bool = True) -> dict[str, object]:
     return {
         **HASHES,
-        "reviewer": "gate-0-reviewer",
+        "reviewer": "baseline-reviewer",
         "reviewed": reviewed,
     }
 

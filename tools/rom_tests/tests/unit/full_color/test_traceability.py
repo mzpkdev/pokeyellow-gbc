@@ -211,8 +211,8 @@ def _copy_specification(tmp_path: Path) -> Path:
         ("missing-primary", "uncovered requirement authority IDs: R1.1"),
         ("orphan-check", "orphan check IDs.*CHK-GHOST-99"),
         ("broken-anchor", "missing anchor 'not-a-real-anchor'"),
-        ("ac-multisegment-wildcard", "wildcard ID AC-GATE-ZERO-\\*"),
-        ("check-multisegment-wildcard", "wildcard ID CHK-GATE-ZERO-\\*"),
+        ("ac-multisegment-wildcard", "wildcard ID AC-EVIDENCE-BASELINE-\\*"),
+        ("check-multisegment-wildcard", "wildcard ID CHK-EVIDENCE-BASELINE-\\*"),
     ],
 )
 def test_real_specification_mutations_fail_specifically(
@@ -258,13 +258,13 @@ def test_real_specification_mutations_fail_specifically(
     elif mutation == "ac-multisegment-wildcard":
         requirements.write_text(
             requirements.read_text(encoding="utf-8")
-            + "\nForbidden AC-GATE-ZERO-* placeholder.\n",
+            + "\nForbidden AC-EVIDENCE-BASELINE-* placeholder.\n",
             encoding="utf-8",
         )
     elif mutation == "check-multisegment-wildcard":
         requirements.write_text(
             requirements.read_text(encoding="utf-8")
-            + "\nForbidden CHK-GATE-ZERO-* placeholder.\n",
+            + "\nForbidden CHK-EVIDENCE-BASELINE-* placeholder.\n",
             encoding="utf-8",
         )
 

@@ -22,7 +22,7 @@ def _snapshot() -> SemanticSnapshot:
     raw = snapshot_dict()
     raw.update(
         {
-            "scenario": "gate-0-baseline",
+            "scenario": "full-color-evidence",
             "checkpoint": "debug-ready",
             "frame": 12,
             "artifacts": {},

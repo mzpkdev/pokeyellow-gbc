@@ -70,7 +70,7 @@ KNOWN_CHECK_IDS = frozenset(
         "CHK-TIME-01",
         "CHK-INV-01",
         "CHK-TRACE-01",
-        "CHK-G0-01",
+        "CHK-EVIDENCE-01",
         "CHK-BUILD-01",
         "CHK-CGB-01",
         "CHK-BANK-01",

@@ -65,19 +65,24 @@ RGBGFXFLAGS  ?= -Weverything
 	measure-full-color-source-transition \
 	measure-full-color-audit-evidence-identities \
 	measure-full-color-phase2-audit \
-	verify-full-color-phase2-audit \
-	test-full-color-gate0 \
-	test-full-color-gate0-ci-run \
-	test-full-color-gate0-ci-compare \
-	test-full-color-renderer-conformance \
+	_rom-test-debug-products \
+	_rom-test-gameplay-products \
+	_rom-test-all-products \
+	test-unit \
+	test-full-color-donor-contract \
+	test-full-color-harness-contracts \
+	test-full-color-evidence \
+	test-full-color-audit \
+	test-full-color-renderer-contracts \
 	test-full-color-renderer-runtime \
 	test-full-color-smoke \
-	test-full-color-e2e \
+	test-full-color-e2e-core \
+	test-full-color-e2e-renderer \
+	test-full-color-e2e-journey \
 	test-full-color-fast \
 	test-full-color-certify \
 	test-full-color-handoffs \
-	test-full-color-soak \
-	test-full-color-all
+	test-full-color-soak
 
 all: $(roms)
 yellow:       pokeyellow.gbc
@@ -120,11 +125,52 @@ compare: $(roms) $(patches)
 tools:
 	$(MAKE) -C tools/
 
-FULL_COLOR_RESULTS ?= test-results/full-color-gate0
-FULL_COLOR_CONFORMANCE_RESULTS ?= test-results/full-color-renderer-conformance
+FULL_COLOR_EVIDENCE_RESULTS ?= test-results/full-color-evidence
+FULL_COLOR_CONTRACT_RESULTS ?= test-results/full-color-contracts
+FULL_COLOR_SMOKE_RESULTS ?= test-results/full-color-smoke
+FULL_COLOR_RENDERER_CONTRACT_RESULTS ?= test-results/full-color-renderer-contracts
 FULL_COLOR_RUNTIME_RESULTS ?= test-results/full-color-renderer-runtime
 FULL_COLOR_HARNESS_RESULTS ?= test-results/full-color-harness
 FULL_COLOR_PROPOSALS ?= test-results/full-color-proposals
+ROM_TEST_PREBUILT_PRODUCTS ?= 0
+
+ROM_TEST_DEBUG_PRODUCTS := \
+	pokeyellow_debug.gbc pokeyellow_debug.map pokeyellow_debug.sym
+ROM_TEST_GAMEPLAY_PRODUCTS := \
+	pokeyellow.gbc pokeyellow.map pokeyellow.sym \
+	$(ROM_TEST_DEBUG_PRODUCTS)
+ROM_TEST_ALL_PRODUCTS := \
+	$(ROM_TEST_GAMEPLAY_PRODUCTS) \
+	pokeyellow_vc.gbc pokeyellow_vc.map pokeyellow_vc.sym \
+	pokeyellow_phase2_audit.gbc pokeyellow_phase2_audit.map pokeyellow_phase2_audit.sym
+
+define require-rom-test-products
+	@missing=0; \
+	for artifact in $(1); do \
+		if [ ! -f "$$artifact" ]; then \
+			echo "Missing required ROM test artifact: $$artifact" >&2; \
+			missing=1; \
+		fi; \
+	done; \
+	test "$$missing" -eq 0
+endef
+
+ifeq ($(ROM_TEST_PREBUILT_PRODUCTS),1)
+_rom-test-debug-products:
+	$(call require-rom-test-products,$(ROM_TEST_DEBUG_PRODUCTS))
+
+_rom-test-gameplay-products:
+	$(call require-rom-test-products,$(ROM_TEST_GAMEPLAY_PRODUCTS))
+
+_rom-test-all-products:
+	$(call require-rom-test-products,$(ROM_TEST_ALL_PRODUCTS))
+else
+_rom-test-debug-products: yellow_debug
+
+_rom-test-gameplay-products: yellow yellow_debug
+
+_rom-test-all-products: yellow yellow_debug yellow_vc yellow_phase2_audit
+endif
 
 measure-full-color-phase1: yellow_debug
 	$(PYTHON) -m tools.rom_tests.full_color.phase1_measurements --root . --output "$(FULL_COLOR_PROPOSALS)/phase1-ownership-placement.proposal.json"
@@ -142,29 +188,45 @@ test-full-color-setup:
 	python3 -m venv .venv
 	.venv/bin/python -m pip install -r tools/rom_tests/requirements.txt
 
-test-full-color-gate0: pokeyellow.gbc pokeyellow_debug.gbc pokeyellow_vc.gbc
-	$(PYTHON) -m tools.rom_tests.full_color.gate0_runner --root . --results "$(FULL_COLOR_RESULTS)"
+test-unit: _rom-test-all-products
+	$(PYTHON) -m pytest tools/rom_tests/tests/unit \
+		--ignore=tools/rom_tests/tests/unit/full_color/test_overworld_color_data_donor.py -q
 
-test-full-color-gate0-ci-run: pokeyellow.gbc pokeyellow_debug.gbc pokeyellow_vc.gbc
-	$(PYTHON) -m tools.rom_tests.full_color.gate0_runner --root . --results "$(FULL_COLOR_RESULTS)" --one-run "run-$(FULL_COLOR_GATE0_RUN)"
+test-full-color-donor-contract:
+	@test -n "$(POKERED_GBC_ROOT)" || \
+		{ echo "POKERED_GBC_ROOT is required" >&2; exit 1; }
+	POKERED_GBC_ROOT="$(POKERED_GBC_ROOT)" $(PYTHON) -m pytest \
+		tools/rom_tests/tests/unit/full_color/test_overworld_color_data_donor.py -q
 
-test-full-color-gate0-ci-compare:
-	$(PYTHON) -m tools.rom_tests.full_color.gate0_runner --root . --results "$(FULL_COLOR_RESULTS)" --compare-runs run-1 run-2
+test-full-color-harness-contracts: _rom-test-debug-products
+	$(PYTHON) -m tools.rom_tests.full_color.baseline_discovery --repository .
+	$(PYTHON) -m tools.rom_tests.full_color.baseline_inventory --repository .
+	$(PYTHON) -m tools.rom_tests.full_color.bank_torture --rom pokeyellow_debug.gbc
 
-verify-full-color-phase2-audit: pokeyellow.gbc pokeyellow_debug.gbc pokeyellow_vc.gbc pokeyellow_phase2_audit.gbc
+test-full-color-evidence: _rom-test-debug-products
+	$(PYTHON) -m tools.rom_tests.full_color.evidence_runner \
+		--root . --results "$(FULL_COLOR_EVIDENCE_RESULTS)"
+
+test-full-color-audit: _rom-test-all-products
 	$(PYTHON) -m tools.rom_tests.full_color.phase2_measurements --root . --output specs/full-colors/evidence/phase2-hostile-slice-representation.json --verify
 
-test-full-color-renderer-conformance:
-	$(PYTHON) -m tools.rom_tests.full_color.renderer_conformance_runner --root . --results "$(FULL_COLOR_CONFORMANCE_RESULTS)"
+test-full-color-renderer-contracts:
+	$(PYTHON) -m tools.rom_tests.full_color.renderer_conformance_runner --root . --results "$(FULL_COLOR_RENDERER_CONTRACT_RESULTS)"
 
-test-full-color-renderer-runtime: yellow_debug
+test-full-color-renderer-runtime: _rom-test-debug-products
 	$(PYTHON) -m tools.rom_tests.full_color.renderer_runtime_runner --root . --results "$(FULL_COLOR_RUNTIME_RESULTS)"
 
-test-full-color-smoke: yellow_debug
-	$(PYTHON) -m tools.rom_tests.full_color.runtime_observability --root . --results "$(FULL_COLOR_RESULTS)/smoke"
+test-full-color-smoke: _rom-test-debug-products
+	$(PYTHON) -m tools.rom_tests.full_color.runtime_observability --root . --results "$(FULL_COLOR_SMOKE_RESULTS)"
 
-test-full-color-e2e: yellow yellow_debug
-	$(PYTHON) -m pytest tools/rom_tests/tests/e2e/test_full_color_*.py -q
+test-full-color-e2e-core: _rom-test-gameplay-products
+	$(PYTHON) -m pytest tools/rom_tests/tests/e2e/core -q
+
+test-full-color-e2e-renderer: _rom-test-gameplay-products
+	$(PYTHON) -m pytest tools/rom_tests/tests/e2e/renderer -q
+
+test-full-color-e2e-journey: _rom-test-gameplay-products
+	$(PYTHON) -m pytest tools/rom_tests/tests/e2e/journey -q
 
 test-full-color-fast:
 	@$(PYTHON) -m tools.rom_tests.full_color.harness_runner --profile fast --root . --results "$(FULL_COLOR_HARNESS_RESULTS)"
@@ -177,8 +239,6 @@ test-full-color-handoffs:
 
 test-full-color-soak:
 	$(PYTHON) -m pytest tools/rom_tests/tests/unit/full_color/test_model.py -k seeded_valid_sequences
-
-test-full-color-all: test-full-color-gate0 test-full-color-renderer-conformance test-full-color-renderer-runtime test-full-color-handoffs test-full-color-soak
 
 
 RGBASMFLAGS += -Q8 -P includes.asm

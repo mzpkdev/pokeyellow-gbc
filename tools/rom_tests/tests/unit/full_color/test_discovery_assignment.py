@@ -6,7 +6,7 @@ import pytest
 
 from tools.rom_tests.full_color.discovery_assignment import (
     ASSIGNMENT_SCHEMA,
-    NORMAL_DEBUG_PRODUCT,
+    BASELINE_PRODUCT,
     PHASE2_AUDIT_PRODUCT,
     AssignmentMatcher,
     DiscoveryAssignmentAuthority,
@@ -64,7 +64,7 @@ def rom() -> RomFinding:
 
 
 def evidence(*, reviewed: bool = True) -> dict[str, object]:
-    return {**HASHES, "reviewer": "gate-0-reviewer", "reviewed": reviewed}
+    return {**HASHES, "reviewer": "baseline-reviewer", "reviewed": reviewed}
 
 
 def row(
@@ -75,6 +75,7 @@ def row(
     category: str,
     scene: dict[str, object] | None = None,
     mutation: dict[str, object] | None = None,
+    product: str = BASELINE_PRODUCT,
 ) -> dict[str, object]:
     subject = (
         source_finding_subject(finding)
@@ -89,6 +90,7 @@ def row(
         "scene": scene,
         "mutation": mutation,
         "evidence": evidence(),
+        "product": product,
     }
 
 
@@ -123,7 +125,7 @@ def raw_authority() -> dict[str, object]:
 
 
 def matcher(authority: DiscoveryAssignmentAuthority) -> AssignmentMatcher:
-    return authority.matcher(**HASHES)
+    return authority.matcher(**HASHES, product=BASELINE_PRODUCT)
 
 
 def test_canonical_round_trip_and_exact_projection_for_all_categories() -> None:
@@ -172,10 +174,12 @@ def test_canonical_round_trip_and_exact_projection_for_all_categories() -> None:
 def test_stale_baseline_hashes_fail_before_matching() -> None:
     authority = DiscoveryAssignmentAuthority.from_dict(raw_authority())
     with pytest.raises(StaleDiscoveryAssignmentError, match="AS-MUTATION.*AS-WRITER"):
-        authority.matcher(**{**HASHES, "rom_sha256": "f" * 64})
+        authority.matcher(
+            **{**HASHES, "rom_sha256": "f" * 64}, product=BASELINE_PRODUCT
+        )
 
 
-def test_product_scope_defaults_to_normal_and_selects_explicit_audit_rows() -> None:
+def test_product_scope_selects_explicit_baseline_and_audit_rows() -> None:
     raw = raw_authority()
     audit = deepcopy(raw["rows"][0])
     audit["id"] = "AS-PHASE2-AUDIT"
@@ -193,13 +197,13 @@ def test_product_scope_defaults_to_normal_and_selects_explicit_audit_rows() -> N
     raw["rows"].sort(key=lambda item: item["id"])
 
     authority = DiscoveryAssignmentAuthority.from_dict(raw)
-    assert len(authority.for_product().rows) == len(raw["rows"]) - 1
+    assert len(authority.for_product(BASELINE_PRODUCT).rows) == len(raw["rows"]) - 1
     assert authority.for_product(PHASE2_AUDIT_PRODUCT).rows[0].product == (
         PHASE2_AUDIT_PRODUCT
     )
     assert all(
-        row.product == NORMAL_DEBUG_PRODUCT
-        for row in authority.for_product(NORMAL_DEBUG_PRODUCT).rows
+        row.product == BASELINE_PRODUCT
+        for row in authority.for_product(BASELINE_PRODUCT).rows
     )
     assert '"product":"pokeyellow_phase2_audit"' in authority.to_json()
 
@@ -217,12 +221,21 @@ def test_product_scope_schema_and_hash_tuple_fail_closed(mutation: str) -> None:
         DiscoveryAssignmentAuthority.from_dict(raw)
 
 
+def test_product_is_required_for_every_assignment_row() -> None:
+    raw = raw_authority()
+    del raw["rows"][0]["product"]
+    with pytest.raises(
+        DiscoveryAssignmentValidationError, match="missing fields: product"
+    ):
+        DiscoveryAssignmentAuthority.from_dict(raw)
+
+
 def test_wrong_audit_product_identity_does_not_match_normal_partition() -> None:
     raw = raw_authority()
     for item in raw["rows"]:
         item["product"] = PHASE2_AUDIT_PRODUCT
     authority = DiscoveryAssignmentAuthority.from_dict(raw)
-    review = authority.matcher(**HASHES)
+    review = authority.matcher(**HASHES, product=BASELINE_PRODUCT)
     with pytest.raises(StaleDiscoveryAssignmentError, match="unreviewed discovery"):
         review.project_source_finding(source("Writer"))
 

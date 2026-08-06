@@ -12,16 +12,14 @@ from typing import Any, Callable, Collection, Iterable, Sequence
 
 from . import baseline_discovery as baseline
 from .discovery_assignment import (
+    BASELINE_PRODUCT,
     DiscoveryAssignmentAuthority,
-    GATE0_BASELINE_ASSIGNMENT_IDS,
-    NORMAL_DEBUG_PRODUCT,
 )
 from .discovery_review import rom_finding_subject, source_finding_subject
 from .rom_discovery import discover_rom_batched, load_map, load_sym
 
 
 SCHEMA = "full-color-production-source-transition-v3"
-LEGACY_SCHEMA = "full-color-phase1-audit-source-transition-v2"
 PROPOSAL_SCHEMA = "full-color-source-transition-proposal-v1"
 TRANSITION_PATH = Path(
     "specs/full-colors/definitions/phase1-audit-source-transition.json"
@@ -50,7 +48,7 @@ def _source_line_sha256(path: str, line: int, evidence: str) -> str:
 
 def _rebound_source_finding(
     root: Path,
-    audit_only_paths: Collection[str],
+    reviewed_delta_paths: Collection[str],
     finding: Any,
     row: Any,
 ) -> Any:
@@ -61,7 +59,7 @@ def _rebound_source_finding(
     ):
         return finding
     rebound = replace(finding, symbol=reviewed_symbol)
-    if finding.path not in audit_only_paths:
+    if finding.path not in reviewed_delta_paths:
         return rebound
     try:
         evidence = (root / finding.path).read_text(encoding="utf-8").splitlines()[
@@ -76,7 +74,7 @@ def _rebound_source_finding(
     ):
         return rebound
     destination_line = finding.destination_line
-    if finding.destination_path in audit_only_paths:
+    if finding.destination_path in reviewed_delta_paths:
         destination_line = reviewed["destination_line"]
     return replace(
         rebound,
@@ -224,23 +222,18 @@ def generate(root: Path, *, authority_path: Path | None = None) -> dict[str, obj
         authority = json.loads(authority_file.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise SourceTransitionError("source-transition authority is unreadable") from exc
-    legacy = authority.get("schema") == LEGACY_SCHEMA
     expected = {
-        "schema", "reviewed_source_sha256", "baseline_manifest_sha256",
-        "subject_rebindings", "rom_subject_rebindings",
+        "schema",
+        "reviewed_source_sha256",
+        "current_source_sha256",
+        "baseline_manifest_sha256",
+        "reviewed_delta_paths",
+        "subject_rebindings",
+        "rom_subject_rebindings",
     }
-    expected.update(
-        {"audit_source_sha256", "audit_only_paths"}
-        if legacy
-        else {"current_source_sha256", "reviewed_delta_paths"}
-    )
-    if set(authority) != expected or authority.get("schema") not in {
-        SCHEMA, LEGACY_SCHEMA
-    }:
+    if set(authority) != expected or authority.get("schema") != SCHEMA:
         raise SourceTransitionError("source-transition authority is malformed")
-    raw_paths = authority[
-        "audit_only_paths" if legacy else "reviewed_delta_paths"
-    ]
+    raw_paths = authority["reviewed_delta_paths"]
 
     source_report = baseline.discover_baseline_sources(root)
     include_paths = {path for path, _ in source_report.include_graph}
@@ -253,11 +246,7 @@ def generate(root: Path, *, authority_path: Path | None = None) -> dict[str, obj
     for relative, binding in raw_paths.items():
         if relative not in current_manifest:
             raise SourceTransitionError(f"reviewed delta path is no longer linked: {relative}")
-        expected_binding = (
-            {"reviewed_sha256", "audit_sha256"}
-            if legacy else {"reviewed_sha256", "current_sha256"}
-        )
-        if set(binding) != expected_binding:
+        if set(binding) != {"reviewed_sha256", "current_sha256"}:
             raise SourceTransitionError(
                 f"reviewed delta path binding is malformed: {relative}"
             )
@@ -275,13 +264,9 @@ def generate(root: Path, *, authority_path: Path | None = None) -> dict[str, obj
             "current source changed outside the immutable reviewed delta partition"
         )
 
-    assignments = DiscoveryAssignmentAuthority(
-        tuple(
-            row
-            for row in DiscoveryAssignmentAuthority.load(root / ASSIGNMENTS_PATH).rows
-            if row.id in GATE0_BASELINE_ASSIGNMENT_IDS
-        )
-    )
+    assignments = DiscoveryAssignmentAuthority.load(
+        root / ASSIGNMENTS_PATH
+    ).for_product(BASELINE_PRODUCT)
     source_rows = [
         row for row in assignments.rows if row.subject.kind.value == "SOURCE_FINDING"
     ]

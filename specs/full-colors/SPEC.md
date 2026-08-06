@@ -98,14 +98,16 @@ map-specific override locations for `CELADON_MART_ROOF` and
 `CELADON_MART_1F`; their palette identities remain grounded in
 `map_palette_constants.asm`.
 
-## Mandatory prerequisite
+## Mandatory evidence prerequisite
 
-No production renderer port begins until the AI-iteration Gate 0 suite exists,
-validates itself, and passes against the baseline debug ROM.
-This is the [R11.6](docs/requirements.md#r11-diagnostic-mode) requirement and
-[AC-G0-01](docs/acceptance-criteria.md#gate-0-prerequisite) completion outcome.
+Full-color evidence capture remains deterministic across two independent
+executions. Renderer scope does not expand while an activated inventory,
+visual, mutation, timing, or gameplay contract is red. This is the
+[R11.6](docs/requirements.md#r11-diagnostic-mode) requirement and
+[AC-EVIDENCE-01](docs/acceptance-criteria.md#evidence-prerequisite) completion
+outcome.
 
-Gate 0 includes:
+The baseline verification contracts include:
 
 - pinned PyBoy/Python test dependencies;
 - deterministic scenario and timeout handling;
@@ -117,21 +119,21 @@ Gate 0 includes:
 - a complete LLM-viewable pipeline for lossless screenshots, bounded frame
   strips, annotated contact sheets, localized image diffs, and a versioned
   manifest linked to semantic snapshots and writer traces;
-- mutation tests proving the implemented gates fail when invariants are violated;
+- mutation tests proving the implemented contracts fail when invariants are violated;
 - stable local commands and blocking CI execution.
 
-Gate 0 does not exhaustively inventory untouched Yellow paths, select a future
-queue ABI or WRAM layout, produce renderer timing rows, or execute the hostile
-renderer slice. Each renderer phase closes the inventory rows it touches before
-the path becomes reachable and records representation and timing evidence when
-the corresponding implementation exists. The first renderer slice activates
-the unmistakable canary palette and hostile scenario, then applies canary
-visual acceptance and evidence through the visual pipeline completed by Gate 0
-before content expansion.
+The baseline verification contracts do not exhaustively inventory untouched
+Yellow paths, select a future queue ABI or WRAM layout, produce renderer timing
+rows, or execute the hostile renderer slice. Each renderer phase closes the
+inventory rows it touches before the path becomes reachable and records
+representation and timing evidence when the corresponding implementation
+exists. The first renderer slice activates the unmistakable canary palette and
+hostile scenario, then applies canary visual acceptance and evidence through
+the established visual pipeline before content expansion.
 
 Details:
 
-- [Prerequisite gates](docs/prerequisite-gates.md)
+- [Prerequisite contracts](docs/prerequisite-gates.md)
 - [AI iteration harness](docs/ai-iteration-harness.md)
 
 ## Success

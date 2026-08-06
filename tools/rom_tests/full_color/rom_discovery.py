@@ -1,4 +1,4 @@
-"""Bank-aware built-ROM discovery utilities for Gate 0b."""
+"""Bank-aware built-ROM discovery utilities for baseline evidence."""
 
 from __future__ import annotations
 

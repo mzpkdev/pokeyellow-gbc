@@ -1,1 +1,1 @@
-"""Focused unit tests for the full-color Gate 0 contracts."""
+"""Focused unit tests for the full-color verification contracts."""
