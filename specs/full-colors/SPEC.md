@@ -133,7 +133,7 @@ the established visual pipeline before content expansion.
 
 Details:
 
-- [Prerequisite contracts](docs/prerequisite-gates.md)
+- [Verification contracts](docs/verification-contracts.md)
 - [AI iteration harness](docs/ai-iteration-harness.md)
 
 ## Success
@@ -181,7 +181,7 @@ Dependent documents cite the authority; they do not redefine it.
 
 ### Execution
 
-- [Prerequisite gates](docs/prerequisite-gates.md)
+- [Verification contracts](docs/verification-contracts.md)
 - [AI iteration harness](docs/ai-iteration-harness.md)
 - [Migration plan](docs/migration-plan.md)
 - [Verification plan](docs/verification-plan.md)

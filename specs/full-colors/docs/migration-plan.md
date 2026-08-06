@@ -62,12 +62,15 @@ phase descriptions are interpreted as quarantined diagnostic/future work and
 MUST NOT be activated without the separately approved architecture change
 described above.
 
-## Phase 0: mandatory iteration foundation
+## Historical Phase 0: mandatory iteration foundation
 
-Implement the [baseline verification contracts](prerequisite-gates.md) using the existing
-[PyBoy/Python harness](ai-iteration-harness.md).
+The completed foundation established the
+[baseline verification contracts](verification-contracts.md) using the
+[PyBoy/Python harness](ai-iteration-harness.md). This section is retained as an
+architectural execution record, not a description of the current production
+state.
 
-Allowed work:
+Its historical scope was:
 
 - tests and fixtures;
 - debug-only observability;
@@ -82,9 +85,11 @@ Allowed work:
   snapshots and writer traces;
 - mutation tests for currently implemented harness contracts.
 
-Production renderer code is not allowed in this phase.
+This foundation did not modify production renderer code. The current tree has
+since activated production renderer paths under their own contracts.
 
-Phase 0 proves source and built-ROM discovery on the initial map-entry slice.
+The retained Phase 0 record proves source and built-ROM discovery on the
+initial map-entry slice.
 It produces harness, schema, self-mutation, initial-inventory, semantic,
 bank-torture, visual-pipeline, and CI artifacts twice with identical semantic
 and contract-versioned artifact-manifest outputs. Writer traces remain linked
@@ -108,11 +113,12 @@ self-mutation, semantic-snapshot, visual-manifest, stable-command, and CI
 checks; renderer oracles remain model/schema self-tests, and the executed
 record supplies their concrete `CHK-…` IDs.
 
-**Exit gate:** The initial map-entry inventory slice is populated, reviewed,
+**Exit gate:** The initial map-entry inventory slice was populated, reviewed,
 and closed by source and built-ROM evidence; the harness, schema, bank-torture,
-visual pipeline, implemented-gate mutations, stable commands, and CI artifacts
-pass twice with identical semantic and contract-versioned artifact-manifest
-outputs, without production renderer code or renderer acceptance claims.
+visual pipeline, implemented-contract mutations, stable commands, and CI
+artifacts passed twice with identical semantic and contract-versioned
+artifact-manifest outputs. This historical result made no renderer acceptance
+claim.
 
 ## Phase 1: ownership foundation
 
@@ -542,8 +548,9 @@ exact Pallet Town/Route 1 production matrix.
 
 ## Iteration rule
 
-Run the fastest relevant gate after each change. A red prerequisite,
-ownership, bank, or semantic-state gate stops renderer expansion until fixed.
+Run the fastest relevant contract after each change. A red verification,
+ownership, bank, or semantic-state contract stops renderer expansion until
+fixed.
 
 Each implementation PR must:
 

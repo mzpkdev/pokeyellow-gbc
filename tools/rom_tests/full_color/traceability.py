@@ -30,7 +30,7 @@ SPECIFICATION_DOCUMENTS = (
     "docs/architecture.md",
     "docs/failed-hybrid-analysis.md",
     "docs/migration-plan.md",
-    "docs/prerequisite-gates.md",
+    "docs/verification-contracts.md",
     "docs/replacement-inventory.md",
     "docs/requirements.md",
     "docs/scope.md",

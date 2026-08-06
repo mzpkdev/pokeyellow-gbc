@@ -65,7 +65,7 @@ Priorities:
 | [FC-010](#fc-010-object-color-path-is-only-scaffolding) | PLANNED | P1 | OAM color scaffolding |
 | [FC-011](#fc-011-audit-evidence-still-needs-a-diagnostic-product) | ACTIVE | P1 | Diagnostic-product evidence dependency |
 | [FC-012](#fc-012-generated-inventory-transition-cost) | ACTIVE | P1 | Generated inventory transitions |
-| [FC-013](#fc-013-natural-gameplay-is-not-hosted) | ACTIVE | P1 | Natural gameplay not hosted |
+| [FC-013](#fc-013-hosted-gameplay-coverage) | CLOSED | P1 | Hosted gameplay coverage |
 | [FC-014](#fc-014-donor-content-is-incomplete-for-yellow) | BLOCKED | P1 | Incomplete Yellow color content |
 | [WF-001](#wf-001-branch-and-release-evidence-hygiene) | TRIGGERED | P1 | Branch and release evidence hygiene |
 
@@ -85,7 +85,7 @@ The passive runtime no longer belongs behind an audit guard. A blanket removal
 of the remaining flag is still forbidden until its consumers migrate: it could
 ship Phase 2 command channels or provenance markers, or invalidate retained
 evidence. This quarantine does not remove or weaken the Phase 1 `_DEBUG`
-mailbox, Gate 0, or Phase 1 runtime evidence.
+mailbox or runtime evidence.
 
 ## Debt entries
 
@@ -244,13 +244,13 @@ mailbox, Gate 0, or Phase 1 runtime evidence.
 - **Why retained:** current Phase 2 probes and retained evidence still consume
   these carriers to make bank, rejection, inventory, and provenance claims
   observable. The separate Phase 1 `_DEBUG` mailbox remains an independent
-  Gate 0 and Phase 1 runtime protocol.
+  runtime evidence protocol.
 - **Current risk:** the obsolete product flag duplicates layouts and product
   identities, encourages tests to confuse diagnostics with behavior, and keeps
   a permanent-looking build surface after behavior ceased to depend on it.
 - **Dependencies:** migrate every Phase 2 diagnostic consumer and retained
   evidence identity to a product-neutral debug protocol or another reviewed
-  authority; close FC-011 without weakening Gate 0 or Phase 1 evidence.
+  authority; close FC-011 without weakening runtime evidence.
 - **Right-time trigger:** reached now that every shipped product has the same
   player-visible renderer behavior.
 - **Recommendation:** keep the remaining flag narrowly diagnostic while those
@@ -260,7 +260,7 @@ mailbox, Gate 0, or Phase 1 runtime evidence.
 - **Acceptance proof:** source and symbol scans contain no `PHASE2_AUDIT` or
   Phase 2-only carrier; all former diagnostic claims have named replacement
   producers and migrated retained evidence; production mode-selection,
-  product-linkage, Gate 0, and Phase 1 runtime checks remain green.
+  product-linkage, evidence determinism, and runtime checks remain green.
 - **Sources:** [debug_runtime.asm](engine/full_color/debug_runtime.asm),
   [phase2_audit.asm](engine/full_color/phase2_audit.asm),
   [HRAM declarations](ram/hram.asm), and
@@ -351,37 +351,29 @@ mailbox, Gate 0, or Phase 1 runtime evidence.
   typed provenance, stale-row rejection, or mutation sensitivity.
 - **Acceptance proof:** the official generator produces a reviewed semantic
   diff; stale, phantom, omitted, and hand-mutated rows fail; two independent
-  Gate 0 runs remain byte-identical.
+  evidence captures remain byte-identical.
 - **Sources:** [baseline_inventory.py](tools/rom_tests/full_color/baseline_inventory.py),
   [source_discovery.py](tools/rom_tests/full_color/source_discovery.py),
   [phase2_measurements.py](tools/rom_tests/full_color/phase2_measurements.py),
-  and [Gate 0](docs/TESTING.md#gate-0-contract).
+  and the [evidence stack](docs/TESTING.md#full-color-evidence-stack).
 
-### FC-013: Natural gameplay is not hosted
+### FC-013: Hosted gameplay coverage
 
-- **Status / priority:** ACTIVE / P1.
-- **What exists:** local cold-boot journeys use natural inputs across new game,
-  Pallet/Route 1, Oak's capture, menus/dialogue, battles, fallback, and
-  save/reset/Continue. Hosted CI runs unit and retained deterministic gates but
-  not `tools/rom_tests/tests/e2e`.
-- **Why retained:** PyBoy journeys are slower and less deterministic than
-  source/model checks; manual visual review still catches flicker and aesthetic
-  failures that one checkpoint cannot.
-- **Current risk:** a green PR can ship a ROM that builds and satisfies
-  synthetic/callable contracts but is visibly broken through natural play.
-- **Dependencies:** CI runtime budget, stable ROM prerequisites, bounded journey
-  timeouts, attempt-scoped artifacts, and flake data.
-- **Right-time trigger:** any production player-visible renderer or mode change;
-  the production toggle has reached this trigger even though CI migration may
-  remain a separate task.
-- **Recommendation:** require local E2E plus human frame review for the toggle;
-  move a stable smoke subset to hosted CI when repeated local/hosted trials show
-  bounded runtime and useful failures. Keep the longer suite local if needed.
-- **Acceptance proof:** the hosted subset starts from cold boot, uses inputs
-  rather than injected states, retains named failure screenshots/diagnostics,
-  and demonstrates an acceptable flake/runtime record. Manual review remains a
-  release fact, not an inferred CI result.
-- **Sources:** [cold-boot journeys](tools/rom_tests/tests/e2e/test_full_color_cold_boot_journey.py),
+- **Status / priority:** CLOSED / P1.
+- **What exists:** hosted CI runs Core, Renderer, and Journey independently
+  against same-revision normal and debug products. The journeys cover new game,
+  Pallet/Route 1, Oak's capture, menus/dialogue, battles, fallback,
+  save/reset/Continue, and parcel delivery through natural inputs.
+- **Resolved risk:** a pull request can no longer receive a green
+  `Certification` result when any hosted gameplay suite fails, skips, or is
+  cancelled.
+- **Remaining boundary:** manual visual review still catches flicker, aesthetic
+  failures, hardware differences, and unencoded scene coverage. Hosted E2E does
+  not turn those human claims into automated facts.
+- **Closure proof:** `E2E (Core)`, `E2E (Renderer)`, and `E2E (Journey)` consume
+  one build artifact, retain failure diagnostics, and feed the blocking
+  `Certification` job.
+- **Sources:** [journey tests](tools/rom_tests/tests/e2e/journey/),
   [scenario helpers](tools/rom_tests/scenarios), and
   [hosted coverage](docs/TESTING.md#what-hosted-ci-covers).
 
@@ -490,8 +482,8 @@ sampling VRAM as an oracle are non-goals.
 
 Phase 2 audit mailboxes, provenance carriers, synthetic roots, and dormant
 subsystems remain audit-only even when the minimal passive runtime ships. The
-separate Phase 1 `_DEBUG` mailbox and trace protocol remain available to Gate 0
-and Phase 1 runtime evidence until deliberately replaced with equivalent proof.
+separate Phase 1 `_DEBUG` mailbox and trace protocol remain available to
+runtime evidence until deliberately replaced with equivalent proof.
 
 ### IC-008: Synthetic and callable evidence stays narrow
 

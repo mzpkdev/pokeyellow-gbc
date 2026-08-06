@@ -1,22 +1,28 @@
-# Mandatory prerequisite gates
+# Verification contracts
 
-Gate 0 is a lean hard prerequisite. It proves that the harness can observe,
-compare, visualize, and reject bad evidence before production renderer work
-begins. It does not certify renderer behavior that does not exist, exhaustively
-inventory untouched Yellow code, or preselect representation and timing values.
+The harness is split by evidence authority:
 
-Each later phase declares its implementation slice and activates the inventory,
-runtime mutation, representation, visual, and timing checks needed by that
-slice. A red activated check blocks expansion of the affected path.
+- `test-unit` runs the complete unit and built-ROM contract tree once.
+- `test-full-color-harness-contracts` validates current repository discovery,
+  reviewed inventory closure, and synthetic bank behavior once.
+- `test-full-color-evidence` captures runtime observability, traceability, and
+  visual evidence twice and requires byte-identical stable outputs.
+- `test-full-color-audit` verifies the reviewed audit evidence against all four
+  same-revision ROM products.
+- renderer contract/runtime commands and the three E2E suites prove their
+  named boundaries independently.
 
-## Gate 0 required artifact contract
+These contracts are ongoing release requirements. They are not a numbered
+implementation stage, and none alone proves the whole renderer correct. A red
+activated contract blocks the affected release or renderer expansion.
 
-The following are the live required outputs implemented and validated by Gate
-0. Together they form its artifact and execution exit contract within the
-reviewed initial map-entry slice. They do not claim whole-game inventory
-closure or renderer runtime, representation, timing, or hostile-slice evidence.
+## Required evidence artifacts
 
-| Gate 0 artifact | Required baseline content |
+The outputs below form the baseline evidence contract. They do not claim
+whole-game inventory closure or substitute diagnostic fixtures for renderer
+runtime, representation, timing, or hostile-slice evidence.
+
+| Evidence artifact | Required baseline content |
 |---|---|
 | deterministic harness | pinned dependencies, bounded scenarios, stable commands, and identical double-run outputs |
 | observability and snapshots | decodable debug symbols, bounded traces, semantic capture, and exact resource/offset diffs |
@@ -26,32 +32,34 @@ closure or renderer runtime, representation, timing, or hostile-slice evidence.
 | visual artifact pipeline | deterministic lossless screenshots, bounded frame strips, annotated contact sheets, localized image diffs, and a contract-versioned manifest linking semantic snapshots and writer traces |
 | execution surface | stable local commands, blocking CI, deterministic double execution, and diagnostic failure artifacts |
 
-Gate 0 closes only the reviewed initial map-entry slice. Later phases declare
-and close every writer, scene, boundary, and mutation row they touch before the
-changed path becomes reachable. Untouched baseline findings remain visible
-backlog evidence and do not block unrelated renderer work.
+The baseline inventory contract closes the reviewed initial map-entry slice.
+Every implementation slice closes each writer, scene, boundary, and mutation
+row it touches before the changed path becomes reachable. Untouched baseline
+findings remain visible backlog evidence and do not block unrelated renderer
+work.
 
-Gate 0 schema and reference-model evidence exercises every request result
+Schema and reference-model evidence exercises every request result
 branch without selecting a runtime pressure policy. The phase implementing a
 request class measures it, selects exactly one policy, and proves runtime
 conformance. Required visible-state classes select `DEFERRED` plus caller retry
 when they cannot coalesce. `REJECTED_CAPACITY` remains limited to optional or
 supersedable work with a documented caller fallback.
 
-Renderer acceptance is not a Gate 0 exit condition. Request, commit, actual
-Yellow-to-overworld reconstruction, overlay, overworld OAM, representation,
-and renderer timing become acceptance only when their implementation phase
-activates them. Production renderer code remains prohibited during Gate 0.
+Evidence determinism alone does not establish request, commit,
+Yellow-to-overworld reconstruction, overlay, overworld OAM, representation, or
+renderer timing acceptance. Each renderer contract or runtime command supplies
+the authority for its named boundary, and the three E2E suites supply gameplay
+evidence independently.
 
 ## Renderer-conformance checker readiness
 
-After Gate 0, a checker-only PR may make future renderer checks executable
-against `SCHEMA_FIXTURE` evidence. Its oracle derives expected values only from
-versioned authoritative inputs and its positive observations are authored
-independently. Passing proves checker sensitivity and deterministic evidence;
-it closes no renderer acceptance criterion.
+Renderer contract fixtures execute against `SCHEMA_FIXTURE` evidence. Their
+oracle derives expected values only from versioned authoritative inputs, and
+their positive observations are authored independently. Passing proves checker
+sensitivity and deterministic evidence; it closes no renderer runtime
+acceptance criterion.
 
-A later phase activates a behavior only by providing `RENDERER_RUNTIME`
+A behavior contributes runtime acceptance only by providing `RENDERER_RUNTIME`
 snapshots and writer traces with a nonzero activation phase. The activated
 path then blocks on its existing `CHK-…` IDs. Screenshots remain linked review
 evidence and never replace semantic or trace assertions.
@@ -117,7 +125,7 @@ or revalidation boundary. A visible-destination operation must defer before
 mid-operation interruption is tested only for an inactive destination or with
 the LCD off.
 
-## G0.1 Reproducible test environment
+## Reproducible test environment
 
 - Extend the existing `tools/rom_tests` pytest/PyBoy framework.
 - Keep PyBoy and related packages pinned in
@@ -130,7 +138,7 @@ the LCD off.
 Pass condition: a clean checkout runs the smoke command twice with identical
 semantic outputs.
 
-## G0.2 Inventory discovery and initial-slice closure
+## Inventory discovery and initial-slice closure
 
 Build the inventory machinery defined by
 [replacement-inventory.md](replacement-inventory.md) and prove it on the
@@ -156,9 +164,9 @@ Pass condition: the initial map-entry writer, scene, and mutation rows are
 populated, reviewed, and closed in source and built-ROM evidence; independent
 source and ROM fixtures containing an unlisted in-slice item make the audit
 fail; the progress report keeps out-of-slice findings visible without treating
-them as Gate 0 closure debt.
+them as failures of the baseline evidence contract.
 
-## G0.3 Debug observability
+## Debug observability
 
 The debug ROM exposes symbols for:
 
@@ -180,7 +188,7 @@ Release builds need not include the trace.
 
 Pass condition: PyBoy can resolve every symbol and decode a synthetic trace.
 
-## G0.4 Semantic snapshots
+## Semantic snapshots
 
 Extend the Python emulator helper to capture JSON containing:
 
@@ -203,7 +211,7 @@ prove that it performs no later write.
 Pass condition: identical checkpoints compare cleanly and an intentional
 one-byte mutation reports the resource and offset.
 
-## G0.5 Ownership assertions
+## Ownership assertions
 
 Debug assertions fail when:
 
@@ -213,19 +221,19 @@ Debug assertions fail when:
 - ownership changes during a partially committed job; or
 - a renderer returns with unexpected bank state.
 
-Gate 0 schema/reference-model fixtures submit wrong-owner, stale-generation,
+Verification-contract schema/reference-model fixtures submit wrong-owner,
 equivalent-at-capacity, and every pressure-result branch without selecting a
 runtime class policy. Atomicity
 self-mutations model insufficient time at every pre-visible preparation and
 revalidation boundary, failure to reserve worst-case completion budget, and
 illegal interruption after visible `COMMITTING`.
 
-Gate 0 pass condition: mutation fixtures trigger every harness assertion,
+Pass condition: mutation fixtures trigger every harness assertion,
 schema/reference-model request and atomicity oracles match exactly, and normal
 Yellow baseline scenarios trigger no assertion. Runtime request accounting and
 visible atomicity become Phase 2 acceptance.
 
-## G0.6 Bank-torture harness
+## Bank-torture harness
 
 Provide debug entry points, synthetic fixtures, or controlled baseline
 scenarios that exercise bank capture and restoration with:
@@ -236,11 +244,11 @@ scenarios that exercise bank capture and restoration with:
 - an interrupt during a far call; and
 - pending work during soft reset or ownership switch.
 
-Gate 0 pass condition: every baseline or synthetic fixture restores banks,
-stack, and interrupts and proves the future owner/generation/dirty-state schema
+Pass condition: every baseline or synthetic fixture restores banks,
+stack, and interrupts and proves the owner/generation/dirty-state schema
 is decodable. Renderer-path conformance activates in Phases 1–2.
 
-## G0.7 Model-based ownership testing
+## Model-based ownership testing
 
 Implement a small Python reference model using the stable owner, phase,
 request-result, job-state, and cancellation symbols from the requirements
@@ -265,7 +273,7 @@ state.
 Failures preserve the seed and reduce to the shortest reproducible action
 sequence where practical.
 
-Gate 0 pass condition: model unit tests and seeded synthetic traces are
+Pass condition: model unit tests and seeded synthetic traces are
 deterministic, valid sequences satisfy the model, and deliberately corrupted
 transitions fail at the first divergent action.
 
@@ -301,7 +309,7 @@ least five active overworld frames. Overlay checkpoints apply the
 authoritative destination/map/tileset/world-transform request oracle from the
 artifact contract.
 
-## G0.8 LLM visual artifact pipeline
+## LLM visual artifact pipeline
 
 At named checkpoints, emit lossless screenshots, bounded frame strips,
 annotated contact sheets, and metadata linking each image to its semantic
@@ -311,15 +319,15 @@ contract-versioned artifact manifest lists relative paths, checkpoint names,
 frame numbers, scenario, seed, ROM identity, semantic schema version, and
 linked trace and timing-row keys.
 
-Gate 0 pass condition: a deterministic baseline fixture produces viewable
+Pass condition: a deterministic baseline fixture produces viewable
 artifacts, and an intentional visual mutation produces a localized image diff.
 
 Activation condition during Phase 2: the hostile slice's canary assignments
 produce the expected semantic and visual artifacts.
 
-## G0.9 Gate mutation suite
+## Contract mutation suite
 
-Gate 0 mutates only implemented harness behavior: schema validation, snapshot
+The mutation suite targets only implemented harness behavior: schema validation, snapshot
 diffs, trace decoding, ownership-model transitions, bank restoration, initial
 inventory-slice closure, visual artifact integrity, and CI failure reporting.
 Each later phase adds the runtime mutations for the behavior it activates,
@@ -344,8 +352,8 @@ including:
 - snapshot corruption.
 
 Pass condition: every mutation for currently implemented behavior makes its
-intended gate fail with a specific message and useful artifacts. A future
-renderer mutation cannot block Gate 0 before its target behavior exists.
+intended contract fail with a specific message and useful artifacts. A renderer
+mutation blocks only after runtime evidence activates its target behavior.
 
 ## Phase activation: timing instrumentation
 
@@ -364,38 +372,49 @@ required equation, insufficient budget at every pre-visible boundary safely
 defers the whole job, and a visible `COMMITTING` unit always completes from its
 reserved worst-case budget.
 
-## G0.10 CI enforcement
+## Hosted CI enforcement
 
-- Add a job that builds the debug ROM and symbols.
-- Run Gate 0 unit and bounded PyBoy tests on pull requests.
-- Archive semantic diffs, traces, screenshots, and frame strips on failure.
-- Keep long atlas/soak suites separate from the fast required job.
+- Build normal, debug, VC, and audit ROM products once from the same revision.
+- Run unit and harness contracts once.
+- Run two independent evidence captures and byte-compare their stable outputs.
+- Run audit, renderer contract, and renderer runtime verification separately.
+- Run Core, Renderer, and Journey E2E suites as independent jobs.
+- Archive semantic diffs, traces, screenshots, frame strips, and retained
+  diagnostics on failure.
 - Emit a machine-readable traceability report mapping every concrete `R…` and
   `AC-…` to named `CHK-…` checks and artifacts, and fail on unknown or
   uncovered IDs.
-- Treat a Gate 0 failure as blocking.
+- Publish one blocking `Certification` result.
 
-Pass condition: the required job passes normally, fails under a gate mutation,
-and publishes enough artifacts to diagnose the mutation without reproducing it
-locally.
+Pass condition: every called workflow reports its named boundary, mutations
+fail their intended contract, and `Certification` stays fail-closed.
 
 ## Required commands
 
-Expose stable commands or documented pytest selections equivalent to:
+The stable local command surface is:
 
 ```text
-test-full-color-gate0
+test-unit
+test-full-color-harness-contracts
+test-full-color-evidence
+test-full-color-audit
+test-full-color-renderer-contracts
+test-full-color-renderer-runtime
 test-full-color-smoke
+test-full-color-e2e-core
+test-full-color-e2e-renderer
+test-full-color-e2e-journey
+test-full-color-fast
+test-full-color-certify
 test-full-color-handoffs
 test-full-color-soak
-test-full-color-all
 ```
 
-`gate0` must be fast enough to run after every small change. `smoke` becomes the
-default AI loop after the first renderer slice.
+Use `test-full-color-fast` for the short local loop and
+`test-full-color-certify` before handoff. Run the affected renderer or E2E
+boundary directly while iterating.
 
 ## Stop rule
 
-If Gate 0 becomes red, production renderer iteration stops. Fix the harness or
-violated invariant before changing color content or adding another transfer
-path.
+If an activated contract becomes red, fix the harness or violated invariant
+before changing the affected color content or adding another transfer path.

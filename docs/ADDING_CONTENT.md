@@ -182,7 +182,7 @@ make measure-full-color-phase2-audit
   --root . \
   --authority-reviewed \
   --output specs/full-colors/evidence/phase2-hostile-slice-representation.json
-make verify-full-color-phase2-audit
+make test-full-color-audit
 ```
 
 The runtime predicate in
@@ -199,7 +199,8 @@ and timing coverage in
 for LCD-off entry, all 1,024 attributes, row/column redraw, palette deferral,
 seamless crossings, cleanup, generation mismatch, and bank/register
 restoration. Rebuild, regenerate evidence again because source and ROM
-identities changed, run the full gates, add a natural cold-boot checkpoint,
+identities changed, run the full verification contracts, add a natural
+cold-boot checkpoint,
 and manually inspect both directions of every boundary.
 
 ### Map-aware roofs
@@ -233,7 +234,7 @@ and size assertions. Independently verify any new authority before updating the
 permitted digests and semantic checks in
 [test_overworld_color_data.py](../tools/rom_tests/tests/unit/full_color/test_overworld_color_data.py).
 Make linked-ROM tests read actual ROM bytes, regenerate Phase 2 evidence, run
-the gates, and review natural gameplay captures.
+the affected verification contracts, and review natural gameplay captures.
 
 ### Know the roadmap boundary
 
@@ -254,21 +255,22 @@ For ordinary content, build the affected products and run focused unit/E2E
 checks plus natural playthroughs. For a full-color extension, also run:
 
 ```sh
-make yellow_phase2_audit
-.venv/bin/python -m pytest tools/rom_tests/tests/unit/full_color -q
+make test-full-color-fast
+make test-unit
+make test-full-color-harness-contracts
+make test-full-color-evidence
+make test-full-color-audit
 make test-full-color-smoke
-make verify-full-color-phase2-audit
-make test-full-color-renderer-conformance
+make test-full-color-renderer-contracts
 make test-full-color-renderer-runtime
-make test-full-color-gate0
-make yellow_debug yellow_phase2_audit
-.venv/bin/python -m pytest \
-  tools/rom_tests/tests/e2e/test_full_color_cold_boot_journey.py -q
-make test-full-color-all
+make test-full-color-e2e-core
+make test-full-color-e2e-renderer
+make test-full-color-e2e-journey
+make test-full-color-certify
 ```
 
-`test-full-color-all` does not include Phase 2 evidence verification or the
-cold-boot journey. Preserve Gate 0's independent runs, Phase 1 runtime evidence,
-the synthetic checker, mutation sensitivity, time bounds, separation of
-audit-only diagnostics from production behavior, and byte-identical stable
-artifacts. Screenshots add evidence; they do not replace it.
+Preserve independent stable-evidence captures, runtime evidence, synthetic
+checker mutation sensitivity, time bounds, separation of audit-only
+diagnostics from production behavior, and byte-identical stable artifacts.
+Core, Renderer, and Journey are separate gameplay authorities; certification
+runs all three. Screenshots add evidence; they do not replace it.

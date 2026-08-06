@@ -40,7 +40,7 @@ authority. Numeric enum values are not part of this contract.
 - **R1.4:** The full-color renderer shall perform no owner-gated hardware or shadow-state write during Yellow ownership.
 - **R1.5:** Every request and job shall carry the owner and generation under which it may execute.
 - **R1.6:** Work from a departing ownership generation shall not execute after handoff.
-- **R1.7:** Phase 0 shall prove source and built-ROM discovery on a reviewed initial map-entry slice, and each implementation phase shall close stable reviewed rows for every direct, indirect-high-memory, DMA, wrapper, and interrupt writer it touches before the changed path becomes reachable.
+- **R1.7:** The baseline verification contracts shall prove source and built-ROM discovery on a reviewed initial map-entry slice, and each implementation slice shall close stable reviewed rows for every direct, indirect-high-memory, DMA, wrapper, and interrupt writer it touches before the changed path becomes reachable.
 
 ### Request and job contract
 
@@ -219,7 +219,7 @@ all forced-Yellow contexts retain Yellow OAM ownership.
 - **R12.5:** Yellow code still required by excluded scenes shall remain intact.
 - **R12.6:** Owner-gated hardware-writer checks shall run in CI.
 - **R12.7:** The selectable preference shall choose policy only; it shall never permit simultaneous renderer ownership, and exactly one effective owner shall control every visible resource at every instant.
-- **R12.8:** Phase 0 shall prove lifecycle discovery on a reviewed initial map-entry slice, and each implementation phase shall close stable reviewed `SC-…` rows for every lifecycle and directed transition it touches before the changed path becomes reachable.
+- **R12.8:** The baseline verification contracts shall prove lifecycle discovery on a reviewed initial map-entry slice, and each implementation slice shall close stable reviewed `SC-…` rows for every lifecycle and directed transition it touches before the changed path becomes reachable.
 
 ## Owner-gated resources
 

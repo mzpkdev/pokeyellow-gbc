@@ -1,473 +1,285 @@
 # Testing the ROM hack
 
-This project tests a running Game Boy ROM, not just assembly source. A useful
-test must say which claim it proves: a pure rule, a linked-ROM property, a
+This project tests a running Game Boy ROM, not only assembly source. Every
+check must name the claim it proves: a pure rule, a linked-ROM property, a
 callable routine, a naturally reached gameplay state, or a visual result. No
-single green command proves the game is playable and visually correct.
+single green command proves that the game is playable and visually correct.
 
-The harness lives under [`tools/rom_tests`](../tools/rom_tests/), its executable
-targets are in the repository [`Makefile`](../Makefile), and hosted automation
-is defined in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). See
+The harness lives under [`tools/rom_tests`](../tools/rom_tests/), its public
+commands are in the repository [`Makefile`](../Makefile), and hosted automation
+starts at [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). Read
 [`ARCHITECTURE.md`](ARCHITECTURE.md) for runtime ownership and
-[`ADDING_CONTENT.md`](ADDING_CONTENT.md) for adding maps and content.
+[`ADDING_CONTENT.md`](ADDING_CONTENT.md) before adding maps or content.
 
 ## Test layout
-
-The ROM-hack-wide harness is split by purpose:
 
 ```text
 tools/rom_tests/
 ├── emulator.py          # PyBoy wrapper and runtime inspection helpers
-├── scenarios/           # Reusable player-input journeys
-├── snapshots/           # Reviewed visual expectations
-├── tests/
-│   ├── unit/            # Fast contracts, models, and isolated checks
-│   └── e2e/             # Gameplay and visual checks against a running ROM
-├── fixtures/            # Read-only inputs for specialized checkers
-└── full_color/           # Full-color evidence runners and contracts
+├── scenarios/           # reusable player-input journeys
+├── snapshots/           # reviewed visual expectations
+├── fixtures/            # read-only inputs for specialized checkers
+├── full_color/          # evidence runners and verification contracts
+└── tests/
+    ├── unit/            # rules, models, linked-ROM and callable checks
+    └── e2e/
+        ├── core/        # short product-health journeys
+        ├── renderer/    # visual and renderer-boundary journeys
+        └── journey/     # longer progression and lifecycle journeys
 ```
 
-Keep navigation in `scenarios/` and assertions in `tests/e2e/`. Existing
-scenario modules compose a natural new-game path through Oak's lab, Viridian
-City, and parcel delivery. Extend those reusable journeys instead of copying
-long input sequences into every test.
+Keep navigation in `scenarios/` and assertions in `tests/e2e/`. Generated
+diagnostics belong under `test-results/`, which is ignored. Reviewed snapshots
+live in `tools/rom_tests/snapshots/` and are committed deliberately. ROMs,
+symbols, fixtures, scenarios, and committed snapshots are read-only test
+inputs.
 
-Generated diagnostics belong under `test-results/`, which is ignored. Reviewed
-snapshots live in `tools/rom_tests/snapshots/` and are committed deliberately.
-ROMs, symbol files, scenarios, fixtures, and committed snapshots are read-only
-test inputs.
+`ROM_TEST_RESULTS` changes the base directory for per-test diagnostics. Hosted
+and local certification set it to an attempt-scoped component directory. Any
+cleanup helper must refuse paths that are not direct children of the resolved
+root and must never traverse a symlink or recursively delete a directory.
 
-## Set up and run the general suite
+## Setup and public commands
 
-From the repository root, create the ignored virtual environment and install
-the pinned dependencies:
+Create the ignored Python environment once per checkout:
 
 ```console
 make test-full-color-setup
 ```
 
-The target has a historical full-color name, but it sets up the shared ROM test
-harness. Make targets prefer `.venv/bin/python` locally and fall back to
+The historical target name is retained because it is the established harness
+bootstrap command. Make prefers `.venv/bin/python` locally and falls back to
 `python3` in managed environments.
 
-Build the normal products and run the general unit suite:
+The public verification surface is:
 
-```console
-make -j"$(nproc)" yellow yellow_debug yellow_vc
-make yellow_phase2_audit
-.venv/bin/python -m pytest tools/rom_tests/tests/unit -q
-```
+| Claim | Command |
+| --- | --- |
+| complete non-donor unit and linked-ROM contracts | `make test-unit` |
+| exact pinned donor contract | `make test-full-color-donor-contract` |
+| repository discovery, reviewed inventory, and bank contracts | `make test-full-color-harness-contracts` |
+| two independent stable evidence captures compare byte-for-byte | `make test-full-color-evidence` |
+| reviewed audit evidence matches all four products | `make test-full-color-audit` |
+| synthetic renderer fixtures reject contract mutations | `make test-full-color-renderer-contracts` |
+| built-ROM renderer ownership is bounded and observable | `make test-full-color-renderer-runtime` |
+| short runtime observability probe | `make test-full-color-smoke` |
+| short product-health gameplay | `make test-full-color-e2e-core` |
+| renderer and visual gameplay | `make test-full-color-e2e-renderer` |
+| longer progression and lifecycle gameplay | `make test-full-color-e2e-journey` |
+| focused production feedback | `make test-full-color-fast` |
+| complete local certification | `make test-full-color-certify` |
+| focused handoff and reset model checks | `make test-full-color-handoffs` |
+| seeded model soak | `make test-full-color-soak` |
 
-Run all current gameplay journeys locally with:
+There is no gameplay aggregate command. Run the affected suite while
+iterating, and run Core, Renderer, and Journey independently when the change
+crosses their boundaries.
 
-```console
-make yellow_debug
-.venv/bin/python -m pytest tools/rom_tests/tests/e2e -q
-```
-
-The E2E suite expects `pokeyellow_debug.gbc` and `pokeyellow_debug.sym` unless a
-test or environment selects another product. Full-color journeys select Color
-or Yellow inside that same shipped binary; they do not use the audit product as
-a behavioral variant. Use a focused file or `-k` expression while iterating.
-
-The maintained local Color gameplay regression contract is:
-
-```console
-make test-full-color-e2e
-```
-
-This target builds the shipped normal and debug products, then runs exactly the
-E2E files named `tools/rom_tests/tests/e2e/test_full_color_*.py`. The current set
-covers cold-boot progression, the Red's house palette round trip, Oak's battle
-handoff, Oak's Lab save confirmation, and Start/Options/menu journeys. New
-natural gameplay regressions for the shipped Color/Yellow surface belong in a
-matching `test_full_color_*.py` file and are included automatically. Unrelated
-general E2E files remain outside this focused contract. Hosted CI does not run
-this target yet.
+Every ROM-consuming command builds its required products by default. Hosted CI
+downloads products built from the same revision and passes
+`ROM_TEST_PREBUILT_PRODUCTS=1`; the private prerequisites then fail closed if
+any required `.gbc`, `.map`, or `.sym` file is missing. Contributors should not
+set prebuilt mode unless those exact products already exist.
 
 ## Writing a gameplay test
 
-Every gameplay test should follow the same contract:
+Every gameplay test follows these rules:
 
-- For an ordinary single-product test, request the shared `emulator` fixture.
-  Despite its name, the instance is not shared between tests: the fixture
-  creates one fresh PyBoy instance and one isolated result directory for each
-  test, then guarantees cleanup.
-- A paired or multi-product comparison must explicitly create one fresh
-  `Emulator` per product. Give every instance its own isolated result
-  directory, close every instance in a `finally` block, and never reuse mutable
-  emulator state between the products.
-- Reach the state through normal player inputs when the claim is about
-  playability. Direct memory setup belongs in an isolated callable-ROM test,
-  not in evidence that a player can enter or leave a scene.
-- Wait for named semantic conditions with a hard bound. A timeout must retain a
-  descriptive screenshot or diagnostic; it must never spin forever.
+- Use the shared `emulator` fixture for an ordinary single-product test. It
+  creates a fresh PyBoy instance and isolated result directory for each test.
+- A paired or multi-product comparison creates one fresh `Emulator` per
+  product, gives each one a separate result directory, and closes each instance
+  in a `finally` block.
+- Reach player-facing states through normal inputs. Direct memory setup belongs
+  in a callable-ROM contract, not evidence that a player can reach the scene.
+- Wait for named semantic conditions with a hard bound. A timeout retains a
+  descriptive screenshot or diagnostic and never spins forever.
 - Observe runtime state without repairing it. A test cannot write the value it
-  then claims the game produced.
-- Keep mutable state inside the test or fixture. Never depend on test order, an
-  emulator instance from another test or product, or mutable module globals.
-- Assert meaning as well as pixels: map and coordinates, script phase,
-  battle/menu state, tile or OAM state, and relevant renderer state.
-- Give every visual assertion a descriptive snapshot or artifact name. Update
-  a committed snapshot only after inspecting and approving the change.
+  then claims the ROM produced.
+- Never depend on test order, shared mutable emulator state, or another
+  product's mutable state.
+- Assert meaning as well as pixels: map, coordinates, script phase, menu or
+  battle state, tile/OAM state, and relevant renderer state.
+- Update a committed snapshot only after inspecting and approving the new
+  actual image. Do not weaken tolerances or ignored regions to bless a change.
 
-A screenshot is supporting evidence, not the entire verdict. Plausible pixels
-can conceal corrupt tile IDs, stale attributes, broken OAM, or a script that
-never completed. Likewise, one frame cannot rule out flicker or late VBlank
-writes; exercise movement, animation, and transitions over time.
+A plausible screenshot can conceal corrupt tile IDs, stale attributes, broken
+OAM, or incomplete progression. One frame cannot rule out flicker or late
+VBlank writes. Exercise movement, animation, and transitions over time.
 
 PyBoy is deterministic and practical, but it is not a cycle-accurate hardware
-oracle. Keep timing margins conservative. Recheck suspicious timing failures in
-another emulator or on hardware before changing a runtime contract.
+oracle. Keep timing margins conservative and recheck suspicious timing
+failures in another emulator or on hardware before changing a runtime contract.
 
 ## Fast feedback and certification
 
-| Intent | Command | Claim |
-|---|---|---|
-| inner loop | `make test-full-color-fast` | focused production-foundation feedback, with a warm target of at most 60 seconds |
-| pre-handoff | `make test-full-color-certify` | every retained local authority passed |
-| diagnosis | existing narrow `test-full-color-*` targets | only the named subsystem |
-| compatibility | `make test-full-color-all` | legacy aggregate, not certification |
+`make test-full-color-fast` runs these ordered components:
 
-Fast is explicitly not certification. It runs these exact ordered components:
-`build-products`, `production-linkage`, `phase2-audit`, `smoke`,
-`renderer-conformance`, and `renderer-runtime`. Production linkage runs both
-the production color-mode linkage and Phase 1 runtime-ROM ownership tests. The
-first component visibly builds exactly the release, debug, VC, and Phase 2
-audit products.
+1. `build-products`
+2. `production-linkage`
+3. `audit-evidence`
+4. `smoke`
+5. `renderer-contracts`
+6. `renderer-runtime`
 
-Certify is the only local ready-to-handoff claim. It runs these exact ordered
-components: `build-products`, `donor-provenance`, `gate0`, `phase2-audit`,
-`renderer-conformance`, `renderer-runtime`, `cold-boot-journeys`, `handoffs`,
-and `soak`. Donor provenance resolves the workspace authority at
-`.references/pokered-gbc`, verifies its exact pinned origin, HEAD, and cleanup
-parent, then invokes the exact donor comparator without a skip. Gate 0 retains
-both complete independent runs and its Exact comparator. The other authorities
-remain the Phase 2 verifier, mutation-sensitive synthetic conformance checker,
-two-fresh-emulator Phase 1 ownership runner, natural cold-boot journey file,
-focused handoff/reset model tests, and seeded soak sequences. There is no third
-full-unit invocation outside Gate 0 and no duplicate donor or cold-boot
-component.
+Fast feedback is not certification. It is the narrow production-foundation
+loop and intentionally omits the donor, complete unit tree, evidence
+determinism, repository contracts, and gameplay suites.
 
-Both profiles retain complete component stdout and stderr plus JUnit for pytest
-components below an attempt-scoped aggregate root. Each retained runner gets a
-dedicated evidence root. `summary.json` only links those outputs; it never
-copies, relabels, or promotes evidence from one authority into another. Human
-mode prints bounded progress. Use
-`FULL_COLOR_OUTPUT=json make test-full-color-fast` (or certify) for exactly one
-canonical JSON summary.
+`make test-full-color-certify` runs these ordered components exactly once:
+
+1. `build-products`
+2. `donor-contract`
+3. `unit-tests`
+4. `harness-contracts`
+5. `evidence-determinism`
+6. `audit-evidence`
+7. `renderer-contracts`
+8. `renderer-runtime`
+9. `e2e-core`
+10. `e2e-renderer`
+11. `e2e-journey`
+
+Only the three stable evidence producers inside `evidence-determinism` run
+twice: runtime observability, traceability, and the visual pipeline. Unit,
+discovery, inventory, bank, renderer, audit, and gameplay checks do not run a
+second time to imitate determinism.
+
+Both profiles retain component stdout, stderr, JUnit where applicable, and
+evidence below `test-results/full-color-harness/attempt-NNNN/`. The aggregate
+`summary.json` links those outputs without copying or promoting another
+authority's result. Set `FULL_COLOR_OUTPUT=json` for one canonical JSON summary.
 
 ## Fast-to-slow development loop
 
-For any ROM-hack change, climb only as far as the claim and blast radius demand:
+Climb only as far as the claim and blast radius require:
 
-1. Run the focused pytest file or `-k` expression.
-2. Run `.venv/bin/python -m pytest tools/rom_tests/tests/unit -q`.
-3. Build every affected ROM product.
-4. Run the focused natural gameplay journey.
-5. Run `.venv/bin/python -m pytest tools/rom_tests/tests/e2e -q` when shared
-   scenarios, menus, scripts, rendering, or transitions changed.
-6. Inspect new or changed screenshots and retained diagnostics manually.
-7. Run `make test-full-color-fast` for focused production-foundation feedback.
-8. Run initiative-specific narrow gates when their contracts are affected.
+1. Run `.venv/bin/python -m pytest <focused-path> -q`.
+2. Build every affected ROM product.
+3. Run `make test-full-color-fast` for production-foundation changes.
+4. Run `make test-unit` when shared source, layouts, harness code, or product
+   identities changed.
+5. Run `make test-full-color-e2e-core` for product-health changes.
+6. Run `make test-full-color-e2e-renderer` for rendering, menus, palettes,
+   attributes, transfers, or visual transitions.
+7. Run `make test-full-color-e2e-journey` for progression, scripts, battles,
+   save/reset, or longer lifecycle changes.
+8. Inspect changed screenshots and retained diagnostics manually.
 9. Run `make test-full-color-certify` before handing off full-color work.
-10. Push and wait for every hosted check to complete.
+10. Push and wait for every hosted check on that revision.
 
-Do not translate “CI is green” into “the ROM was playtested.” Hosted CI runs the
-complete unit directory and the specialized full-color jobs described below,
-but it does **not** run `tools/rom_tests/tests/e2e`. Natural gameplay E2E and a
-human playtest remain local release evidence.
+Manual play remains separate evidence. Record the ROM, revision, route, and
+observed result instead of translating a green automated suite into a human
+playtest claim.
 
 ## What hosted CI covers
 
-Full `CI` runs only for commit-bearing events: opening a pull request and
-synchronizing a new commit. Pushes to `main` retain release certification. A
-new PR commit cancels obsolete in-flight full CI for that pull request, while
-title/body edits, reopening, and draft-state changes run only the lightweight
-`PR Metadata` workflow and cannot cancel certification. Reopening fails closed
-unless the exact current head SHA already has a successful `Test` check. It
-emits a durable `PR Reopen Certification` context; every other metadata event
-emits `PR Title`. Per-PR, per-action concurrency prevents a later edit or
-draft-state change from cancelling or replacing the reopen result, while an
-obsolete repeated run of the same action may still be cancelled.
+The top-level `CI` workflow is a thin release-gating caller. It delegates to
+three reusable workflows while keeping one stable `Certification` result:
 
-The hosted workflows provide these signals:
+- `Build ROMs` builds normal, debug, VC, and audit products once, publishes the
+  unchanged release artifact, and publishes exact same-revision test products.
+- `Donor Contract` verifies the pinned external authority.
+- `Unit Tests` runs the complete non-donor unit tree once.
+- `Harness Contracts` runs discovery, reviewed inventory, and bank contracts
+  once.
+- `Full-color Evidence Capture 1` and `Full-color Evidence Capture 2` capture
+  stable evidence independently; `Full-color Evidence Determinism` compares
+  their stable files byte-for-byte.
+- `Renderer Contract Fixtures`, `Renderer Runtime Ownership`, and
+  `Full-color Audit Evidence` run their named independent contracts.
+- `E2E (Core)`, `E2E (Renderer)`, and `E2E (Journey)` download the same-revision
+  products and run independently.
+- `Certification` fails if build, full-color, or gameplay verification fails,
+  is skipped, or is cancelled.
 
-- `PR Title` checks the Conventional Commit title without checkout, dependency
-  installation, ROM build, emulator use, or evidence production.
-- `PR Reopen Certification` runs the same title check on reopen and also proves
-  that the exact reopened head already has a successful `Test` check.
-- `Lint` checks the workflows.
-- `Build` produces release, debug, and VC ROMs and rejects build-generated
-  changes to tracked files.
-- two `Gate 0 Baseline Run` jobs each install pinned RGBDS, build the Phase 2
-  audit ROM, and execute the complete seven-component Gate 0 independently;
-  the blocking `Gate 0 Baseline` job compares their byte-exact stable evidence;
-- `Renderer Conformance Checker` exercises the synthetic checker corpus;
-- `Phase 1 Runtime Ownership` captures real-ROM ownership evidence;
-- `Test` is the fail-closed final aggregator over donor provenance, lint, build,
-  the Gate 0 comparator, conformance, and runtime ownership. It runs no third
-  copy of the full unit tree.
+The workflow runs when a pull request is opened or synchronized and on pushes
+to `main`. A newer commit cancels obsolete work for the same pull request.
+Metadata-only checks are separate in `.github/workflows/metadata.yml`, and the
+trusted labeler remains isolated in `.github/workflows/pr-labels.yml`.
 
-Because `main` currently has no branch protection rule or ruleset, reviewers
-must check `Test`, the latest `PR Title`, and `PR Reopen Certification` after a
-reopen. The reopen context exists only for reopened events and therefore must
-not be made a universally required branch-protection context.
-
-Hosted targets are a first useful log within 1 second, focused warm feedback
-within 60 seconds, and no duplicate full CI run for one PR head SHA. Gate 0
-component durations should be recorded when evaluating orchestration changes.
-A scheduling or cache follow-up must compare pytest `--dist=load` with
-`--dist=loadscope` across three clean repetitions and demonstrate at least 15%
-wall-time improvement with identical collected test counts, failures, and
-retained mutation outcomes. Until that evidence exists, persistent discovery
-caches, unit sharding, and pytest scheduling changes remain deferred. Gate 0
-runs never share evidence or mutable emulator state.
-
-Hosted CI does not invoke `tools/rom_tests/tests/e2e`, and it does not invoke
-`make verify-full-color-phase2-audit` as a standalone gate. Run the relevant
-natural journey, formal Phase 2 verification, and human visual review locally.
+Hosted gameplay reduces the chance of merging a visibly broken ROM, but it does
+not replace manual frame review, full-game play, hardware checks, or claims not
+encoded by the current journeys.
 
 ## Full-color evidence stack
 
-Full-color work adds four complementary proof layers. The formal contracts live
-under [`specs/full-colors`](../specs/full-colors/), and their planned growth is
-defined by the
-[`migration-plan.md`](../specs/full-colors/docs/migration-plan.md). A Phase 2
-green result grants no acceptance credit to later phases. Phase 3 adds
-palette/effect and paired-transfer proof; Phase 4 adds OAM; Phase 5 adds
-architecture stress; Phase 6 closes bounded Pallet Town/Route 1 content and
-animation/field-replacement obligations; Phase 7 closes handoffs; Phase 8
-proves obsolete ownership is gone; and Phase 9 hardens timing and release
-behavior. All-25-tileset and all-map color remain later non-gating work.
+Read evidence from narrowest to broadest:
 
-Build the shipped debug product before specialized gameplay checks:
+1. Pure contracts and mutation tests prove rules and checker sensitivity.
+2. Source and linked-ROM discovery prove exact identities, symbols, placement,
+   reachability, and forbidden partitions.
+3. Callable-ROM tests prove controlled entry points and bounded state changes.
+4. Runtime observability proves named behavior in a built debug ROM.
+5. Natural E2E proves player-input reachability, progression, and selected
+   visual/lifecycle claims.
+6. Manual review establishes aesthetics, flicker, and behavior outside encoded
+   assertions.
 
-```console
-make yellow_debug
-```
+`make test-full-color-evidence` captures runtime observability, traceability,
+and visual pipeline outputs twice. Only stable semantic files are compared;
+diagnostic logs remain available for explaining a failure but are not promoted
+as deterministic evidence.
 
-Normal release, debug, and VC products all include the bounded passive runtime
-and saved toggle. `pokeyellow_phase2_audit.gbc` adds diagnostic and
-certification surfaces only; `PHASE2_AUDIT` MUST NOT change renderer behavior.
+`make test-full-color-renderer-contracts` is a synthetic fixture checker. It
+must reject mutated inputs, but it cannot prove natural reachability or visual
+quality. `make test-full-color-renderer-runtime` uses fresh emulator state to
+prove built-ROM ownership behavior. `make test-full-color-audit` recomputes the
+reviewed audit evidence against all same-revision products and fails on stale
+identities or authority drift.
 
-### Contracts, models, and linked-ROM checks
+Measurement commands such as `measure-full-color-phase2-audit` write
+unreviewed proposals under `test-results/full-color-proposals/`. They never
+overwrite checked-in authority. A human reviews and incorporates an accepted
+semantic change before official evidence is regenerated through its producer.
 
-Fast full-color contracts and models cover schemas, inventories, ownership,
-scheduling, palette transforms, evidence readers, and deterministic sequences:
+Common evidence roots are:
 
-```console
-.venv/bin/python -m pytest tools/rom_tests/tests/unit/full_color -q
-```
+- deterministic evidence: `test-results/full-color-evidence/`;
+- hosted harness-contract log artifact: `test-results/full-color-contracts/`
+  (the local command writes to stdout only);
+- smoke: `test-results/full-color-smoke/`;
+- renderer fixtures: `test-results/full-color-renderer-contracts/`;
+- renderer runtime: `test-results/full-color-renderer-runtime/`;
+- local certification: `test-results/full-color-harness/attempt-NNNN/`;
+- per-test E2E diagnostics: the configured `ROM_TEST_RESULTS` root;
+- reviewed evidence: `specs/full-colors/evidence/`.
 
-That tree also inspects linked `.gbc`, `.sym`, and `.map` products and calls
-named assembly routines through the emulator. Focused examples are:
-
-```console
-make yellow_phase2_audit
-.venv/bin/python -m pytest tools/rom_tests/tests/unit/full_color/test_phase2_layout.py -q
-.venv/bin/python -m pytest tools/rom_tests/tests/unit/full_color/test_phase2_palettes_rom.py -q
-```
-
-A callable-ROM test proves a routine under controlled state. It does not prove
-that normal gameplay reaches the routine in the correct order.
-
-### Retained deterministic gates
-
-These commands retain structured evidence under `test-results/`:
-
-```console
-make test-full-color-smoke
-make verify-full-color-phase2-audit
-make test-full-color-renderer-conformance
-make test-full-color-renderer-runtime
-make test-full-color-gate0
-make test-full-color-handoffs
-make test-full-color-soak
-make test-full-color-all
-make test-full-color-fast
-make test-full-color-certify
-```
-
-Their claims are deliberately narrow:
-
-- `test-full-color-smoke` boots the debug ROM and retains attempt-scoped
-  snapshots, diagnostics, reports, and status.
-- `verify-full-color-phase2-audit` binds the audit product to the selected
-  Phase 2 representation, discovery, inventory, provenance, and product
-  identities. It neither plays the slice nor judges its appearance.
-- `test-full-color-renderer-conformance` is a **synthetic checker self-test**.
-  It proves acceptance of canonical fixtures and rejection of named mutations,
-  not that the ROM renderer works.
-- `test-full-color-renderer-runtime` captures the selected Phase 1 real-ROM
-  ownership case twice. It proves ownership replacement for that case, not
-  global color correctness or playability.
-- `test-full-color-handoffs` and `test-full-color-soak` exercise focused model
-  transitions and seeded valid sequences.
-
-Despite its name, `test-full-color-all` remains the unchanged compatibility-only
-legacy aggregate of Gate 0, conformance, Phase 1 runtime, handoff, and soak
-checks. It is not certification. It does **not** run Phase 2 verification,
-donor provenance, or cold-boot E2E; use `test-full-color-certify` for the local
-handoff claim.
-
-The retained roots are:
-
-- Gate 0: `test-results/full-color-gate0/attempt-NNNN/{run-1,run-2}`;
-- smoke: `test-results/full-color-gate0/smoke/attempt-NNNN`;
-- conformance:
-  `test-results/full-color-renderer-conformance/attempt-NNNN`;
-- Phase 1 runtime: `test-results/full-color-renderer-runtime/attempt-NNNN`;
-- direct cold-boot E2E: `test-results/full-color-cold-boot/`;
-- certify cold-boot E2E:
-  `test-results/full-color-harness/attempt-NNNN/components/cold-boot-journeys/`;
-- reviewed Phase 1 and Phase 2 evidence: `specs/full-colors/evidence/`.
-- fast/certify aggregate: `test-results/full-color-harness/attempt-NNNN`.
-
-The deterministic runners accept their corresponding `FULL_COLOR_*_RESULTS`
-Make variables when evidence must be routed outside the default tree. Never
-edit generated JSON by hand; use its official generator and review the diff.
-
-The `measure-full-color-*` targets are discovery commands, not acceptance
-commands. They write explicitly unreviewed, disposable proposals beneath
-`test-results/full-color-proposals/` (override with `FULL_COLOR_PROPOSALS`) and
-MUST NOT rewrite the checked-in source transition, four reviewed inventories,
-or Phase 1/Phase 2 evidence. `measure-full-color-phase2-audit` runs the complete
-proposal chain and leaves:
-
-- `phase1-source-transition.proposal.json`;
-- `audit-evidence-identities.proposal.json`, whose hash-only changes name all
-  four inventory authority paths and contain no reviewer metadata;
-- `phase2-subjects.proposal.json`, whose top-level `reviewed` value is false.
-
-There is deliberately no Make target that promotes those files. A human must
-review the subject and semantic deltas, deliberately edit the corresponding
-checked-in authorities, and supply reviewer metadata based on that review.
-Only after that boundary may the official Phase 1/Phase 2 evidence producer be
-run against the accepted authorities. Phase 2 requires the explicit
-`--authority-reviewed` acknowledgement before it will write accepted evidence;
-the flag does not add reviewer metadata or accept any discovery subjects.
-`verify-full-color-phase2-audit` is strictly read-only: it recomputes current
-evidence, byte-compares the checked-in record, and fails closed on any mismatch.
-
-### Natural full-color gameplay
-
-Run the complete maintained Color gameplay E2E contract with:
-
-```console
-make test-full-color-e2e
-```
-
-The cold-boot file starts at boot and reaches states through player inputs. Its
-player-facing journeys select Yellow and Color in the shipped normal binary;
-two scenarios use the debug product where a debug control is part of setup.
-Every journey records logical state, renderer state, VRAM, OAM, palettes,
-attributes, and screenshots.
-
-Its two harness tests protect setup behavior. Its eight gameplay journeys cover
-bedroom-to-Viridian progression, paired northbound parity, reverse Route 1
-ledges, Red's house fallback, Oak's capture cutscene, dialogue/menu/party
-boundaries, a natural wild-battle round trip, and save/reset/Continue.
-
-Direct failures are retained under `test-results/full-color-cold-boot/`.
-Certify overrides that narrow default with its current attempt's dedicated
-`components/cold-boot-journeys/` root, so later or concurrent attempts cannot
-clean or relink earlier evidence. This file is part of the locally run E2E
-suite and is not currently run by hosted CI.
-
-## Gate 0 contract
-
-`make test-full-color-gate0` performs two independent executions. Each stops at
-the first failure and covers, in order:
-
-1. the complete unit tree apart from the separately invoked donor comparator;
-2. baseline source/ROM discovery;
-3. reviewed inventory reconciliation;
-4. synthetic bank-boundary torture;
-5. debug-ROM runtime observability;
-6. specification traceability;
-7. the visual artifact pipeline.
-
-Attempts live under
-`test-results/full-color-gate0/attempt-NNNN/{run-1,run-2}`. Every stable
-evidence file must exist in both runs and be byte-identical; the comparator
-explicitly checks the semantic snapshot, traceability report, and versioned
-visual manifest. Failures retain status, JUnit, stdout, stderr, and emulator
-diagnostics without overwriting earlier attempts.
-
-Override the evidence root, including with spaces, using:
-
-```console
-make test-full-color-gate0 FULL_COLOR_RESULTS="/tmp/pokeyellow gate0"
-```
-
-Hosted CI runs `Gate 0 Baseline Run 1` and `Run 2` in parallel, uploads both
-products, then blocks on `Gate 0 Baseline`, which applies the same byte
-comparison. Parallel execution is an optimization; two complete independent
-runs and a successful comparison remain the contract.
-
-## Full-color completion ladder
-
-Use this ordering for renderer work:
-
-1. one focused pytest file or `-k` expression;
-2. `make test-full-color-fast`;
-3. a stable narrow command for any failed or specially affected authority;
-4. the focused natural gameplay journey and manual frame review when relevant;
-5. `make test-full-color-certify` before handoff.
-
-For renderer work, “green” means relevant local checks passed, retained
-artifacts agree with their claim, screenshots were inspected, and hosted CI
-completed successfully.
+An ignored artifact is not authority by itself. Bind conclusions to its source
+revision, ROM hashes, producer, manifest, and attempt directory.
 
 ## False-confidence traps
 
-- Never derive an expected value from the same VRAM observation being tested.
-  Use an independent contract, known stock product, or reviewed data authority.
-- Synthetic conformance validates the checker, not the running renderer.
-- State-injected callable tests validate entry points, not natural call order.
-- Natural encounters involve RNG. Bound searches, retain RNG and step counts,
-  and assert eventual semantic outcomes instead of a magic frame number.
-- Stale canonical screenshots or reports can make a broken run look green. Use
-  attempt-scoped outputs and check the current attempt status.
-- Yellow/Color parity within one shipped binary is selective: palettes and
-  attributes may differ in the colored slice. Tile data, scripts, OAM, menus,
-  battles, and other Yellow-owned behavior must retain intended parity.
+- A successful build does not prove boot, progression, ownership, or visuals.
+- A linked symbol does not prove natural reachability.
+- A callable routine does not prove the normal game invokes it.
+- A synthetic checker proves its modeled contract, not the renderer.
+- One screenshot does not prove timing or absence of flicker.
+- A debug-only path does not prove release or VC behavior.
+- The audit product is diagnostic, not a player-visible behavior variant.
+- Color and Yellow comparison must select both modes inside the same shipped
+  product, not compare two different binaries as behavioral baselines.
+- A green hosted run does not prove manual play or unencoded scene coverage.
 
 ## Gates that must not be weakened
 
-Preserve these constraints when repairing or extending the harness:
-
-- pinned test dependencies and pinned RGBDS;
-- bounded timeouts with retained failure screenshots and diagnostics;
-- fresh emulator state and observational runtime reads;
-- semantic assertions alongside visual artifacts;
-- natural cold-boot journeys for playability claims;
-- two independent Gate 0 and Phase 1 runtime captures;
-- byte-identical stable-evidence comparison and the blocking hosted comparator;
-- the separation between synthetic checker and real-ROM evidence;
-- Phase 1 runtime ownership evidence;
-- inclusion of the same toggle and bounded passive runtime in release, debug,
-  and VC products, with Phase 2 diagnostics still excluded from them;
-- inventory closure, reviewed discovery, typed provenance, and mutation
-  sensitivity.
-
-If a gate is wrong, repair its contract and document why. Do not reduce its
-proof until the current implementation happens to pass.
+Do not make a failure disappear by widening timing bounds without evidence,
+dropping a product, accepting missing symbols, replacing natural inputs with
+state injection, editing reviewed JSON by hand, loosening mutation tests,
+raising visual tolerance, reusing emulator state, or treating a skipped job as
+success. Fix the implementation, authority, or test premise that is wrong.
 
 ## Failure map
 
-- Shared fixtures and emulator usage:
-  [`tools/rom_tests/README.md`](../tools/rom_tests/README.md)
-- Gate 0 orchestration:
-  [`gate0_runner.py`](../tools/rom_tests/full_color/gate0_runner.py)
-- Synthetic conformance:
-  [`renderer_conformance_runner.py`](../tools/rom_tests/full_color/renderer_conformance_runner.py)
-- Phase 1 real-ROM evidence:
-  [`renderer_runtime_runner.py`](../tools/rom_tests/full_color/renderer_runtime_runner.py)
-- Phase 2 representation audit:
-  [`phase2_measurements.py`](../tools/rom_tests/full_color/phase2_measurements.py)
-- Formal full-color rationale:
-  [`verification-plan.md`](../specs/full-colors/docs/verification-plan.md)
-- Historical Pokémon Yellow bugs and their known status:
-  [`BUGS_AND_GLITCHES.md`](BUGS_AND_GLITCHES.md)
+- Build/link/layout: `Makefile`, `layout.link`, and product `.map`/`.sym` files.
+- Product identity or discovery: `tools/rom_tests/full_color/rom_discovery.py`
+  and source/inventory producers.
+- Evidence determinism: `tools/rom_tests/full_color/evidence_runner.py`.
+- Audit evidence: `tools/rom_tests/full_color/phase2_measurements.py`.
+- Renderer fixtures: `tools/rom_tests/full_color/renderer_conformance_runner.py`.
+- Runtime ownership: `tools/rom_tests/full_color/renderer_runtime_runner.py`.
+- Gameplay/navigation: `tools/rom_tests/scenarios/` and the owning E2E suite.
+- Snapshot mismatch: inspect actual/diff images before changing the reviewed
+  snapshot or comparison boundary.
+
+Fix the first failing authority. Later failures often describe fallout.

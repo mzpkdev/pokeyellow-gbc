@@ -4,8 +4,12 @@ Thank you for contributing to Pokémon Yellow.
 
 ## Before opening a pull request
 
-- Follow [CODING_STYLE.md](CODING_STYLE.md).
-- Run the relevant checks locally with `python tools/run_ci.py`.
+- Follow the established assembly, Python, and documentation style in the
+  neighboring files you change.
+- Start with a focused pytest path, then use the public Make commands described
+  in [docs/TESTING.md](docs/TESTING.md). For full-color work, run
+  `make test-full-color-fast` while iterating and
+  `make test-full-color-certify` before handoff.
 - Keep each pull request focused on one change.
 
 ## Pull requests

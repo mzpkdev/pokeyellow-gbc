@@ -153,6 +153,8 @@ def test_real_specification_emits_complete_canonical_mapping_report() -> None:
     report = validate_specification(REAL_SPEC_ROOT)
     payload = report.to_dict()
 
+    assert "docs/verification-contracts.md" in SPECIFICATION_DOCUMENTS
+    assert "docs/prerequisite-gates.md" not in SPECIFICATION_DOCUMENTS
     assert payload["schema"] == "full-color-traceability-report-v1"
     assert payload["documents"] == list(SPECIFICATION_DOCUMENTS)
     assert payload["requirements"] == payload["requirement_rows"] == 122

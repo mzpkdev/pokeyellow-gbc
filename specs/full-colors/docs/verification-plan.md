@@ -1,11 +1,11 @@
 # Overworld verification plan
 
-This file is the sole requirement-to-check index. It defines future checks and
-the evidence that implementation and baseline verification must produce; it does
-not claim that inventories, measurements, ROMs, or test artifacts already
-exist. The [prerequisite suite](prerequisite-gates.md) must be operational
-before renderer work starts, and the
-[AI harness](ai-iteration-harness.md) runs the checks in the tiers below.
+This file is the sole requirement-to-check index. It defines live and planned
+checks plus the evidence each implementation boundary must produce. The
+[verification contracts](verification-contracts.md) define the current local
+and hosted split, and the [AI harness](ai-iteration-harness.md) runs the checks
+in the tiers below. Checks marked future remain non-gating until their runtime
+authority is activated.
 
 ## Check definitions
 

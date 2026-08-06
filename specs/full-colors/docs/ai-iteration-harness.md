@@ -76,16 +76,14 @@ tools/rom_tests/
 │   ├── writer_audit.py
 │   └── scenarios.py
 └── tests/
-    ├── unit/
-    │   ├── test_full_color_snapshots.py
-    │   ├── test_full_color_trace.py
-    │   └── test_full_color_writer_audit.py
+    ├── unit/full_color/
+    │   ├── test_snapshots.py
+    │   ├── test_trace.py
+    │   └── test_inventory.py
     └── e2e/
-        └── full_color/
-            ├── test_gate0.py
-            ├── test_vertical_slice.py
-            ├── test_handoffs.py
-            └── test_soak.py
+        ├── core/
+        ├── renderer/
+        └── journey/
 ```
 
 Exact names may change, but unit and emulator-driven responsibilities must stay
@@ -120,11 +118,11 @@ palettes, owner, generation, banks, and last-writer data.
 
 ## Contract-versioned artifacts
 
-Gate 0 implements and self-mutates this schema against deterministic Yellow
-baseline fixtures; it does not claim runtime renderer behavior. Request,
-commit, Yellow-to-overworld reconstruction, overlay, overworld OAM, and
-renderer-operation timing fields become runtime acceptance only in their
-migration activation phases.
+The verification contracts implement and self-mutate this schema against
+deterministic Yellow baseline fixtures; those fixtures do not claim runtime
+renderer behavior. Request, commit, Yellow-to-overworld reconstruction,
+overlay, overworld OAM, and renderer-operation timing fields contribute
+acceptance only through their activated runtime contracts.
 
 When the harness is implemented and run, every checkpoint records the contract
 schema version, ROM identity, scenario, seed, checkpoint, and frame; owner,
@@ -137,7 +135,7 @@ evidence; a timing-row key; and linked visual and trace artifacts. Cancelled
 work remains in a bounded trace long enough to prove that it performs no later
 write.
 
-Every future collected check declares its concrete `R…` and `AC-…` IDs.
+Every collected check declares its concrete `R…` and `AC-…` IDs.
 Collection emits a machine-readable mapping to named `CHK-…` checks and fails
 on unknown or uncovered IDs.
 
@@ -254,23 +252,23 @@ Also save:
 - decoded writer trace including phase, job/cancellation, commit-unit, writer,
   and timing-row context.
 
-## Independent renderer-conformance checker
+## Independent renderer contract checker
 
-Run `make test-full-color-renderer-conformance`. The checker executes its
+Run `make test-full-color-renderer-contracts`. The checker executes its
 hand-authored corpus twice and byte-compares every stable report and manifest.
 Each invocation creates a new numbered attempt beneath
-`test-results/full-color-renderer-conformance`; override that root with
-`FULL_COLOR_CONFORMANCE_RESULTS` when needed.
+`test-results/full-color-renderer-contracts`; override that root with
+`FULL_COLOR_RENDERER_CONTRACT_RESULTS` when needed.
 
 Read failures in this order: the attempt `summary.json`, the case
 `compact-summary.txt`, `structured-diff.json`, `expected-patches.json`, then
 the linked actual semantic snapshot and writer trace.
 
-The shipped provider is synthetic and records
-`synthetic_checker_self_test`. A later renderer phase supplies the same
-`ObservationProvider` interface from ROM checkpoints and records `rom_runtime`;
-only that mode contributes activated renderer evidence. Synthetic checker
-success proves checker sensitivity and determinism, not renderer correctness.
+The contract provider is synthetic and records `synthetic_checker_self_test`.
+The independent `test-full-color-renderer-runtime` command supplies ROM
+checkpoints and records `rom_runtime`; only that mode contributes activated
+renderer evidence. Synthetic checker success proves checker sensitivity and
+determinism, not renderer correctness.
 
 ## Phase 1 real-ROM ownership evidence
 
@@ -341,11 +339,10 @@ slice; Phase 1 makes no color or colored-renderer acceptance claim.
 
 ### Fast: every change
 
-- build/debug symbols as needed;
-- unit tests for snapshots, traces, and writer audit;
-- Gate 0 bank/ownership smoke;
-- deterministic baseline screenshot, frame-strip, annotated-contact-sheet,
-  localized-image-diff, and versioned-manifest checks.
+- run the affected focused unit tests;
+- run `make test-full-color-fast` for the short harness profile;
+- run `make test-unit` when built-ROM contracts are affected; and
+- run the affected evidence, renderer, or gameplay boundary directly.
 
 ### Focused: transfer or handoff change
 
@@ -354,8 +351,9 @@ slice; Phase 1 makes no color or colored-renderer acceptance claim.
 - semantic comparisons and LLM visual review; and
 - current timing measurements.
 
-### Full: stage completion
+### Full: release certification
 
+- run `make test-full-color-certify`;
 - all tilesets and connections;
 - handoff matrix;
 - soak loops;
