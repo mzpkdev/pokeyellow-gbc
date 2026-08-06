@@ -222,6 +222,7 @@ PHASE2_ROOT_ROWS = {
 }
 
 MINIMUM_ROM_BYTES = 0x1000
+PHASE2_PIPELINE_SECTION = "Full Color Phase 2 Pipelines"
 WRAMX_START, WRAMX_END = 0xD000, 0xDFFF
 SRAM_START, SRAM_END = 0xA000, 0xBFFF
 ROMX_START, ROMX_END = 0x4000, 0x7FFF
@@ -580,9 +581,10 @@ class Phase2Decision:
                 for name, reason in self.rejected_candidates
             ],
             "selection_rule": (
-                "common release/debug space; preserve the 13-byte ownership ABI; "
-                "prefer measured adjacency to the ownership core, then largest ROM span, "
-                "lowest ROM/WRAM address; required work defers with observable caller retry"
+                "common release/debug WRAM/SRAM free space; use the exact common linked "
+                "Full Color Phase 2 Pipelines ROM section across normal, debug, VC, and "
+                "audit products; preserve the 13-byte ownership ABI; select the lowest "
+                "fitting WRAM/SRAM address; required work defers with observable caller retry"
             ),
         }
 
@@ -848,6 +850,67 @@ def _parse_sections(path: Path) -> dict[tuple[str, int], list[tuple[int, int, st
     return result
 
 
+def _common_linked_pipeline_section(
+    product_sections: Mapping[
+        str, Mapping[tuple[str, int], Sequence[tuple[int, int, str]]]
+    ],
+) -> tuple[int, int, int]:
+    products = (*PRODUCTION_PRODUCTS, PHASE2_AUDIT_PRODUCT)
+    missing_products = tuple(product for product in products if product not in product_sections)
+    if missing_products:
+        raise Phase2MeasurementError(
+            "missing linked section data for product(s): " + ", ".join(missing_products)
+        )
+
+    placements: dict[str, tuple[int, int, int]] = {}
+    for product in products:
+        matches = tuple(
+            (bank, low, high)
+            for (kind, bank), values in product_sections[product].items()
+            if kind == "ROMX"
+            for low, high, name in values
+            if name == PHASE2_PIPELINE_SECTION
+        )
+        if not matches:
+            raise Phase2MeasurementError(
+                f'{product}: missing linked ROMX section "{PHASE2_PIPELINE_SECTION}"'
+            )
+        if len(matches) != 1:
+            raise Phase2MeasurementError(
+                f'{product}: multiple linked ROMX sections named "{PHASE2_PIPELINE_SECTION}"'
+            )
+        placements[product] = matches[0]
+
+    unique = set(placements.values())
+    if len(unique) != 1:
+        rendered = ", ".join(
+            f"{product}=${bank:02x}:${low:04x}-${high:04x}"
+            for product, (bank, low, high) in placements.items()
+        )
+        raise Phase2MeasurementError(
+            f'linked "{PHASE2_PIPELINE_SECTION}" placement differs across products: '
+            f"{rendered}"
+        )
+
+    bank, low, high = next(iter(unique))
+    if not ROMX_START <= low <= high <= ROMX_END:
+        raise Phase2MeasurementError(
+            f'linked "{PHASE2_PIPELINE_SECTION}" is outside the ROMX window'
+        )
+    size = high - low + 1
+    if size < MINIMUM_ROM_BYTES:
+        raise Phase2MeasurementError(
+            f'linked "{PHASE2_PIPELINE_SECTION}" is undersized: '
+            f"{size} bytes < {MINIMUM_ROM_BYTES} bytes"
+        )
+    if bank in FORBIDDEN_ROM_BANKS:
+        raise Phase2MeasurementError(
+            f'linked "{PHASE2_PIPELINE_SECTION}" uses forbidden ROM bank '
+            f"${bank:02x}: {FORBIDDEN_ROM_BANKS[bank]}"
+        )
+    return bank, low, high
+
+
 def _free(start: int, end: int, occupied: Sequence[tuple[int, int, str]]) -> list[tuple[int, int]]:
     ranges = []
     cursor = start
@@ -1010,6 +1073,7 @@ def _load_planned_subjects(
     dict[str, tuple[str, ...]],
     dict[str, tuple[str, ...]],
     dict[str, tuple[str, ...]],
+    dict[str, dict[str, object]],
     dict[str, str],
     tuple[str, ...],
     dict[str, dict[str, str]],
@@ -1027,10 +1091,10 @@ def _load_planned_subjects(
             "schema", "source_subjects", "rom_subjects",
             "rom_candidate_subjects", "rom_unresolved_dispositions",
             "source_error_subjects", "source_error_disposition",
-            "planned_only_dispositions",
+            "planned_only_dispositions", "shared_candidate_dispositions",
             "authority_counts",
         }
-        or raw["schema"] != "full-color-phase2-planned-subjects-v4"
+        or raw["schema"] != "full-color-phase2-planned-subjects-v5"
     ):
         raise Phase2MeasurementError("invalid planned semantic subject authority")
     result = []
@@ -1057,6 +1121,83 @@ def _load_planned_subjects(
             raise Phase2MeasurementError(
                 f"{kind}: one canonical subject may bind exactly one planned row"
             )
+
+    shared = raw["shared_candidate_dispositions"]
+    if not isinstance(shared, dict) or tuple(shared) != tuple(sorted(shared)):
+        raise Phase2MeasurementError(
+            "shared_candidate_dispositions: must be an object sorted by candidate digest"
+        )
+    checked_shared: dict[str, dict[str, object]] = {}
+    assignment_products = tuple(sorted((*PRODUCTION_PRODUCTS, PHASE2_AUDIT_PRODUCT)))
+    for digest, disposition in shared.items():
+        if not isinstance(digest, str) or not _SHA256.fullmatch(digest):
+            raise Phase2MeasurementError(
+                "shared_candidate_dispositions: keys must be canonical SHA-256 digests"
+            )
+        if (
+            not isinstance(disposition, dict)
+            or set(disposition) != {
+                "disposition", "eligible_rows", "products", "representative_row",
+                "reviewed", "reviewer",
+            }
+        ):
+            raise Phase2MeasurementError(
+                f"shared_candidate_dispositions.{digest}: malformed disposition"
+            )
+        eligible_rows = tuple(
+            _string(value, f"shared_candidate_dispositions.{digest}.eligible_rows[{index}]")
+            for index, value in enumerate(_array(
+                disposition["eligible_rows"],
+                f"shared_candidate_dispositions.{digest}.eligible_rows",
+            ))
+        )
+        products = tuple(
+            _string(value, f"shared_candidate_dispositions.{digest}.products[{index}]")
+            for index, value in enumerate(_array(
+                disposition["products"],
+                f"shared_candidate_dispositions.{digest}.products",
+            ))
+        )
+        representative = _string(
+            disposition["representative_row"],
+            f"shared_candidate_dispositions.{digest}.representative_row",
+        )
+        reviewer = disposition["reviewer"]
+        if (
+            len(eligible_rows) < 2
+            or eligible_rows != tuple(sorted(set(eligible_rows)))
+            or not set(eligible_rows) <= PHASE2_PLANNED_ROW_IDS
+            or products != assignment_products
+            or representative not in eligible_rows
+            or disposition["disposition"] != "REVIEWED_SHARED_SITE_REPRESENTATIVE"
+            or disposition["reviewed"] is not True
+            or not isinstance(reviewer, str)
+            or not reviewer
+            or reviewer != reviewer.strip()
+            or "\n" in reviewer
+            or "\r" in reviewer
+        ):
+            raise Phase2MeasurementError(
+                f"shared_candidate_dispositions.{digest}: malformed disposition"
+            )
+        audit_candidate_rows = tuple(
+            row_id
+            for row_id, digests in result[2].items()
+            if digest in digests
+        )
+        if audit_candidate_rows != (representative,):
+            raise Phase2MeasurementError(
+                f"shared_candidate_dispositions.{digest}: audit candidate must have "
+                "one canonical representative row"
+            )
+        checked_shared[digest] = {
+            "disposition": disposition["disposition"],
+            "eligible_rows": eligible_rows,
+            "products": products,
+            "representative_row": representative,
+            "reviewed": True,
+            "reviewer": reviewer,
+        }
     unresolved = raw["rom_unresolved_dispositions"]
     if not isinstance(unresolved, dict):
         raise Phase2MeasurementError("rom_unresolved_dispositions: expected object")
@@ -1130,6 +1271,20 @@ def _load_planned_subjects(
             "by_row": {row_id: len(values) for row_id, values in result[2].items()},
             "total": sum(map(len, result[2].values())),
         },
+        "shared_candidate_dispositions": {
+            "by_representative_row": {
+                row_id: sum(
+                    disposition["representative_row"] == row_id
+                    for disposition in checked_shared.values()
+                )
+                for row_id in sorted(PHASE2_PLANNED_ROW_IDS)
+            },
+            "product_bindings": sum(
+                len(disposition["products"])
+                for disposition in checked_shared.values()
+            ),
+            "total": len(checked_shared),
+        },
         "rom_unresolved_dispositions": {
             "by_row": {
                 row_id: tuple(checked_unresolved.values()).count(row_id)
@@ -1143,7 +1298,7 @@ def _load_planned_subjects(
     if counts != expected_counts:
         raise Phase2MeasurementError("authority_counts: exact cardinalities or per-bucket counts changed")
     return (
-        result[0], result[1], result[2], checked_unresolved,
+        result[0], result[1], result[2], checked_shared, checked_unresolved,
         checked_source_errors, checked_planned_only,
     )
 
@@ -1215,8 +1370,8 @@ _PASSIVE_VISIBLE_POINTER_ROOTS = {
     "PassiveFullColorApplyMap": (
         (
             "PassiveFullColorApplyMap",
-            "3b:534f",
-            "3b:54bc",
+            "3b:5378",
+            "3b:54bd",
         ),
     ),
     "PassiveFullColorCommitVisibleAttributes": (
@@ -1226,21 +1381,21 @@ _PASSIVE_VISIBLE_POINTER_ROOTS = {
 _PASSIVE_CLEAR_POINTER_ROOTS = {
     "PassiveFullColorClearBGMapChunk": (
         ("PassiveFullColorClearBGMapChunk",),
-        ("PassiveFullColorClearBGMapChunk", "3b:5512"),
-        ("PassiveFullColorClearBGMapChunk", "3b:5512", "3b:5512"),
+        ("PassiveFullColorClearBGMapChunk", "3b:5513"),
+        ("PassiveFullColorClearBGMapChunk", "3b:5513", "3b:5513"),
     ),
     "PassiveFullColorVBlank": (
         (
-            "PassiveFullColorVBlank", "3b:5436", "3b:547c", "3b:548f",
-            "3b:549c", "3b:54eb",
+            "PassiveFullColorVBlank", "3b:545a", "3b:549a", "3b:54ad",
+            "3b:54ba", "3b:54ec",
         ),
         (
-            "PassiveFullColorVBlank", "3b:5436", "3b:547c", "3b:548f",
-            "3b:549c", "3b:54eb", "3b:5512",
+            "PassiveFullColorVBlank", "3b:545a", "3b:549a", "3b:54ad",
+            "3b:54ba", "3b:54ec", "3b:5513",
         ),
         (
-            "PassiveFullColorVBlank", "3b:5436", "3b:547c", "3b:548f",
-            "3b:549c", "3b:54eb", "3b:5512", "3b:5512",
+            "PassiveFullColorVBlank", "3b:545a", "3b:549a", "3b:54ad",
+            "3b:54ba", "3b:54ec", "3b:5513", "3b:5513",
         ),
     ),
 }
@@ -1249,13 +1404,13 @@ _PASSIVE_COLUMN_POINTER_ROOTS = {
         ("PassiveFullColorCommitRedrawColumn",),
     ),
     "PassiveFullColorVBlank": (
-        ("PassiveFullColorVBlank", "3b:5436", "3b:5455", "3b:5ab1"),
+        ("PassiveFullColorVBlank", "3b:545a", "3b:6bc1"),
     ),
 }
 _PASSIVE_ROW_POINTER_ROOTS = {
     "PassiveFullColorCommitRedrawRow": (("PassiveFullColorCommitRedrawRow",),),
     "PassiveFullColorVBlank": (
-        ("PassiveFullColorVBlank", "3b:5436", "3b:5455", "3b:5b6a"),
+        ("PassiveFullColorVBlank", "3b:545a", "3b:6c7a"),
     ),
 }
 
@@ -1264,84 +1419,84 @@ _PASSIVE_ROW_POINTER_ROOTS = {
 # Keep every reviewed pointer store literal: address drift, opcode drift, a new
 # store, a new root, or different call ancestry must block projection.
 _PASSIVE_ROM_POINTER_WRITES = {
-    (0x3B, 0x54CE, "72"): _PASSIVE_VISIBLE_POINTER_ROOTS,
-    (0x3B, 0x5512, "22"): _PASSIVE_CLEAR_POINTER_ROOTS,
-    (0x3B, 0x5AC5, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AC8, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5ACE, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AD1, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AD7, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5ADA, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AE0, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AE3, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AE9, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AEC, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AF2, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AF5, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AFB, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5AFE, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B04, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B07, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B0D, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B10, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B16, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B19, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B1F, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B22, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B28, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B2B, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B31, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B34, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B3A, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B3D, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B43, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B46, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B4C, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B4F, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B55, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B58, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B5E, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B61, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
-    (0x3B, 0x5B7E, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B81, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B87, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B8A, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B90, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B93, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B99, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5B9C, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BA2, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BA5, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BAB, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BAE, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BB4, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BB7, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BBD, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BC0, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BC6, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BC9, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BCF, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BD2, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BD8, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BDB, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BE1, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BE4, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BEA, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BED, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BF3, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BF6, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BFC, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5BFF, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5C05, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5C08, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5C0E, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5C11, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5C17, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5C1A, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5C20, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5C23, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5C29, "12"): _PASSIVE_ROW_POINTER_ROOTS,
-    (0x3B, 0x5C2C, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x54CF, "72"): _PASSIVE_VISIBLE_POINTER_ROOTS,
+    (0x3B, 0x5513, "22"): _PASSIVE_CLEAR_POINTER_ROOTS,
+    (0x3B, 0x6BD5, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6BD8, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6BDE, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6BE1, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6BE7, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6BEA, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6BF0, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6BF3, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6BF9, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6BFC, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C02, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C05, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C0B, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C0E, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C14, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C17, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C1D, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C20, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C26, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C29, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C2F, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C32, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C38, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C3B, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C41, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C44, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C4A, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C4D, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C53, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C56, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C5C, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C5F, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C65, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C68, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C6E, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C71, "12"): _PASSIVE_COLUMN_POINTER_ROOTS,
+    (0x3B, 0x6C8E, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6C91, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6C97, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6C9A, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CA0, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CA3, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CA9, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CAC, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CB2, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CB5, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CBB, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CBE, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CC4, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CC7, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CCD, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CD0, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CD6, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CD9, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CDF, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CE2, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CE8, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CEB, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CF1, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CF4, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CFA, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6CFD, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6D03, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6D06, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6D0C, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6D0F, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6D15, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6D18, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6D1E, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6D21, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6D27, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6D2A, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6D30, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6D33, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6D39, "12"): _PASSIVE_ROW_POINTER_ROOTS,
+    (0x3B, 0x6D3C, "12"): _PASSIVE_ROW_POINTER_ROOTS,
 }
 
 
@@ -1697,6 +1852,8 @@ def _scoped_product_subjects(
     source_report: SourceDiscoveryReport,
     rom_report: object,
     *,
+    product: str,
+    shared_candidate_dispositions: Mapping[str, Mapping[str, object]],
     reviewed_pointer_rows: Mapping[str, str] | None = None,
 ) -> tuple[tuple[object, ...], tuple[tuple[object, str], ...]]:
     roots = set(_phase2_roots())
@@ -1706,18 +1863,68 @@ def _scoped_product_subjects(
         if _source_finding_root(finding) is not None
     )
     rom = tuple(finding for finding in rom_report.findings if finding.root in roots)
-    sites: dict[tuple[int, int], list[str]] = {}
+    sites: dict[tuple[int, int], set[str]] = {}
     projected: list[tuple[object, str]] = []
     for finding in rom:
         row_id = _planned_rom_row_for(
             finding, reviewed_pointer_rows=reviewed_pointer_rows
         )
         projected.append((finding, row_id))
-        sites.setdefault((finding.bank, finding.address), []).append(row_id)
-    for finding in rom_report.candidate_findings:
-        rows = sites.get((finding.bank, finding.address))
-        if rows:
-            projected.append((finding, sorted(rows)[0]))
+        sites.setdefault((finding.bank, finding.address), set()).add(row_id)
+
+    candidates = tuple(
+        finding
+        for finding in rom_report.candidate_findings
+        if (finding.bank, finding.address) in sites
+    )
+    actual_shared: dict[str, tuple[str, ...]] = {}
+    for finding in candidates:
+        eligible_rows = tuple(sorted(sites[(finding.bank, finding.address)]))
+        if len(eligible_rows) < 2:
+            continue
+        digest = rom_finding_subject(finding).sha256
+        if digest in actual_shared:
+            raise Phase2MeasurementError(
+                f"duplicate {product} shared candidate before disposition: {digest}"
+            )
+        actual_shared[digest] = eligible_rows
+    reviewed_shared = {
+        digest: disposition
+        for digest, disposition in shared_candidate_dispositions.items()
+        if product in disposition["products"]
+    }
+    errors: list[str] = []
+    missing = sorted(set(actual_shared) - set(reviewed_shared))
+    extra = sorted(set(reviewed_shared) - set(actual_shared))
+    if missing:
+        errors.append(f"missing {product} shared-candidate disposition(s): {missing}")
+    if extra:
+        errors.append(f"stale or extra {product} shared-candidate disposition(s): {extra}")
+    for digest in sorted(set(actual_shared) & set(reviewed_shared)):
+        disposition = reviewed_shared[digest]
+        if disposition.get("reviewed") is not True:
+            errors.append(f"{product} shared candidate {digest} is unreviewed")
+        if tuple(disposition.get("eligible_rows", ())) != actual_shared[digest]:
+            errors.append(
+                f"{product} shared candidate {digest} eligible row set changed: "
+                f"{actual_shared[digest]}"
+            )
+        if disposition.get("representative_row") not in actual_shared[digest]:
+            errors.append(
+                f"{product} shared candidate {digest} has conflicting representative row"
+            )
+    if errors:
+        raise Phase2MeasurementError("; ".join(errors))
+
+    for finding in candidates:
+        eligible_rows = tuple(sorted(sites[(finding.bank, finding.address)]))
+        row_id = (
+            eligible_rows[0]
+            if len(eligible_rows) == 1
+            else reviewed_shared[rom_finding_subject(finding).sha256]["representative_row"]
+        )
+        assert isinstance(row_id, str)
+        projected.append((finding, row_id))
     return source, tuple(projected)
 
 
@@ -1877,6 +2084,7 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
         planned_source_authority,
         planned_rom_authority,
         planned_candidate_authority,
+        shared_candidate_dispositions,
         planned_unresolved_authority,
         planned_source_error_authority,
         planned_only_authority,
@@ -1940,6 +2148,7 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
     actual_candidate_subjects: dict[str, set[str]] = {
         row_id: set() for row_id in PHASE2_PLANNED_ROW_IDS
     }
+    semantic_subject_errors: list[str] = []
     for finding in scoped_source:
         finding_root = _source_finding_root(finding)
         assert finding_root is not None
@@ -1948,17 +2157,47 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
         )].add(
             source_finding_subject(finding).sha256
         )
-    site_rows: dict[tuple[int, int], list[tuple[bool, str]]] = {}
+    site_rows: dict[tuple[int, int], set[str]] = {}
     for finding in scoped_rom:
         row_id = _planned_rom_row_for(finding)
         actual_rom_subjects[row_id].add(rom_finding_subject(finding).sha256)
-        site_rows.setdefault((finding.bank, finding.address), []).append(
-            (finding.category != "writer", row_id)
-        )
+        site_rows.setdefault((finding.bank, finding.address), set()).add(row_id)
+    audit_shared = {
+        digest: disposition
+        for digest, disposition in shared_candidate_dispositions.items()
+        if PHASE2_AUDIT_PRODUCT in disposition["products"]
+    }
+    actual_audit_shared: dict[str, tuple[str, ...]] = {}
     for finding in scoped_candidates:
-        row_id = sorted(site_rows[(finding.bank, finding.address)])[0][1]
+        eligible_rows = tuple(sorted(site_rows[(finding.bank, finding.address)]))
+        digest = rom_finding_subject(finding).sha256
+        if len(eligible_rows) > 1:
+            actual_audit_shared[digest] = eligible_rows
+            disposition = audit_shared.get(digest)
+            if disposition is None:
+                continue
+            row_id = disposition["representative_row"]
+            assert isinstance(row_id, str)
+        else:
+            row_id = eligible_rows[0]
         actual_candidate_subjects[row_id].add(rom_finding_subject(finding).sha256)
-    semantic_subject_errors = []
+    missing_shared = sorted(set(actual_audit_shared) - set(audit_shared))
+    extra_shared = sorted(set(audit_shared) - set(actual_audit_shared))
+    if missing_shared:
+        semantic_subject_errors.append(
+            f"missing {PHASE2_AUDIT_PRODUCT} shared-candidate disposition(s): "
+            f"{missing_shared}"
+        )
+    if extra_shared:
+        semantic_subject_errors.append(
+            f"stale or extra {PHASE2_AUDIT_PRODUCT} shared-candidate disposition(s): "
+            f"{extra_shared}"
+        )
+    for digest in sorted(set(actual_audit_shared) & set(audit_shared)):
+        if tuple(audit_shared[digest]["eligible_rows"]) != actual_audit_shared[digest]:
+            semantic_subject_errors.append(
+                f"{PHASE2_AUDIT_PRODUCT} shared candidate {digest} eligible row set changed"
+            )
     for row_id in sorted(PHASE2_PLANNED_ROW_IDS):
         actual_source = tuple(sorted(actual_source_subjects[row_id]))
         actual_rom = tuple(sorted(actual_rom_subjects[row_id]))
@@ -2021,6 +2260,8 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
             product_source, product_rom = _scoped_product_subjects(
                 source_report,
                 product_report,
+                product=product,
+                shared_candidate_dispositions=shared_candidate_dispositions,
                 reviewed_pointer_rows=reviewed_pointer_rows,
             )
             expected_subject_rows: dict[str, str] = {}
@@ -2192,8 +2433,12 @@ def measure(root: Path) -> Phase2Measurement:
     missing = [name for name, path in paths.items() if not path.is_file()]
     if missing:
         raise Phase2MeasurementError("missing measurement input(s): " + ", ".join(missing))
-    release = _parse_sections(paths["pokeyellow.map"])
-    debug = _parse_sections(paths["pokeyellow_debug.map"])
+    product_sections = {
+        product: _parse_sections(paths[f"{artifact}.map"])
+        for product, artifact in PRODUCT_ARTIFACTS.items()
+    }
+    release = product_sections[NORMAL_PRODUCT]
+    debug = product_sections[DEBUG_PRODUCT]
     margin = min(
         _stack_margin(paths["pokeyellow.sym"], release),
         _stack_margin(paths["pokeyellow_debug.sym"], debug),
@@ -2230,23 +2475,20 @@ def measure(root: Path) -> Phase2Measurement:
     ]
     if len(core) != 1:
         raise Phase2MeasurementError("debug link does not define one ownership core")
-    core_bank, _, core_end = core[0]
-    common_rom = _intersection(
-        _free(ROMX_START, ROMX_END, release.get(("ROMX", core_bank), ())),
-        _free(ROMX_START, ROMX_END, debug.get(("ROMX", core_bank), ())),
-    )
-    common_rom = [(max(low, core_end + 1), high) for low, high in common_rom if high > core_end]
-    if not common_wram or not common_sram or not common_rom:
+    _, _, core_end = core[0]
+    rom_bank, rom_start, rom_end = _common_linked_pipeline_section(product_sections)
+    if not common_wram or not common_sram:
         raise Phase2MeasurementError("release/debug products have no common Phase 2 placement")
 
     candidates = tuple(
         Phase2Candidate(
-            wbank, wl, wh, 3, sl, sh, core_bank, rl, rh, margin,
-            ownership_adjacent=(wl == ownership_end + 1 and rl == core_end + 1),
+            wbank, wl, wh, 3, sl, sh, rom_bank, rom_start, rom_end, margin,
+            ownership_adjacent=(
+                wl == ownership_end + 1 and rom_start == core_end + 1
+            ),
         )
         for wl, wh in common_wram
         for sl, sh in common_sram
-        for rl, rh in common_rom
     )
     rejected = tuple(
         (f"ROM bank ${bank:02x}", reason)

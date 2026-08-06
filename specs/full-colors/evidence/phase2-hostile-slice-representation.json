@@ -14,55 +14,55 @@
   "inputs": {
     "pokeyellow.gbc": {
       "path": "pokeyellow.gbc",
-      "sha256": "2583ea2111d7a0af4bb28e01e2bacd10e096908971fdb912b2099ba5e5b43d3f"
+      "sha256": "faa520b454046b6b33171b3328d77a13b61b3dd049f286478e1db07998691547"
     },
     "pokeyellow.map": {
       "path": "pokeyellow.map",
-      "sha256": "702734456480abbcca0252b520d9d4af02b38f77ac833307e2ea481350dc3f2a"
+      "sha256": "f202b9769565579321eb9fe7450543b93caafd94cb125af55e09ca42a87010c6"
     },
     "pokeyellow.sym": {
       "path": "pokeyellow.sym",
-      "sha256": "0593b8b7df0d5a64aa36fe1dc038704207bd099a0e0d71f5c03afae678b3b7aa"
+      "sha256": "56279b0495858850ce0a5cf3c47a7c7c0020bff248e2bf543c4b38cc467174fb"
     },
     "pokeyellow_debug.gbc": {
       "path": "pokeyellow_debug.gbc",
-      "sha256": "1320e0270d3d380ad813ebdd00aa95d4f1b923496882e09354aec8672c22250c"
+      "sha256": "b8f692dc3f678bcb58b5396fe949b5526ea02a785c2cadf526e94e2ebe2379c8"
     },
     "pokeyellow_debug.map": {
       "path": "pokeyellow_debug.map",
-      "sha256": "489d9dca79941eb8951db5da0100af116078a917b5ad53bd329878b85233b9ec"
+      "sha256": "023fd190e9eab6e88aeebda357513287bd7a5ec90f3d4537090ea892aec541b8"
     },
     "pokeyellow_debug.sym": {
       "path": "pokeyellow_debug.sym",
-      "sha256": "7d554e4f1280b63bdd9a3be2f92076e5e72836dc15f8f6452b54cbc80b2742e4"
+      "sha256": "f90c6d6b574c247134878c3dd8d416f7df57522ecdb195e63f52f7e5cfc1a6b6"
     },
     "pokeyellow_phase2_audit.gbc": {
       "path": "pokeyellow_phase2_audit.gbc",
-      "sha256": "895025b92b2c45a6466562748dd6ecf1920beafffa4f8f35ae4929b5090552fb"
+      "sha256": "d89974b402fe1803272b89973787d5d0d906109139840a71bf0e93b8021d3bb2"
     },
     "pokeyellow_phase2_audit.map": {
       "path": "pokeyellow_phase2_audit.map",
-      "sha256": "d81c06c3a8ab6495c1e46dcbfaa56fba6f4a292014ef15fdb6f062a67e2f946b"
+      "sha256": "070c362e6acedfbcb2a5392114ce1145d7621e07df1b07071debd3506f2ab250"
     },
     "pokeyellow_phase2_audit.sym": {
       "path": "pokeyellow_phase2_audit.sym",
-      "sha256": "14b78a0f9d7901855c6012ada26240065270df8f6f3bd3e9edd17b52ea96d0f8"
+      "sha256": "8aa3312774fb5340f5d319cd0b651ee82bfcfd2165cfeade0f60474c77f61a70"
     },
     "pokeyellow_vc.gbc": {
       "path": "pokeyellow_vc.gbc",
-      "sha256": "be45845c9966941999cbceed2b2842a945d9a59adaed157cef25d5f971f96e8b"
+      "sha256": "b88acc8e1dccbad093e24d31c495cbde8ce2301b12089b834c8f03dce49a46e4"
     },
     "pokeyellow_vc.map": {
       "path": "pokeyellow_vc.map",
-      "sha256": "2aae1a8fc0485f22fb9562dd160d124639678f6a669a3daf0ff3e5a47f8ce8e5"
+      "sha256": "dfbd0888e69139ca484c770849f3ba2dbbd5173d29df07e36e40c63dbf46ac6a"
     },
     "pokeyellow_vc.sym": {
       "path": "pokeyellow_vc.sym",
-      "sha256": "6467655e50c7e98a1cb4ff3594f8c5aca4352f674f2ecca660a22c6d09a868ec"
+      "sha256": "28af2d053bf07222a7cedbd0f94e75e1d13e7f2bfce2444ed122c80d149a1667"
     },
     "specs/full-colors/definitions/phase1-audit-source-transition.json": {
       "path": "specs/full-colors/definitions/phase1-audit-source-transition.json",
-      "sha256": "1a840de64ece5bce1e526a19112e3e5ced8889a0ab9ea5329c1595460f9097ba"
+      "sha256": "21aaae040b3f853bd7e1d45a02433c8da656185d18cf98d52b9493784c7642e8"
     },
     "specs/full-colors/definitions/phase2-hostile-slice-representation.json": {
       "path": "specs/full-colors/definitions/phase2-hostile-slice-representation.json",
@@ -70,23 +70,23 @@
     },
     "specs/full-colors/definitions/phase2-planned-subjects.json": {
       "path": "specs/full-colors/definitions/phase2-planned-subjects.json",
-      "sha256": "d0a34fe33cb0b6fc6e92705c77bd159d239828a95627998882bfe6ab6efb227c"
+      "sha256": "7555a490ca771a2717eeef2930dfc09f1109a6d7764ddb2544a89b9bb126cf94"
     },
     "specs/full-colors/inventory/assignments.json": {
       "path": "specs/full-colors/inventory/assignments.json",
-      "sha256": "3a6acf655f6f0ba30ce8e0ca15458858c04a3c550460a6856c5dd5150d882757"
+      "sha256": "ac507771c45df72dd602e6835cd1b6274736e22cb60003c7d538de1c262ae942"
     },
     "specs/full-colors/inventory/mutations.json": {
       "path": "specs/full-colors/inventory/mutations.json",
-      "sha256": "ffe52393df5ff0565d41f3976d2fbb42982d381ded5bbc8f6d73358a54080652"
+      "sha256": "07879c331e648670f14d4720f933ad7c9434b544cd0ef71c82fa0c60a6577cf7"
     },
     "specs/full-colors/inventory/scenes.json": {
       "path": "specs/full-colors/inventory/scenes.json",
-      "sha256": "3041fedc6b32a659f82ba8123bacb7fe9eed5e405e69fb04f87190c69f202872"
+      "sha256": "c66201f4189d8439df1c1311743290818ede9cf66a070afc832caadaeadf89e6"
     },
     "specs/full-colors/inventory/writers.json": {
       "path": "specs/full-colors/inventory/writers.json",
-      "sha256": "649e885fe08b180901af93e2af2524a1a3b2969d0e4921543ebdc9ca24715790"
+      "sha256": "c16cfb16135811fa360434ed33081f30349d890c7eff436098df855fceb401b4"
     }
   },
   "inventory_audit": {
@@ -102,24 +102,24 @@
     "guarded_root_count": 32,
     "inventory_state": "production-closed",
     "normal_rom_reachable": true,
-    "planned_assignment_count": 5663,
+    "planned_assignment_count": 5891,
     "planned_row_count": 0,
     "product_assignment_counts": {
-      "pokeyellow": 1414,
-      "pokeyellow_debug": 1414,
-      "pokeyellow_phase2_audit": 1421,
-      "pokeyellow_vc": 1414
+      "pokeyellow": 1471,
+      "pokeyellow_debug": 1471,
+      "pokeyellow_phase2_audit": 1478,
+      "pokeyellow_vc": 1471
     },
     "production_products": [
       "pokeyellow",
       "pokeyellow_debug",
       "pokeyellow_vc"
     ],
-    "rom_candidate_subject_count": 190,
-    "rom_subject_count": 983,
+    "rom_candidate_subject_count": 195,
+    "rom_subject_count": 1020,
     "rom_unlisted_subject_count": 0,
     "rom_unresolved_disposition_count": 238,
-    "source_subject_count": 248,
+    "source_subject_count": 263,
     "source_unlisted_subject_count": 0
   },
   "ownership_abi": {
@@ -819,9 +819,9 @@
   },
   "rom": {
     "bank": 59,
-    "end": 27864,
+    "end": 21802,
     "reserved_bytes": 4096,
-    "start": 23769
+    "start": 17707
   },
   "schema": "full-color-phase2-hostile-slice-representation-v1",
   "scratch": {
@@ -857,7 +857,7 @@
       }
     ]
   },
-  "selection_rule": "common release/debug space; preserve the 13-byte ownership ABI; prefer measured adjacency to the ownership core, then largest ROM span, lowest ROM/WRAM address; required work defers with observable caller retry",
+  "selection_rule": "common release/debug WRAM/SRAM free space; use the exact common linked Full Color Phase 2 Pipelines ROM section across normal, debug, VC, and audit products; preserve the 13-byte ownership ABI; select the lowest fitting WRAM/SRAM address; required work defers with observable caller retry",
   "sram_debug_carrier": {
     "bank": 3,
     "end": 49102,
