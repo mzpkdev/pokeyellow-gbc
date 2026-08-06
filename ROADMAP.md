@@ -25,9 +25,9 @@ The current tracked baseline and constraints are described by the [documentation
 ## Milestone 2 — Map-aware renderer and paired-transfer foundation
 
 - **Outcome:** One effective-mode/map authority selects reviewed palettes, tileset attributes, roofs, and overrides; every visible map mutation transfers tiles and full-byte attributes as one declared unit.
-- **Scope:** Replace the Pallet/Route 1 hard-coded assumptions with explicit map, tileset, roof, override, and destination identities. Cover initial load, reload, scrolling, all connections, overlays, animation, field replacement, alternate BG/window destinations, clipping, VBlank routing, and reconstruction, following the [migration plan](specs/full-colors/docs/migration-plan.md).
+- **Scope:** Build on the centralized admitted-map predicate, tileset palette/attribute dispatch, and map-aware roof table with explicit override and destination identities. Cover initial load, reload, scrolling, all connections, overlays, animation, field replacement, alternate BG/window destinations, clipping, VBlank routing, and reconstruction, following the [migration plan](specs/full-colors/docs/migration-plan.md).
 - **Exit gate:** Source and linked-ROM inventory agree on one authority; supported and unsupported decisions match at load and VBlank; forced insufficient budgets defer before presentation; every admitted commit is atomic; natural traversal and frame review show no tile/attribute mismatch.
-- **Debt/constraint consequence:** Do not widen the supported-map list here. This milestone pays down duplicated map gating and transfer ownership; content remains canary-bounded until later Yellow-specific review.
+- **Debt/constraint consequence:** The playable outdoor and conventional-interior map set is broader than its retained harness authority. The successful ROM builds and donor table checks do not claim PyBoy coverage or visual acceptance for the expanded interiors.
 
 ## Milestone 3 — Full overworld OBJ ownership
 
@@ -46,7 +46,7 @@ The current tracked baseline and constraints are described by the [documentation
 ## Milestone 5 — Complete Yellow-specific map background content
 
 - **Outcome:** Every Yellow map background and all 25 Yellow tilesets, including interiors, special maps, and Yellow-only content, have independently authored and reviewed Color palettes, attributes, roofs, overrides, animated tiles, and replacements.
-- **Scope:** Land content in bounded geographic or tileset PRs, each backed by source/ROM inventory, integrity checks, natural routes, and manual frame review. Use pinned `pokered-gbc` data only as a candidate starting point; validate every retained value against Yellow graphics and behavior.
+- **Scope:** Land remaining content in bounded geographic or tileset PRs, each backed by source/ROM inventory, integrity checks, natural routes, and manual frame review. The conventional-interior donor slice is playable but still needs that visual acceptance; use pinned `pokered-gbc` data only as a candidate starting point and validate every retained value against Yellow graphics and behavior.
 - **Exit gate:** Every map-background content row is complete, including every interior and special map; no map falls back because content is merely missing, all directions and mutations are covered, and representative day-to-day plus hostile journeys pass in both modes.
 - **Debt/constraint consequence:** Similar names or graphics do not prove equivalence. Unknown artistic cases should remain explicit Yellow fallback until reviewed, never be filled by bulk donor import.
 

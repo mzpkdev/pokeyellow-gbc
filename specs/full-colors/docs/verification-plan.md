@@ -10,9 +10,9 @@ before renderer work starts, and the
 ## Check definitions
 
 - **CHK-OWN-01:** Method: seeded owner/phase/generation model sequences plus owner-gated writer traces; tier: fast/full; evidence: semantic snapshots, decoded trace, mutation result, seed, and reduced action sequence.
-- **CHK-SELECT-01:** Method: enumerate the explicit Cartesian product `{COLOR, YELLOW}` × `{ordinary map presentation, overlay, dialogue, menu, battle, standalone, boot/reset}` × `{Pallet Town, Route 1, unsupported map}` without pruning inapplicable-looking cells; tier: fast/full; evidence: all 42 pure-resolver rows, including every forced context on both eligible maps and the unsupported map, with exactly one owner per cell and a mutation proving preference cannot authorize a write.
+- **CHK-SELECT-01:** Method: enumerate the explicit Cartesian product `{COLOR, YELLOW}` × `{ordinary map presentation, overlay, dialogue, menu, battle, standalone, boot/reset}` × `{each of 34 supported OVERWORLD maps, each of 162 supported interior maps, unsupported map}` without pruning inapplicable-looking cells; tier: fast/full; evidence: all 2,758 pure-resolver rows, including every forced context across the supported 19-interior-tileset slice and unsupported cases, with exactly one owner per cell and a mutation proving preference cannot authorize a write. The expanded harness execution and its evidence are deferred and are not claimed by the current implementation slice.
 - **CHK-SELECT-02:** Method: recompute policy before each destination's first owner-gated writer and exercise same-owner and changed-owner cases in both directions; tier: focused/full; evidence: preference/write trace, owner/generation trace, cancellation reason, reconstruction ledger, and exactly one barrier per real handoff.
-- **CHK-PROD-01:** Method: inspect normal, debug, and VC source/symbol/callgraph reachability and run the bounded scene matrix; tier: fast/focused/full; evidence: exact two-map Color allowlist, forced-Yellow traces, unreachable `OVERWORLD_OVERLAY`, and no production audit carrier.
+- **CHK-PROD-01:** Method: inspect normal, debug, and VC source/symbol/callgraph reachability and run the bounded scene matrix across the 34 supported `OVERWORLD` maps and 162 maps using the 19 admitted interior tilesets; tier: fast/focused/full; evidence: exact supported-map gate, forced-Yellow traces, unreachable `OVERWORLD_OVERLAY`, and no production audit carrier. Expanded harness execution is deferred, so the current slice claims build/source/symbol reachability only, not scene-matrix evidence.
 - **CHK-REQUEST-01:** Method: runtime pressure for exactly the selected policy of each request class plus schema/reference-model coverage of unselected enum branches; tier: fast/full; evidence: selected capacity/policy table, required-work defer/retry trace, optional-or-supersedable final-rejection fallback where selected, work accounting, and reduced seed.
 - **CHK-JOB-01:** Method: handoff, reset, supersession, stale-generation, and adversarial cancellation sequences; tier: fast/full; evidence: job-state and cancellation trace proving no post-cancellation write.
 - **CHK-COMMIT-01:** Method: force insufficient budget at every pre-visible preparation/revalidation boundary, verify deferral before `COMMITTING`, and verify uninterrupted completion after worst-case budget reservation; tier: focused/full; evidence: old/new semantic snapshots, frame strip, commit-unit/writer IDs, boundary defer traces, reservation record, and inactive-or-LCD-off interruption cases.
@@ -29,7 +29,7 @@ before renderer work starts, and the
 - **CHK-ROM-01:** Method: inspect source, link maps, and donor adaptations for prohibited banks and MBC1 assumptions; tier: fast/full; evidence: placement decision record, link-map ranges, far-call audit, and negative source/disassembly findings.
 - **CHK-PALETTE-01:** Method: compare base, transformed, and hardware BG/OBJ palettes through every remap/effect and owner-dispatched wrapper; tier: focused/full; evidence: palette snapshots, wrapper trace, complete-payload commit record, and visual checkpoints.
 - **CHK-TRANSFER-01:** Method: exercise every concrete paired-transfer mutation and destination from the closed baseline and atomically extended inventories; tier: focused/full; evidence: concrete mutation/writer IDs, renewed source/ROM closure, tile/attribute byte pairs, serialization trace, and five-frame boundary captures.
-- **CHK-TILESET-01:** Future/non-gating method: audit and exercise all 25 tilesets, table assertions, graphics, roofs, overrides, animations, and native Beach House data; tier: full; evidence: table lengths, assignment audit, semantic atlas, animation captures, and reviewed visual atlas. Bounded-release use is limited to the Pallet Town/Route 1 rows and does not claim all-25 closure.
+- **CHK-TILESET-01:** Future/non-gating method: audit and exercise all 25 tilesets, table assertions, graphics, roofs, overrides, animations, and native Beach House data; tier: full; evidence: table lengths, assignment audit, semantic atlas, animation captures, and reviewed visual atlas. Bounded-release use includes the admitted outdoor/conventional-interior tables but does not claim all-25 closure or harness coverage for the expanded interiors.
 - **CHK-HANDOFF-01:** Method: execute every concrete changed-owner edge in both directions plus reset and soft reset from Color, and every same-owner edge; tier: focused/full; evidence: close/cancel/generation/select/reconstruct/barrier/reopen ordering, destination-resource unknown/poison ledger, complete fresh destination reconstruction ledger, exactly one generation and barrier per changed owner, admission reopening only afterward, zero generation for same owner, bank/interrupt restoration, hidden-display proof where used, normal-boot re-entry after soft reset, and first-writer trace.
 - **CHK-OAM-02:** Method: exercise player, follower, every mapped object class, maximum population, shadow construction, sort/copy, invalidation, and one hardware DMA; tier: focused/full; evidence: concrete writer/mutation IDs, final-picture mapping, shadow/hardware OAM snapshots, DMA trace, and frame strip.
 - **CHK-VISUAL-01:** Method: inspect named screenshots, bounded frame strips, annotated contact sheets, and localized image diffs beside semantic state; tier: fast/focused/full; evidence: versioned manifest, reviewer result, image diffs, snapshots, and linked traces.
@@ -318,12 +318,12 @@ presentation barrier; and five consecutive `OVERWORLD_ACTIVE` frames.
 
 `CHK-SELECT-01` expands the complete Cartesian product `{COLOR, YELLOW}` ×
 `{ordinary map presentation, overlay, dialogue, menu, battle, standalone,
-boot/reset}` × `{Pallet Town, Route 1, unsupported map}`. Only the two cells
-combining `COLOR` with ordinary eligible-map presentation select
-`RENDERER_FULL_COLOR_OVERWORLD`; every other one of the 42 cells selects
-`RENDERER_YELLOW`. Thus every forced context is tested on both eligible maps
-as well as an unsupported map, under both preferences. Each row asserts one
-and only one owner. `CHK-SELECT-02` additionally proves
+boot/reset}` × `{each of 34 supported OVERWORLD maps, each of 162 supported
+interior maps, unsupported map}`. Only cells combining `COLOR` with ordinary presentation of
+one of those 196 supported maps select `RENDERER_FULL_COLOR_OVERWORLD`; every
+other cell selects `RENDERER_YELLOW`. Each row asserts one and only one owner.
+Executing and retaining this expanded harness matrix is deferred and is not
+claimed by the current slice. `CHK-SELECT-02` additionally proves
 that preference writes touch no video, renderer, generation, queue, palette,
 VRAM, OAM, or hardware state and that policy is recomputed before the first
 destination owner-gated writer.
@@ -396,11 +396,13 @@ never by substituting a representative category:
   exits by `CHK-HANDOFF-01` and `CHK-REGRESS-01`; `CHK-RETURN-01` joins only
   actual Yellow-to-Color eligible-map boundary rows.
 
-The bounded production content matrix covers Pallet Town and Route 1 first
-entry, each actual Yellow-to-Color return, both scroll axes, their connection,
-reload, every animated tile, and every field replacement. Dialogue and menus
-are Yellow baseline cases with complete departure/return evidence. All-25-map
-authoring remains future work and is not a release gate for this product.
+The bounded production content matrix is specified for all 34 supported
+`OVERWORLD` maps and the 162 maps using the 19 admitted interior tilesets,
+including first entry, each actual Yellow-to-Color return, both scroll axes,
+connections where present, and reload. Dialogue and menus remain Yellow
+baseline cases with complete departure/return evidence. Execution of this
+expanded harness matrix is deferred and is not claimed by the current slice;
+authoring for the remaining tilesets also remains future work.
 
 The full OAM matrix covers player walking, running, biking, surfing, fishing,
 and ledge states; follower Pikachu in every direction and animation state;

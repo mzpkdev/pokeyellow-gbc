@@ -17,6 +17,7 @@ HandleMenuInput_::
 	call PlaceMenuCursor
 	call Delay3
 .loop2
+	EXPORT HandleMenuInput_.loop2
 	push hl
 	ld a, [wPartyMenuAnimMonEnabled]
 	and a ; is it a pokemon selection menu?
@@ -285,7 +286,10 @@ PrintText::
 	ld [wTextBoxID], a
 	call DisplayTextBoxID
 	call UpdateSprites
-	call Delay3
+	; The textbox is now structurally final. The tail helper preserves this
+	; routine's Home footprint while Color stages its attributes before Yellow's
+	; unchanged three-frame publication delay.
+	call FullColorPrintTextDelay
 	pop hl
 PrintText_NoCreatingTextBox::
 	bccoord 1, 14

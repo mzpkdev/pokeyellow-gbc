@@ -27,7 +27,9 @@ PRODUCTION_RENDERER_SURFACE = frozenset(
         "PassiveFullColorHandleConnection",
         "PassiveFullColorPrepareRedrawAttributes",
         "PassiveFullColorPrepareColumnAttributes",
+        "PassiveFullColorInvalidateOverlayAttributes",
         "PassiveFullColorPrepareMenuOverlay",
+        "PassiveFullColorPrepareTextOverlay",
         "PassiveFullColorRestoreAfterMenu",
         "PassiveFullColorPrepareBattleHandoff",
         "PassiveFullColorVBlank",
@@ -57,8 +59,10 @@ REQUIRED_REACHABLE_RENDERER = frozenset(
         "PassiveFullColorRestoreAfterMenu",
         "PassiveFullColorPrepareBattleHandoff",
         "PassiveFullColorShouldColorOverlay",
+        "PassiveFullColorInvalidateOverlayAttributes",
         "PassiveFullColorPrepareMenuOverlay",
-        "PassiveFullColorAutoBgMapTransfer",
+        "PassiveFullColorPrepareTextOverlay",
+        "PassiveFullColorOverlayAttributeGDMA",
         "PassiveFullColorVBlank",
     }
 )
@@ -72,6 +76,9 @@ PRODUCTION_ROOTS = (
     "LoadMapData",
     "ScheduleSouthRowRedraw",
     "DisplayStartMenu",
+    # DisplayStartMenu pins bank 4 before its ROM0 trampoline jumps here; the
+    # static walker cannot infer that bank state from BankswitchCommon.
+    "FullColorDisplayStartMenu",
     "DisplayPartyMenu",
     "InitBattle",
     "DisplayBattleMenu",
@@ -96,9 +103,11 @@ RETURN_PROBE = 0x0100
 HARNESS_LOOP = 0xFF80
 
 
-def _symbols(product: str) -> tuple[dict[str, tuple[int, int]], dict[tuple[int, int], str]]:
+def _symbols(
+    product: str,
+) -> tuple[dict[str, tuple[int, int]], dict[tuple[int, int], set[str]]]:
     by_name: dict[str, tuple[int, int]] = {}
-    by_address: dict[tuple[int, int], str] = {}
+    by_address: dict[tuple[int, int], set[str]] = {}
     for line in (REPOSITORY_ROOT / f"{product}.sym").read_text(encoding="utf-8").splitlines():
         match = re.fullmatch(r"([0-9a-fA-F]+):([0-9a-fA-F]+) (\S+)", line)
         if match is None:
@@ -106,7 +115,7 @@ def _symbols(product: str) -> tuple[dict[str, tuple[int, int]], dict[tuple[int, 
         location = (int(match.group(1), 16), int(match.group(2), 16))
         by_name[match.group(3)] = location
         if "." not in match.group(3):
-            by_address.setdefault(location, match.group(3))
+            by_address.setdefault(location, set()).add(match.group(3))
     return by_name, by_address
 
 
@@ -123,7 +132,8 @@ def test_shipped_products_link_renderer_and_exclude_audit_machinery(product: str
     assert symbols["wRendererStateStart"] == (2, 0xD000)
     assert symbols["wRendererStateEnd"] == (2, 0xD00D)
     assert symbols["wPassiveFullColorStateStart"] == (2, 0xD800)
-    assert symbols["wPassiveFullColorStateEnd"] == (2, 0xD96C)
+    assert symbols["wPassiveFullColorAttributeRectangle"] == (2, 0xD810)
+    assert symbols["wPassiveFullColorStateEnd"] == (2, 0xDA50)
     assert symbols["FullColorOverworldBGPalettesEnd"][1] - symbols[
         "FullColorOverworldBGPalettes"
     ][1] == 64
@@ -288,8 +298,7 @@ def _reachable_symbols(
             continue
         visited_instructions.add(location)
         if location in by_address:
-            symbol = by_address[location]
-            reached.add(symbol)
+            reached.update(by_address[location])
         offset = address if bank == 0 else bank * 0x4000 + address - 0x4000
         opcode = rom[offset]
         mnemonic = CPU_COMMANDS[opcode]

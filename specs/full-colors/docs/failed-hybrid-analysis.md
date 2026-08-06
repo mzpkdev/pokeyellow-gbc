@@ -31,7 +31,8 @@ FULL_COLOR_OVERWORLD       <----> YELLOW
 ```
 
 For the bounded production product, the left side exists only for ordinary
-Pallet Town or Route 1 presentation under `COLOR` preference. Production
+presentation of the supported outdoor/conventional-interior map slice under
+`COLOR` preference. Production
 overlays are Yellow-owned; the former overlay model is quarantined diagnostic
 evidence and cannot authorize a production write.
 

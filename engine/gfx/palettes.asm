@@ -843,6 +843,13 @@ DMGPalToCGBPal::
 	ret
 
 TransferCurBGPData::
+	push af
+	call IsPassiveFullColorBGPaletteProtected
+	jr z, .transfer
+	pop af
+	ret
+.transfer
+	pop af
 	push de
 	add a
 	add a
@@ -865,7 +872,7 @@ TransferCurBGPData::
 	ENDR
 .done
 	pop de
-	ret
+	jp InvalidatePassiveFullColorBGPalette
 
 BufferBGPPal::
 ; Copy wCGBPal to palette a in wBGPPalsBuffer.
@@ -891,6 +898,8 @@ BufferBGPPal::
 
 TransferBGPPals::
 ; Transfer the buffered BG palettes.
+	call IsPassiveFullColorBGPaletteProtected
+	ret nz
 	ldh a, [rLCDC]
 	and LCDC_ON
 	jr z, .lcdDisabled
@@ -901,6 +910,7 @@ TransferBGPPals::
 	jr c, .waitLoop
 .lcdDisabled
 	call .DoTransfer
+	call InvalidatePassiveFullColorBGPalette
 	ei
 	ret
 
@@ -917,6 +927,46 @@ TransferBGPPals::
 	ld [de], a
 	dec c
 	jr nz, .loop
+	ret
+
+; Return nonzero while the steady Color overworld call owns BG palette RAM.
+IsPassiveFullColorBGPaletteProtected:
+	ldh a, [rIE]
+	ldh [hRendererStateSavedIE], a
+	xor a
+	ldh [rIE], a
+	ldh a, [rSVBK]
+	ldh [hRendererStateSavedSVBK], a
+	ld a, PASSIVE_FULL_COLOR_WRAM_BANK
+	ldh [rSVBK], a
+	ld a, [wPassiveFullColorBGPaletteProtected]
+	ld b, a
+	ldh a, [hRendererStateSavedSVBK]
+	ldh [rSVBK], a
+	ldh a, [hRendererStateSavedIE]
+	ldh [rIE], a
+	ld a, b
+	and a
+	ret
+
+; Any Yellow background-palette publication invalidates an active authored
+; payload. Mask interrupt admission while the stack's WRAM bank is absent, then
+; restore the exact IE and SVBK values before returning.
+InvalidatePassiveFullColorBGPalette:
+	ldh a, [rIE]
+	ldh [hRendererStateSavedIE], a
+	xor a
+	ldh [rIE], a
+	ldh a, [rSVBK]
+	ldh [hRendererStateSavedSVBK], a
+	ld a, PASSIVE_FULL_COLOR_WRAM_BANK
+	ldh [rSVBK], a
+	ld a, 1
+	ld [wPassiveFullColorPaletteInvalidated], a
+	ldh a, [hRendererStateSavedSVBK]
+	ldh [rSVBK], a
+	ldh a, [hRendererStateSavedIE]
+	ldh [rIE], a
 	ret
 
 TransferCurOBPData:

@@ -46,6 +46,24 @@ def patch_product_report(monkeypatch, product, changed) -> None:
     )
 
 
+def shared_candidate_dispositions():
+    return phase2_measurements._load_planned_subjects(ROOT, closed=True)[3]
+
+
+def linked_pipeline_sections(
+    *, placement: tuple[int, int, int] = (0x3B, 0x452B, 0x552A)
+):
+    bank, start, end = placement
+    return {
+        product: {
+            ("ROMX", bank): [
+                (start, end, phase2_measurements.PHASE2_PIPELINE_SECTION)
+            ]
+        }
+        for product in ROM_PRODUCTS
+    }
+
+
 def audit_product_fixture(root: Path) -> None:
     roots = _phase2_roots()
     marker_address = 0x4000
@@ -192,6 +210,41 @@ def test_selection_and_json_are_independent_of_candidate_order() -> None:
     assert first == second
     assert first.to_json() == second.to_json()
     assert first.rom_bank == 0x3B
+
+
+def test_common_linked_pipeline_section_is_the_exact_rom_candidate() -> None:
+    assert phase2_measurements._common_linked_pipeline_section(
+        linked_pipeline_sections()
+    ) == (0x3B, 0x452B, 0x552A)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("missing", "missing linked ROMX section"),
+        ("mismatched", "placement differs across products"),
+        ("undersized", "is undersized"),
+        ("forbidden", "uses forbidden ROM bank"),
+    ],
+)
+def test_common_linked_pipeline_section_fails_closed(mutation, message) -> None:
+    sections = linked_pipeline_sections()
+    if mutation == "missing":
+        sections[phase2_measurements.VC_PRODUCT] = {}
+    elif mutation == "mismatched":
+        sections[phase2_measurements.DEBUG_PRODUCT] = linked_pipeline_sections(
+            placement=(0x3B, 0x452C, 0x552B)
+        )[phase2_measurements.DEBUG_PRODUCT]
+    elif mutation == "undersized":
+        sections = linked_pipeline_sections(placement=(0x3B, 0x452B, 0x5529))
+    else:
+        forbidden_bank = min(phase2_measurements.FORBIDDEN_ROM_BANKS)
+        sections = linked_pipeline_sections(
+            placement=(forbidden_bank, 0x452B, 0x552A)
+        )
+
+    with pytest.raises(Phase2MeasurementError, match=message):
+        phase2_measurements._common_linked_pipeline_section(sections)
 
 
 def test_required_work_defers_with_observable_retry() -> None:
@@ -757,7 +810,11 @@ def test_production_pointer_projection_requires_exact_reviewed_subject() -> None
         if row.subject.kind.value == "ROM_FINDING"
     }
     phase2_measurements._scoped_product_subjects(
-        source, report, reviewed_pointer_rows=reviewed_pointer_rows
+        source,
+        report,
+        product=product,
+        shared_candidate_dispositions=shared_candidate_dispositions(),
+        reviewed_pointer_rows=reviewed_pointer_rows,
     )
     findings = list(report.findings)
     index = next(
@@ -776,8 +833,120 @@ def test_production_pointer_projection_requires_exact_reviewed_subject() -> None
         phase2_measurements._scoped_product_subjects(
             source,
             replace(report, findings=tuple(findings)),
+            product=product,
+            shared_candidate_dispositions=shared_candidate_dispositions(),
             reviewed_pointer_rows=reviewed_pointer_rows,
         )
+
+
+def test_shared_candidate_projection_is_independent_of_row_order() -> None:
+    product = phase2_measurements.DEBUG_PRODUCT
+    report = phase2_measurements.discover_phase2_rom_product(ROOT, product)
+    source = SimpleNamespace(findings=())
+    assignments = DiscoveryAssignmentAuthority.load(
+        ROOT / "specs/full-colors/inventory/assignments.json"
+    ).for_product(product)
+    reviewed_pointer_rows = {
+        row.subject.sha256: row.row_id
+        for row in assignments.rows
+        if row.subject.kind.value == "ROM_FINDING"
+    }
+    dispositions = shared_candidate_dispositions()
+
+    def projected_rows(current_report):
+        _, projected = phase2_measurements._scoped_product_subjects(
+            source,
+            current_report,
+            product=product,
+            shared_candidate_dispositions=dispositions,
+            reviewed_pointer_rows=reviewed_pointer_rows,
+        )
+        return {
+            phase2_measurements.rom_finding_subject(finding).sha256: row_id
+            for finding, row_id in projected
+            if finding.root == "<candidate-scan>"
+            and phase2_measurements.rom_finding_subject(finding).sha256 in dispositions
+        }
+
+    forward = projected_rows(report)
+    reversed_rows = projected_rows(
+        replace(report, findings=tuple(reversed(report.findings)))
+    )
+    assert forward == reversed_rows
+    assert len(forward) == 15
+    assert set(forward.values()) == {"SC-P2-PALLET-ROUTE1-NORTH"}
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("missing", "missing pokeyellow_debug shared-candidate disposition"),
+        ("stale", "missing .*stale or extra pokeyellow_debug shared-candidate"),
+        ("extra", "stale or extra pokeyellow_debug shared-candidate disposition"),
+        ("conflicting", "eligible row set changed"),
+        ("unreviewed", "is unreviewed"),
+    ],
+)
+def test_shared_candidate_projection_fails_closed(mutation, message) -> None:
+    product = phase2_measurements.DEBUG_PRODUCT
+    report = phase2_measurements.discover_phase2_rom_product(ROOT, product)
+    assignments = DiscoveryAssignmentAuthority.load(
+        ROOT / "specs/full-colors/inventory/assignments.json"
+    ).for_product(product)
+    reviewed_pointer_rows = {
+        row.subject.sha256: row.row_id
+        for row in assignments.rows
+        if row.subject.kind.value == "ROM_FINDING"
+    }
+    dispositions = {
+        digest: dict(disposition)
+        for digest, disposition in shared_candidate_dispositions().items()
+    }
+    digest = next(iter(dispositions))
+    if mutation == "missing":
+        dispositions.pop(digest)
+    elif mutation == "stale":
+        dispositions["0" * 64] = dispositions.pop(digest)
+    elif mutation == "extra":
+        dispositions["0" * 64] = dict(dispositions[digest])
+    elif mutation == "conflicting":
+        dispositions[digest]["eligible_rows"] = ("SC-P2-PARTY-RETURN",)
+    else:
+        dispositions[digest]["reviewed"] = False
+
+    with pytest.raises(Phase2MeasurementError, match=message):
+        phase2_measurements._scoped_product_subjects(
+            SimpleNamespace(findings=()),
+            report,
+            product=product,
+            shared_candidate_dispositions=dispositions,
+            reviewed_pointer_rows=reviewed_pointer_rows,
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["unreviewed", "malformed-eligible-rows", "conflicting-representative"],
+)
+def test_shared_candidate_authority_rejects_unreviewed_or_malformed_dispositions(
+    tmp_path, monkeypatch, mutation
+) -> None:
+    raw = json.loads(
+        (ROOT / phase2_measurements.PLANNED_SUBJECTS_PATH).read_text(encoding="utf-8")
+    )
+    disposition = next(iter(raw["shared_candidate_dispositions"].values()))
+    if mutation == "unreviewed":
+        disposition["reviewed"] = False
+    elif mutation == "malformed-eligible-rows":
+        disposition["eligible_rows"].reverse()
+    else:
+        disposition["representative_row"] = "SC-P2-PARTY-ENTRY"
+    authority = tmp_path / "planned-subjects.json"
+    authority.write_text(json.dumps(raw), encoding="utf-8")
+    monkeypatch.setattr(phase2_measurements, "PLANNED_SUBJECTS_PATH", authority)
+
+    with pytest.raises(Phase2MeasurementError, match="malformed disposition"):
+        phase2_measurements._load_planned_subjects(ROOT, closed=True)
 
 
 @pytest.mark.parametrize(

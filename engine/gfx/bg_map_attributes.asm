@@ -1,4 +1,8 @@
 LoadBGMapAttributes::
+	push bc
+	farcall PassiveFullColorShouldSuppressBGAttributesWrite
+	pop bc
+	ret c
 	ld hl, BGMapAttributesPointers
 	ld a, c ; c = which packet
 	push af ; save for later (to determine if we're handling the trainer card or party menu)
@@ -101,6 +105,7 @@ LoadBGMapAttributes::
 	xor a
 	ldh [rVBK], a
 	ei
+	farcall PassiveFullColorObserveBGAttributesWrite
 	ret
 
 BGMapAttributesPointers:

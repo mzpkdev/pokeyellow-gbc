@@ -70,6 +70,21 @@ test or environment selects another product. Full-color journeys select Color
 or Yellow inside that same shipped binary; they do not use the audit product as
 a behavioral variant. Use a focused file or `-k` expression while iterating.
 
+The maintained local Color gameplay regression contract is:
+
+```console
+make test-full-color-e2e
+```
+
+This target builds the shipped normal and debug products, then runs exactly the
+E2E files named `tools/rom_tests/tests/e2e/test_full_color_*.py`. The current set
+covers cold-boot progression, the Red's house palette round trip, Oak's battle
+handoff, Oak's Lab save confirmation, and Start/Options/menu journeys. New
+natural gameplay regressions for the shipped Color/Yellow surface belong in a
+matching `test_full_color_*.py` file and are included automatically. Unrelated
+general E2E files remain outside this focused contract. Hosted CI does not run
+this target yet.
+
 ## Writing a gameplay test
 
 Every gameplay test should follow the same contract:
@@ -337,16 +352,17 @@ evidence, byte-compares the checked-in record, and fails closed on any mismatch.
 
 ### Natural full-color gameplay
 
+Run the complete maintained Color gameplay E2E contract with:
+
+```console
+make test-full-color-e2e
+```
+
 The cold-boot file starts at boot and reaches states through player inputs. Its
 player-facing journeys select Yellow and Color in the shipped normal binary;
 two scenarios use the debug product where a debug control is part of setup.
 Every journey records logical state, renderer state, VRAM, OAM, palettes,
-attributes, and screenshots:
-
-```console
-make yellow yellow_debug
-.venv/bin/python -m pytest tools/rom_tests/tests/e2e/test_full_color_cold_boot_journey.py -q
-```
+attributes, and screenshots.
 
 Its two harness tests protect setup behavior. Its eight gameplay journeys cover
 bedroom-to-Viridian progression, paired northbound parity, reverse Route 1

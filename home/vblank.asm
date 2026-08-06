@@ -31,20 +31,29 @@ VBlank::
 	ldh [rWY], a
 .ok
 
-	; A Color overlay alternates two hidden bank-1 rows with the matching Yellow
-	; bank-0 rows. Never execute both 40-byte transfers in one interrupt.
+	; A fresh Color overlay publishes its hidden bank-1 attribute plane with one
+	; aligned GDMA. Yellow's stock transfer owns the next three bank-0 frames.
+	; Keep Yellow's separate OAM pipeline alive throughout that VRAM barrier.
 	ldh a, [hAutoBGTransferEnabled]
-	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_TRANSFER, a
+	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_ATTRIBUTE_GDMA, a
 	jr z, .ordinaryAutoBgMapTransfer
-	farcall PassiveFullColorAutoBgMapTransfer
-	call VBlankCopyBgMap
-	; The bounded overlay transfer owns this frame. Leave any Yellow redraw
-	; armed so it runs, then receives its passive mirror, after the overlay.
-	jr .passiveFullColorVBlankDone
+	farcall PassiveFullColorOverlayAttributeGDMA
+	; The GDMA owns VRAM this frame. Leave other VRAM work armed, but preserve
+	; Yellow's OAM DMA/preparation cadence so a full-screen menu cannot reveal
+	; stale overworld sprites.
+	jr .yellowOAMOperations
 .ordinaryAutoBgMapTransfer
+	ldh a, [hAutoBGTransferEnabled]
+	bit BIT_PASSIVE_FULL_COLOR_OVERLAY_COMPLETE, a
+	jr nz, .completedOverlayTransfer
 	call AutoBgMapTransfer
 	call VBlankCopyBgMap
+	jr .ordinaryVisibleOperations
+.completedOverlayTransfer
+	farcall PassiveFullColorCompletedOverlayVBlank
+	jr nc, .yellowOAMDMAOnly
 
+.ordinaryVisibleOperations
 	; RedrawRowOrColumn consumes its mode. Freeze that one byte so the passive
 	; bank-1 mirror can follow the completed Yellow bank-0 write geometrically.
 	ldh a, [hRedrawRowOrColumnMode]
@@ -57,13 +66,26 @@ VBlank::
 	call VBlankCopy
 	call VBlankCopyDouble
 	call UpdateMovingBgTiles
+
+.yellowOAMOperations
+	ld c, 1
+	jr .yellowOAMDMA
+
+	; The attribute frame already prepared the frozen menu/dialogue OAM image.
+	; Stock tile chunks only need to commit it; rebuilding sprites here would run
+	; beyond VBlank beside AutoBgMapTransfer.
+.yellowOAMDMAOnly
+	ld c, 0
+.yellowOAMDMA
 	call hDMARoutine
+	bit 0, c
+	jr z, .vblankSensitiveOperationsDone
 	ld a, BANK(PrepareOAMData)
 	call BankswitchCommon
 	call PrepareOAMData
 
-:
 	; VBlank-sensitive operations end.
+.vblankSensitiveOperationsDone
 	call TrackPlayTime ; keep track of time played
 
 	call Random

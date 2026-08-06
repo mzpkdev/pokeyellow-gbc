@@ -9,6 +9,7 @@ from tools.rom_tests.tests.conftest import REPOSITORY_ROOT
 
 
 PRODUCTS = ("pokeyellow", "pokeyellow_debug", "pokeyellow_vc")
+ALL_PRODUCTS = (*PRODUCTS, "pokeyellow_phase2_audit")
 
 
 def symbols(product: str) -> dict[str, tuple[int, int]]:
@@ -33,8 +34,10 @@ def test_exact_wram_sram_and_rom_placements() -> None:
 
 
 def test_phase2_rom_window_is_exact_and_normal_products_exclude_audit_surface() -> None:
-    audit_map = (REPOSITORY_ROOT / "pokeyellow_phase2_audit.map").read_text(encoding="utf-8")
-    assert '$452b-$552a ($1000 bytes) ["Full Color Phase 2 Pipelines"]' in audit_map
+    expected = '$452b-$552a ($1000 bytes) ["Full Color Phase 2 Pipelines"]'
+    for product in ALL_PRODUCTS:
+        product_map = (REPOSITORY_ROOT / f"{product}.map").read_text(encoding="utf-8")
+        assert product_map.count(expected) == 1
 
     forbidden = (b"Phase2Audit", b"FullColorPhase2", b"Phase2Hostile", b"P2AUDIT1")
     for product in ("pokeyellow", "pokeyellow_debug", "pokeyellow_vc"):
@@ -51,7 +54,8 @@ def test_shipped_products_keep_passive_state_outside_audit_allocation(
     assert linked["wRendererStateStart"] == (2, 0xD000)
     assert linked["wRendererStateEnd"] == (2, 0xD00D)
     assert linked["wPassiveFullColorStateStart"] == (2, 0xD800)
-    assert linked["wPassiveFullColorStateEnd"] == (2, 0xD96C)
+    assert linked["wPassiveFullColorAttributeRectangle"] == (2, 0xD810)
+    assert linked["wPassiveFullColorStateEnd"] == (2, 0xDA50)
     assert linked["RouteRendererOwnershipVBlank"] == (0x3B, 0x44AC)
     assert linked["FullColorOverworldBGPalettes"] == (0x3B, 0x452B)
     assert "wFullColorPhase2StateStart" not in linked

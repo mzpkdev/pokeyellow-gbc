@@ -17,10 +17,16 @@ ROMhack, including future features unrelated to color.
 - The normal, debug, and VC products all ship the same saved `COLOR MODE`
   preference between `COLOR` and `YELLOW`; fresh saves default to Color,
   Continue retains the choice, and New Game may reset it to Color.
-- In Color mode the bounded passive renderer colors only Pallet Town and Route
-  1 backgrounds. Yellow mode and every unsupported map use Yellow
-  presentation. Yellow still owns gameplay, bank-0 tile graphics, sprites,
-  animations, overlays, menus, battles, cutscenes, fades, and scheduling.
+- In Color mode the bounded passive renderer colors the 34 city and route maps
+  that use `OVERWORLD` plus conventional interiors whose tileset ID is
+  `REDS_HOUSE_1` through `FACILITY`, except `FOREST`, `SHIP_PORT`, and `CAVERN`.
+  Those 19 tilesets cover 162 maps. `PLATEAU`, `BEACH_HOUSE`, and every
+  unsupported map use Yellow presentation. Yellow
+  still owns gameplay, bank-0 tile graphics, sprites, animations, overlay/menu
+  construction, battles, cutscenes, fade progression, and scheduling. The
+  passive layer may project paired bank-1 attributes for explicitly integrated
+  map overlays and transform all eight authored BG palettes at Yellow's fade
+  seam; it does not acquire retained renderer ownership for either operation.
 - `pokeyellow_phase2_audit.gbc` retains extra diagnostics and certification
   surfaces only. `PHASE2_AUDIT` never decides whether the player-visible
   toggle or passive renderer exists or runs.

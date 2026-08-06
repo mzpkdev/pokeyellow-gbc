@@ -19,6 +19,8 @@ class _MenuEmulator:
         self.joy_last = 0
         self.pending_down_until: int | None = None
         self.next_down_poll: int | None = None
+        self.tilemap_version = 0
+        self.wy = 0
         self.pyboy = _Controller(self)
 
     def _apply_button(self, button: str) -> None:
@@ -35,8 +37,10 @@ class _MenuEmulator:
             self.preference ^= 1
         elif self.screen == "options" and button == "b":
             self.screen = "start"
+            self.tilemap_version += 1
         elif self.screen == "start" and button == "b":
             self.screen = "overworld"
+            self.wy = 144
 
     def read(self, symbol: str) -> int:
         return {
@@ -44,7 +48,13 @@ class _MenuEmulator:
             "wCurrentMenuItem": self.start_cursor,
             "wOptionsCursorLocation": self.options_cursor,
             "hJoyLast": self.joy_last,
+            "hWY": self.wy,
+            "wJoyIgnore": 0,
         }[symbol]
+
+    def read_bytes(self, symbol: str, size: int) -> bytes:
+        assert symbol == "wTileMap"
+        return bytes((self.tilemap_version,)) * size
 
     def press(self, button: str, wait_frames: int = 120) -> None:
         del wait_frames
@@ -74,8 +84,11 @@ class _Controller:
         self.emulator = emulator
 
     def button(self, button: str, delay: int) -> None:
-        assert button == "down"
         assert delay == 10
+        if button in {"right", "b"}:
+            self.emulator._apply_button(button)
+            return
+        assert button == "down"
         self.emulator.pending_down_until = self.emulator.ticks + delay + 1
         self.emulator.next_down_poll = self.emulator.ticks + 1
 
@@ -106,7 +119,7 @@ def test_select_color_mode_visits_the_same_menu_without_changing_preference() ->
     assert emulator.preference == 0
     assert emulator.screen == "overworld"
     assert "right" not in emulator.buttons
-    assert emulator.ticks == 9 * 16 + 33
+    assert emulator.ticks == 9 * 16 + 33 + 2
 
 
 def test_each_down_press_waits_until_the_menu_samples_its_release() -> None:

@@ -27,7 +27,11 @@ HARNESS_HALT = 0xC6F0
 ENTRY_ROM_BANK = 5
 ENTRY_WRAM_BANK = 6
 PRODUCTS = ("pokeyellow", "pokeyellow_debug", "pokeyellow_vc")
+AUTO_BG_TRANSFER_ENABLED = 1 << 0
 PASSIVE_OVERLAY_TRANSFER = 1 << 7
+VBG_MAP_1 = 0x9C00
+OAM_BASE = 0xFE00
+HIDDEN_SPRITE_Y = 0xA0
 
 OVERLAY_REDRAW_DEFERRAL_ROUTE = "overlay redraw deferral route"
 OVERLAY_REDRAW_BYPASS = "overlay redraw bypass"
@@ -177,14 +181,15 @@ def _vblank_call_sites(rom: Phase2Rom) -> dict[int, str]:
         address = rom.emulator.symbols[name]
         patterns[name] = bytes((0xCD, address & 0xFF, address >> 8))
     for name, pattern in patterns.items():
-        expected = 2 if name == "VBlankCopyBgMap" else 1
         for address in _call_sites(
-            blob, pattern, base=start, name=name, expected=expected,
+            blob, pattern, base=start, name=name,
         ):
             sites[address] = name
 
     ordinary_route = rom.emulator.symbols["VBlank.ordinaryAutoBgMapTransfer"]
     redraw_done = rom.emulator.symbols["VBlank.passiveFullColorVBlankDone"]
+    oam_route = rom.emulator.symbols["VBlank.yellowOAMOperations"]
+    visible_done = rom.emulator.symbols["VBlank.vblankSensitiveOperationsDone"]
     redraw_site = next(
         address for address, name in sites.items() if name == "RedrawRowOrColumn"
     )
@@ -199,11 +204,19 @@ def _vblank_call_sites(rom: Phase2Rom) -> dict[int, str]:
         blob,
         0x18,  # JR
         base=start,
-        target=redraw_done,
+        target=oam_route,
         name="overlay redraw bypass",
     )
     overlay_route = overlay_branch + 2
-    assert overlay_route < overlay_bypass < ordinary_route <= redraw_site < redraw_done
+    assert (
+        overlay_route
+        < overlay_bypass
+        < ordinary_route
+        <= redraw_site
+        < redraw_done
+        < oam_route
+        < visible_done
+    )
     sites[overlay_route] = OVERLAY_REDRAW_DEFERRAL_ROUTE
     sites[overlay_bypass] = OVERLAY_REDRAW_BYPASS
     return sites
@@ -375,16 +388,52 @@ def test_overlay_vblank_bypasses_and_defers_pending_yellow_redraw(
     observation = _run_actual_vblank(phase2_rom)
 
     assert observation.call_sites.index(OVERLAY_REDRAW_DEFERRAL_ROUTE) < (
-        observation.call_sites.index("VBlankCopyBgMap")
-    ) < observation.call_sites.index(OVERLAY_REDRAW_BYPASS) < (
-        observation.call_sites.index("VBlankCopy")
-    )
+        observation.call_sites.index(OVERLAY_REDRAW_BYPASS)
+    ) < observation.call_sites.index("TrackPlayTime")
     assert "AutoBgMapTransfer" not in observation.call_sites
+    assert "VBlankCopyBgMap" not in observation.call_sites
     assert "RedrawRowOrColumn" not in observation.call_sites
+    assert "VBlankCopy" not in observation.call_sites
+    assert "legacy hDMARoutine" in observation.call_sites
+    assert "PrepareOAMData" in observation.call_sites
     assert emu.memory[symbols["hRedrawRowOrColumnMode"]] == 2
     assert phase2_rom.read_wram2("wRendererOwner") == bytes(
         (phase2_rom.constants["RENDERER_YELLOW"],)
     )
+
+
+def test_overlay_barrier_prepares_then_commits_hidden_oam(
+    phase2_rom: Phase2Rom,
+) -> None:
+    emu = phase2_rom.emulator.pyboy
+    symbols = phase2_rom.emulator.symbols
+    phase2_rom.call("InitRendererOwnership")
+    emu.memory[symbols["wCurMap"]] = 0x0C
+    emu.memory[0xFF40] &= 0x7F
+    phase2_rom.call("PassiveFullColorApplyMap")
+
+    emu.memory[symbols["wUpdateSpritesEnabled"]] = 0
+    emu.memory[symbols["wShadowOAM"]] = 0x40
+    emu.memory[OAM_BASE] = 0x20
+    emu.memory[symbols["hAutoBGTransferDest"]] = VBG_MAP_1 & 0xFF
+    emu.memory[symbols["hAutoBGTransferDest"] + 1] = VBG_MAP_1 >> 8
+    emu.memory[symbols["hAutoBGTransferPortion"]] = 0
+    emu.memory[symbols["hAutoBGTransferEnabled"]] = (
+        AUTO_BG_TRANSFER_ENABLED | PASSIVE_OVERLAY_TRANSFER
+    )
+
+    attribute_frame = _run_actual_vblank(phase2_rom)
+
+    assert "legacy hDMARoutine" in attribute_frame.call_sites
+    assert "PrepareOAMData" in attribute_frame.call_sites
+    assert emu.memory[OAM_BASE] == 0x40
+    assert emu.memory[symbols["wShadowOAM"]] == HIDDEN_SPRITE_Y
+
+    first_tile_frame = _run_actual_vblank(phase2_rom)
+
+    assert "legacy hDMARoutine" in first_tile_frame.call_sites
+    assert "PrepareOAMData" not in first_tile_frame.call_sites
+    assert emu.memory[OAM_BASE] == HIDDEN_SPRITE_Y
 
 
 def test_skipped_yellow_writer_mutation_trips_named_routing_assertion(

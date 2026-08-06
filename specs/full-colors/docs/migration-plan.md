@@ -5,10 +5,11 @@
 This document is a future proposal and execution framework. It does not
 supersede the current renderer architecture or product truth in
 `FULL_COLOR_RENDERER.md` and `ARCHITECTURE.md`. The normal, debug, and VC
-products already ship the Color/Yellow toggle and bounded passive Pallet
-Town/Route 1 renderer. Where this plan describes broader ownership transfer,
-scheduling, lifecycle control, OAM color, animation ownership, or expanded map
-content beyond that passive renderer, the behavior remains proposed.
+products already ship the Color/Yellow toggle and bounded passive renderer for
+the 34 `OVERWORLD` maps plus 162 maps using the 19 admitted interior tilesets.
+Where this plan describes broader ownership transfer, scheduling, lifecycle
+control, OAM color, animation ownership, or map content beyond that passive
+renderer, the behavior remains proposed.
 
 Implementation MUST stop if this plan conflicts with the current approved
 manuals. An explicit operator decision and separately approved architecture
@@ -43,8 +44,8 @@ commit units, owner transitions, timing-row keys, and concrete `CHK-…` checks.
 ## Current bounded production release scope
 
 The shipped products expose a persistent `COLOR/YELLOW` policy preference.
-Color is eligible only for ordinary Pallet Town and Route 1 presentation.
-Boot/reset, overlays, dialogue, menus, battles,
+Color is eligible for ordinary presentation of the admitted outdoor and
+conventional-interior map slice. Boot/reset, overlays, dialogue, menus, battles,
 standalone scenes, unsupported maps, and every map under Yellow preference use
 the retained Yellow renderer. The current passive implementation reconciles
 the saved preference at its bounded menu, map-load, and VBlank publication
@@ -54,9 +55,9 @@ resolver described by later phases.
 `PHASE2_AUDIT` adds diagnostics and certification surfaces only. It does not
 gate the toggle, passive renderer, or mode selection in any product.
 
-The diagnostic overlay oracle and all-25-tileset data remain valuable retained
-evidence and future authoring foundations, but production Color-overlay rollout
-and all-25-map coloring are not gates for this bounded release. Their prior
+The diagnostic overlay oracle and remaining all-25-tileset work remain valuable
+future authoring foundations, but production Color-overlay rollout and complete
+all-map coloring are not gates for this bounded release. Their prior
 phase descriptions are interpreted as quarantined diagnostic/future work and
 MUST NOT be activated without the separately approved architecture change
 described above.
@@ -527,13 +528,13 @@ checks; execution records their concrete `CHK-…` IDs and every timing-row key.
 **Exit gate:** All remaining bounded-release rows in the
 [acceptance criteria](acceptance-criteria.md), traceability, numeric timing
 comparison, threshold deferral, soak, build, and excluded-scene regression
-evidence pass. Future all-25 content remains non-gating.
+evidence pass. Future completion of the remaining tilesets remains non-gating.
 
 ## Future non-gating work: all-25-tileset authoring
 
 After the bounded release, a separate future effort may independently author
-and validate all 25 Yellow palette sets and `$60` assignment tables, native
-Beach House data, roofs and map overrides, all-map animations, and all-map
+and validate the remaining Yellow palette sets and `$60` assignment tables,
+native Beach House data, roofs and map overrides, all-map animations, and all-map
 palette-effect evidence. That effort targets `R8.1` through `R8.6` and
 `AC-OW-01`, but is outside this migration's ordered phases, completion
 criteria, and release gate. Its evidence cannot weaken or substitute for the

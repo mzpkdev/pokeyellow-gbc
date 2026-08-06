@@ -78,7 +78,7 @@ DisplayTextIDInit::
 	and a
 	jr z, .colorStartMenu
 	call LoadFontTilePatterns
-	farcall PassiveFullColorPrepareMenuOverlay
+	farcall PassiveFullColorPrepareTextOverlay
 	ldh a, [hAutoBGTransferEnabled]
 	or 1
 	ldh [hAutoBGTransferEnabled], a

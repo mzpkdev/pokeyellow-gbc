@@ -27,6 +27,7 @@ from tools.rom_tests.full_color.baseline_inventory import (
 from tools.rom_tests.full_color.discovery_assignment import (
     DEBUG_PRODUCT,
     DiscoveryAssignmentAuthority,
+    GATE0_BASELINE_ASSIGNMENT_IDS,
     NORMAL_DEBUG_PRODUCT,
     NORMAL_PRODUCT,
     PHASE2_AUDIT_PRODUCT,
@@ -113,11 +114,21 @@ def test_canonical_authorities_load_and_round_trip() -> None:
         product: len(assignments.for_product(product).rows)
         for product in (NORMAL_PRODUCT, DEBUG_PRODUCT, VC_PRODUCT, PHASE2_AUDIT_PRODUCT)
     } == {
-        NORMAL_PRODUCT: 1414,
-        DEBUG_PRODUCT: 1414,
-        VC_PRODUCT: 1414,
-        PHASE2_AUDIT_PRODUCT: 1421,
+        NORMAL_PRODUCT: 1471,
+        DEBUG_PRODUCT: 1471,
+        VC_PRODUCT: 1471,
+        PHASE2_AUDIT_PRODUCT: 1478,
     }
+    gate0 = tuple(
+        row for row in assignments.rows if row.id in GATE0_BASELINE_ASSIGNMENT_IDS
+    )
+    phase2 = tuple(
+        row for row in assignments.rows if row.id not in GATE0_BASELINE_ASSIGNMENT_IDS
+    )
+    assert len(gate0) == 8
+    assert {row.evidence.reviewer for row in gate0} == {"gate-0-inventory-review"}
+    assert {row.evidence.reviewer for row in phase2} == {"pr-15-inventory-review"}
+    assert {row.row_id for row in phase2} <= PHASE2_PLANNED_ROW_IDS
 
 
 def test_exact_reviewed_map_entry_tranche() -> None:

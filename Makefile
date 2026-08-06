@@ -72,6 +72,7 @@ RGBGFXFLAGS  ?= -Weverything
 	test-full-color-renderer-conformance \
 	test-full-color-renderer-runtime \
 	test-full-color-smoke \
+	test-full-color-e2e \
 	test-full-color-fast \
 	test-full-color-certify \
 	test-full-color-handoffs \
@@ -161,6 +162,9 @@ test-full-color-renderer-runtime: yellow_debug
 
 test-full-color-smoke: yellow_debug
 	$(PYTHON) -m tools.rom_tests.full_color.runtime_observability --root . --results "$(FULL_COLOR_RESULTS)/smoke"
+
+test-full-color-e2e: yellow yellow_debug
+	$(PYTHON) -m pytest tools/rom_tests/tests/e2e/test_full_color_*.py -q
 
 test-full-color-fast:
 	@$(PYTHON) -m tools.rom_tests.full_color.harness_runner --profile fast --root . --results "$(FULL_COLOR_HARNESS_RESULTS)"

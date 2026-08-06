@@ -30,7 +30,7 @@ DisplayPokemonCenterDialogue_::
 	call CheckPikachuFollowingPlayer
 	jr nz, .notHealingPlayerPikachu
 	call LoadCurrentMapView
-	call Delay3
+	farcall PassiveFullColorRedisplayMapView
 	call UpdateSprites
 	callfar PikachuWalksToNurseJoy
 .notHealingPlayerPikachu
@@ -76,7 +76,7 @@ DisplayPokemonCenterDialogue_::
 	call Func_6ebb
 .notInParty
 	call LoadCurrentMapView
-	call Delay3
+	farcall PassiveFullColorRedisplayMapView
 	call UpdateSprites
 	callfar ReloadWalkingTilePatterns
 	ld a, $1

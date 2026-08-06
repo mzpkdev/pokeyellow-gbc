@@ -8,8 +8,8 @@ populate. It contains no claim that source or built-ROM discovery is complete.
 Every donor reference below is pinned to `git@github.com:dannye/pokered-gbc.git`
 commit
 `c1a3b6c5a7591472241036d0cf09c3817f841f93`. The ten mechanism paths are
-mechanism-only evidence. The separately listed five payload paths authorize
-only the already accepted OVERWORLD palette and corrected 96-byte attribute
+mechanism-only evidence. The separately listed payload authorities authorize
+only the accepted outdoor and conventional-interior palette and attribute
 slice. All other donor values, mappings, roofs, OAM assignments, content, and
 data organization remain candidate artistic or organizational evidence. The
 donor supplies no Yellow scene lifecycle, ownership decision, ABI, bank, or
@@ -40,16 +40,25 @@ The disposition vocabulary is:
 
 ## Donor payload authorities
 
-The frozen OVERWORLD payload is derived only from these five authorities; they
-are not part of the broader ten-path mechanism inventory.
+The accepted outdoor and conventional-interior payload is derived only from
+these pinned authorities; they are not part of the broader ten-path mechanism
+inventory.
 
 | Pinned RGB source | Payload authority |
 |---|---|
 | `color/data/map_palettes.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | palette RGB rows |
-| `color/data/map_palette_sets.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `OverworldPalSet` selection |
+| `color/data/map_palette_sets.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | outdoor and admitted-interior palette-set selections |
+| `color/data/map_palette_assignments.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | tileset-to-assignment-table aliases and donor `$60` copy order |
 | `color/data/roofpalettes.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | `PalletRoof` middle colors |
 | `color/data/map_palette_constants.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | palette attribute values |
 | `color/tilesets/overworld.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` | 94 authored tile entries, corrected at `$5e/$5f` to explicit `GRAY, GRAY` using the historic `a8b62fb990a13da6add30c92f8440b296dddce49` parent of cleanup `cb6bb66dc91a7a162f442f3bd81ea2887558ada4` |
+| admitted `color/tilesets/*.asm@c1a3b6c5a7591472241036d0cf09c3817f841f93` tables | conventional-interior `$00`–`$5f` assignments, including the donor loader's intentional continuation into the next label where a source table is shorter than `$60` |
+
+The `color/loadpalettes.asm` mechanism identifies two post-lookup override
+locations: `CELADON_MART_ROOF` tiles `$4b`–`$4f` and `CELADON_MART_1F` tiles
+`$07`, `$08`, `$17`, and `$18`. Their blue and yellow palette identities are
+authorized by `map_palette_constants.asm`; the loader is not an additional
+payload authority.
 
 Every retained candidate must use Yellow's MBC5 banks, labels, interrupt
 model, measured timing, explicit ownership, and current-generation jobs.
@@ -68,7 +77,7 @@ model, measured timing, explicit ownership, and current-generation jobs.
 | static 20×18 palette-map and restoration behavior at `c1a3b6c5a7591472241036d0cf09c3817f841f93` | `EXCLUDE` | return reconstruction follows R2.10, R2.11, R2.12, and R2.13 |
 
 Palette values from excluded systems may be candidate artistic reference only.
-Outside the five frozen OVERWORLD payload authorities above, no donor content
+Outside the accepted payload authorities above, no donor content
 is authoritative, and no excluded runtime lifecycle is imported.
 
 ## Inventory closure
