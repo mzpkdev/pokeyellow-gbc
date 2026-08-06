@@ -344,6 +344,7 @@ def test_full_color_workflow_splits_one_run_contracts_from_evidence() -> None:
     )
 
     unit = jobs["unit-tests"]
+    assert unit["timeout-minutes"] == "30"
     assert _step(unit, "Run complete unit contracts once")["run"] == (
         "make test-unit ROM_TEST_PREBUILT_PRODUCTS=1"
     )
