@@ -114,7 +114,7 @@ git status --short --branch
 git log -5 --oneline --decorate
 make test-full-color-setup
 make -j"$(nproc)" yellow yellow_debug yellow_vc yellow_phase2_audit
-.venv/bin/python -m pytest tools/rom_tests/tests/unit -q
+make test-unit ROM_TEST_PREBUILT_PRODUCTS=1
 ```
 
 The setup target has a historical full-color name, but it prepares the shared
@@ -129,14 +129,14 @@ test:
 
 ```console
 make yellow yellow_debug
-.venv/bin/python -m pytest \
-  tools/rom_tests/tests/e2e/test_full_color_cold_boot_journey.py -q
+make test-full-color-e2e-journey ROM_TEST_PREBUILT_PRODUCTS=1
 ```
 
 For ordinary play review, select both Color and Yellow in `pokeyellow.gbc`;
-do not use a different product as the Yellow reference. Hosted CI does not
-currently run the natural gameplay E2E suite; see
-[TESTING.md](TESTING.md) before reporting a feature green.
+do not use a different product as the Yellow reference. Hosted CI runs Core,
+Renderer, and Journey independently against same-revision products, but it
+does not replace manual play or frame review. See [TESTING.md](TESTING.md)
+before reporting a feature green.
 
 ## Common tasks
 

@@ -127,7 +127,9 @@ def candidate(**changes: object) -> Phase2Candidate:
         ("root-mismatch", "missing pokeyellow_phase2_audit subject"),
     ],
 )
-def test_closed_audit_assignment_coverage_fails_closed(mutation, message) -> None:
+def test_explicit_audit_product_assignment_coverage_fails_closed(
+    mutation, message
+) -> None:
     hashes = {
         "source_sha256": "1" * 64,
         "rom_sha256": "2" * 64,
@@ -164,9 +166,23 @@ def test_closed_audit_assignment_coverage_fails_closed(mutation, message) -> Non
         )
     )
     with pytest.raises(ValueError, match=message):
-        phase2_measurements._validate_audit_assignment_coverage(
-            authority, {"a": "WR-P2-A", "b": "MU-P2-B"}, hashes
+        phase2_measurements._validate_product_assignment_coverage(
+            authority,
+            {"a": "WR-P2-A", "b": "MU-P2-B"},
+            hashes,
+            product=phase2_measurements.PHASE2_AUDIT_PRODUCT,
         )
+
+
+def test_phase2_product_apis_have_no_implicit_compatibility_paths() -> None:
+    assert "discover_phase2_rom" not in vars(phase2_measurements)
+    assert "_validate_audit_assignment_coverage" not in vars(phase2_measurements)
+    with pytest.raises(TypeError):
+        phase2_measurements._validate_product_assignment_coverage(
+            SimpleNamespace(), {}, {}
+        )
+    with pytest.raises(Phase2MeasurementError, match="unknown Phase 2 link product"):
+        phase2_measurements.discover_phase2_rom_product(ROOT, "implicit-product")
 
 
 def measurement(*, candidates: tuple[Phase2Candidate, ...] | None = None):
@@ -762,7 +778,9 @@ def test_dormant_scheduler_seam_is_not_production_reachability() -> None:
     ],
 )
 def test_passive_rom_pointer_projection_is_exact(changes, message) -> None:
-    report = phase2_measurements.discover_phase2_rom(ROOT)
+    report = phase2_measurements.discover_phase2_rom_product(
+        ROOT, phase2_measurements.PHASE2_AUDIT_PRODUCT
+    )
     finding = next(
         finding
         for finding in report.findings
@@ -778,7 +796,9 @@ def test_passive_rom_pointer_projection_is_exact(changes, message) -> None:
 
 
 def test_passive_rom_pointer_authority_has_exact_site_and_root_coverage() -> None:
-    report = phase2_measurements.discover_phase2_rom(ROOT)
+    report = phase2_measurements.discover_phase2_rom_product(
+        ROOT, phase2_measurements.PHASE2_AUDIT_PRODUCT
+    )
     findings = tuple(
         finding
         for finding in report.findings
@@ -956,7 +976,9 @@ def test_passive_rom_pointer_authority_rejects_stale_entries(
     monkeypatch,
     mutation,
 ) -> None:
-    report = phase2_measurements.discover_phase2_rom(ROOT)
+    report = phase2_measurements.discover_phase2_rom_product(
+        ROOT, phase2_measurements.PHASE2_AUDIT_PRODUCT
+    )
     findings = tuple(
         finding
         for finding in report.findings

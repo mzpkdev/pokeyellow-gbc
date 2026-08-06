@@ -12,9 +12,8 @@ from typing import Any, Sequence
 
 from .baseline_discovery import discover_baseline_rom, discover_baseline_sources
 from .discovery_assignment import (
+    BASELINE_PRODUCT,
     DiscoveryAssignmentAuthority,
-    GATE0_BASELINE_ASSIGNMENT_IDS,
-    NORMAL_DEBUG_PRODUCT,
     PHASE2_AUDIT_PRODUCT,
     PRODUCTION_PRODUCTS,
     StaleDiscoveryAssignmentError,
@@ -154,9 +153,7 @@ def _reviewed_source_view(
     repository: Path,
 ) -> tuple[Any, dict[str, Any] | None]:
     """Verify and apply the explicit reviewed source-hash transition."""
-    assignments = DiscoveryAssignmentAuthority(tuple(
-        row for row in assignments.rows if row.id in GATE0_BASELINE_ASSIGNMENT_IDS
-    ))
+    assignments = assignments.for_product(BASELINE_PRODUCT)
     reviewed_hashes = {row.evidence.source_sha256 for row in assignments.rows}
     if len(reviewed_hashes) != 1:
         raise StaleDiscoveryAssignmentError(
@@ -277,9 +274,7 @@ def _reviewed_rom_view(
     rom_report: Any,
     transition: dict[str, Any] | None,
 ) -> Any:
-    assignments = DiscoveryAssignmentAuthority(tuple(
-        row for row in assignments.rows if row.id in GATE0_BASELINE_ASSIGNMENT_IDS
-    ))
+    assignments = assignments.for_product(BASELINE_PRODUCT)
     if transition is None:
         return rom_report
     rows = {
@@ -544,7 +539,7 @@ def _validate_planned_rows(
     rom: bytes,
     repository: Path,
 ) -> tuple[dict[str, Any], ...]:
-    """Validate declarations without promoting them into Gate 0 closure."""
+    """Validate declarations without promoting them into baseline closure."""
     all_rows = tuple(writers.rows) + tuple(scenes.rows) + tuple(mutations.rows)
     planned = tuple(row for row in all_rows if row["planned"])
     reviewed = tuple(row for row in all_rows if not row["planned"])
@@ -843,7 +838,7 @@ def _project_assignments(
         "sym_sha256": rom_report.sym_sha256,
         "map_sha256": rom_report.map_sha256,
     }
-    matcher = matcher or assignments.matcher(**hashes)
+    matcher = matcher or assignments.matcher(**hashes, product=BASELINE_PRODUCT)
     subjects = {row.subject.sha256: row for row in assignments.rows}
     source_rows: list[str] = []
     rom_rows: list[str] = []
@@ -901,9 +896,7 @@ def build_progress(
     phase2_state = _phase2_transition_state(
         writers=writers, scenes=scenes, mutations=mutations, assignments=assignments
     )
-    normal_assignments = DiscoveryAssignmentAuthority(tuple(
-        row for row in assignments.rows if row.id in GATE0_BASELINE_ASSIGNMENT_IDS
-    ))
+    normal_assignments = assignments.for_product(BASELINE_PRODUCT)
     _validate_assignment_targets(normal_assignments, writers, scenes, mutations)
     reviewed_source, source_transition = _reviewed_source_view(
         normal_assignments, source_report, repository_path
@@ -934,7 +927,7 @@ def build_progress(
         rom_sha256=rom_report.rom_sha256,
         sym_sha256=rom_report.sym_sha256,
         map_sha256=rom_report.map_sha256,
-        product=NORMAL_DEBUG_PRODUCT,
+        product=BASELINE_PRODUCT,
     )
     projected_source, projected_rom, source_rows, rom_rows = _project_assignments(
         normal_assignments, reviewed_source, reviewed_rom, matcher=matcher
@@ -1093,7 +1086,7 @@ def progress_json(repository: str | Path = ".") -> str:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Report Gate 0 inventory progress.")
+    parser = argparse.ArgumentParser(description="Report baseline inventory progress.")
     parser.add_argument("--repository", default=".")
     args = parser.parse_args(argv)
     print(progress_json(args.repository), end="")

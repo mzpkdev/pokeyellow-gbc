@@ -18,7 +18,7 @@
     },
     "pokeyellow.map": {
       "path": "pokeyellow.map",
-      "sha256": "f202b9769565579321eb9fe7450543b93caafd94cb125af55e09ca42a87010c6"
+      "sha256": "f3b750ce4887b71494b35c26e01ba3e5fefdb6457c7b4b374dc06e2e1cd0d4bf"
     },
     "pokeyellow.sym": {
       "path": "pokeyellow.sym",
@@ -30,7 +30,7 @@
     },
     "pokeyellow_debug.map": {
       "path": "pokeyellow_debug.map",
-      "sha256": "023fd190e9eab6e88aeebda357513287bd7a5ec90f3d4537090ea892aec541b8"
+      "sha256": "1c61d62151a256dd691f3e530cc67e975757828d5b5a67d0f6e25c1d93d3fe2a"
     },
     "pokeyellow_debug.sym": {
       "path": "pokeyellow_debug.sym",
@@ -42,7 +42,7 @@
     },
     "pokeyellow_phase2_audit.map": {
       "path": "pokeyellow_phase2_audit.map",
-      "sha256": "070c362e6acedfbcb2a5392114ce1145d7621e07df1b07071debd3506f2ab250"
+      "sha256": "5697e61a9680a59b428f8558cf78ac2567234297ac85644c3fdb8f42f3e7f593"
     },
     "pokeyellow_phase2_audit.sym": {
       "path": "pokeyellow_phase2_audit.sym",
@@ -54,7 +54,7 @@
     },
     "pokeyellow_vc.map": {
       "path": "pokeyellow_vc.map",
-      "sha256": "dfbd0888e69139ca484c770849f3ba2dbbd5173d29df07e36e40c63dbf46ac6a"
+      "sha256": "f1cf2d556f5583b7a57bab93d95b264c89effa5ea168b06a709272de8a5fdc6c"
     },
     "pokeyellow_vc.sym": {
       "path": "pokeyellow_vc.sym",
@@ -62,7 +62,7 @@
     },
     "specs/full-colors/definitions/phase1-audit-source-transition.json": {
       "path": "specs/full-colors/definitions/phase1-audit-source-transition.json",
-      "sha256": "21aaae040b3f853bd7e1d45a02433c8da656185d18cf98d52b9493784c7642e8"
+      "sha256": "77e5c57e66b3e4e6ad97552dbf30c8eb6d2040f93f05258f7125e845d0239442"
     },
     "specs/full-colors/definitions/phase2-hostile-slice-representation.json": {
       "path": "specs/full-colors/definitions/phase2-hostile-slice-representation.json",
@@ -74,19 +74,19 @@
     },
     "specs/full-colors/inventory/assignments.json": {
       "path": "specs/full-colors/inventory/assignments.json",
-      "sha256": "ac507771c45df72dd602e6835cd1b6274736e22cb60003c7d538de1c262ae942"
+      "sha256": "57266748a0b207667bbc16a67bc7c68aed9664d097714b98cafd9d7ef0a52d40"
     },
     "specs/full-colors/inventory/mutations.json": {
       "path": "specs/full-colors/inventory/mutations.json",
-      "sha256": "07879c331e648670f14d4720f933ad7c9434b544cd0ef71c82fa0c60a6577cf7"
+      "sha256": "abf811e937dc28ea09fa8de87a4f120142df1e8534cf1f9075c2d7b7695b3430"
     },
     "specs/full-colors/inventory/scenes.json": {
       "path": "specs/full-colors/inventory/scenes.json",
-      "sha256": "c66201f4189d8439df1c1311743290818ede9cf66a070afc832caadaeadf89e6"
+      "sha256": "999fe6e99af3262548f8ddbcf27617e72e302c746c3311812560206dc536146b"
     },
     "specs/full-colors/inventory/writers.json": {
       "path": "specs/full-colors/inventory/writers.json",
-      "sha256": "c16cfb16135811fa360434ed33081f30349d890c7eff436098df855fceb401b4"
+      "sha256": "1af3efecf9f90aa52585c86ef349acd1bd634d364265df7ba91c6b091a8f7247"
     }
   },
   "inventory_audit": {

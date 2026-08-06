@@ -210,17 +210,31 @@ def _farcall_from_wram(
     return regs.A, regs.F
 
 
-def _linked_overworld_tile_attributes(phase2_rom: Phase2Rom) -> bytes:
-    """Read the independently linked 256-byte semantic attribute table."""
+def _linked_rom_bytes(
+    phase2_rom: Phase2Rom, start_name: str, end_name: str,
+) -> bytes:
+    """Read one symbol-bounded byte range from the exact ROM under test."""
     emu = phase2_rom.emulator
-    start_name = "FullColorOverworldTileAttributes"
-    end_name = "FullColorOverworldTileAttributesEnd"
     bank = emu.symbol_banks[start_name]
     address = emu.symbols[start_name]
     assert emu.symbol_banks[end_name] == bank
-    assert emu.symbols[end_name] - address == 0x100
+    size = emu.symbols[end_name] - address
+    assert size >= 0
     offset = address if bank == 0 else bank * 0x4000 + address - 0x4000
-    return emu.rom.read_bytes()[offset:offset + 0x100]
+    linked = emu.rom.read_bytes()[offset:offset + size]
+    assert len(linked) == size
+    return linked
+
+
+def _linked_overworld_tile_attributes(phase2_rom: Phase2Rom) -> bytes:
+    """Read the independently linked 256-byte semantic attribute table."""
+    linked = _linked_rom_bytes(
+        phase2_rom,
+        "FullColorOverworldTileAttributes",
+        "FullColorOverworldTileAttributesEnd",
+    )
+    assert len(linked) == 0x100
+    return linked
 
 
 @pytest.fixture
@@ -487,8 +501,11 @@ def test_reconstruction_expands_complete_font_before_activation_and_preserves_ba
     phase2_rom: Phase2Rom,
 ) -> None:
     emu = phase2_rom.emulator
-    font_1bpp = (REPOSITORY_ROOT / "gfx/font/font.1bpp").read_bytes()
-    expected_font = b"".join(bytes((value, value)) for value in font_1bpp)
+    linked_font = _linked_rom_bytes(
+        phase2_rom, "FontGraphics", "FontGraphicsEnd",
+    )
+    assert len(linked_font) == 0x80 * 8
+    expected_font = b"".join(bytes((value, value)) for value in linked_font)
     vfont = phase2_rom.emulator.symbols["vFont"]
     bank1_sentinel = bytes((index * 13 + 7) & 0xFF for index in range(len(expected_font)))
     for offset in range(len(expected_font)):

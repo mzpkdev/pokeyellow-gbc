@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
 import json
 import shutil
@@ -11,8 +12,8 @@ import pytest
 
 from tools.rom_tests.full_color import audit_evidence_identities, source_transition
 from tools.rom_tests.full_color.discovery_assignment import (
+    BASELINE_PRODUCT,
     DiscoveryAssignmentAuthority,
-    NORMAL_DEBUG_PRODUCT,
 )
 from tools.rom_tests.full_color.discovery_review import (
     rom_finding_subject,
@@ -70,6 +71,28 @@ def test_source_transition_generation_is_idempotent_and_preserves_authority(
     assert proposal["schema"] == source_transition.PROPOSAL_SCHEMA
     assert proposal["reviewed"] is False
     assert proposal["proposal"] == generated
+
+
+def test_source_transition_rejects_v2_compatibility_authority(tmp_path) -> None:
+    authority = json.loads(
+        (REPOSITORY_ROOT / source_transition.TRANSITION_PATH).read_text(
+            encoding="utf-8"
+        )
+    )
+    authority["schema"] = "full-color-phase1-audit-source-transition-v2"
+    authority["audit_source_sha256"] = authority.pop("current_source_sha256")
+    legacy_paths = authority.pop("reviewed_delta_paths")
+    for binding in legacy_paths.values():
+        binding["audit_sha256"] = binding.pop("current_sha256")
+    authority["audit_only_paths"] = legacy_paths
+    path = tmp_path / "v2-source-transition.json"
+    path.write_text(json.dumps(authority), encoding="utf-8")
+
+    with pytest.raises(
+        source_transition.SourceTransitionError,
+        match="source-transition authority is malformed",
+    ):
+        source_transition.generate(REPOSITORY_ROOT, authority_path=path)
 
 
 def test_source_transition_rebinds_authorized_unchanged_line_shift(tmp_path) -> None:
@@ -178,7 +201,7 @@ def test_rom_rebinding_rejects_unrelated_same_depth_call_path() -> None:
     rom_report = source_transition._raw_baseline_rom(REPOSITORY_ROOT, source_report)
     assignments = DiscoveryAssignmentAuthority.load(
         REPOSITORY_ROOT / source_transition.ASSIGNMENTS_PATH
-    ).for_product(NORMAL_DEBUG_PRODUCT)
+    ).for_product(BASELINE_PRODUCT)
     row = next(
         row for row in assignments.rows
         if row.subject.kind.value == "ROM_FINDING"
@@ -212,7 +235,7 @@ def test_source_transition_rejects_non_unique_or_changed_subjects(mutation: str)
     report = source_transition.baseline.discover_baseline_sources(REPOSITORY_ROOT)
     assignments = DiscoveryAssignmentAuthority.load(
         REPOSITORY_ROOT / source_transition.ASSIGNMENTS_PATH
-    ).for_product(NORMAL_DEBUG_PRODUCT)
+    ).for_product(BASELINE_PRODUCT)
     row = next(
         row
         for row in assignments.rows
@@ -284,7 +307,7 @@ def test_audit_identity_rebinding_proposes_hashes_without_approving_or_writing(
         )
     )
     for relative in (
-        *audit_evidence_identities.NORMAL_DEBUG_ARTIFACTS.values(),
+        *audit_evidence_identities.BASELINE_ARTIFACTS.values(),
         *audit_evidence_identities.AUDIT_ARTIFACTS.values(),
     ):
         shutil.copyfile(REPOSITORY_ROOT / relative, tmp_path / relative)
@@ -301,7 +324,7 @@ def test_audit_identity_rebinding_proposes_hashes_without_approving_or_writing(
         )["proposal"],
     )
     proposal = audit_evidence_identities.propose(tmp_path, transition)
-    normal_hashes = audit_evidence_identities._normal_debug_hashes(
+    baseline_hashes = audit_evidence_identities._baseline_hashes(
         tmp_path, "f" * 64
     )
     assert proposal["schema"] == audit_evidence_identities.PROPOSAL_SCHEMA
@@ -314,13 +337,13 @@ def test_audit_identity_rebinding_proposes_hashes_without_approving_or_writing(
         changes = proposal["documents"][relative.as_posix()]["changes"]
         changed_ids = {change["id"] for change in changes}
         expected_ids = (
-            audit_evidence_identities.NORMAL_DEBUG_ASSIGNMENT_IDS
+            audit_evidence_identities.BASELINE_ASSIGNMENT_IDS
             if relative.name == "assignments.json"
-            else audit_evidence_identities.NORMAL_DEBUG_INVENTORY_IDS[relative.name]
+            else audit_evidence_identities.BASELINE_INVENTORY_IDS[relative.name]
         )
         assert changed_ids == expected_ids
         for change in changes:
-            assert change["proposed"] == normal_hashes
+            assert change["proposed"] == baseline_hashes
             assert "reviewer" not in change
             assert "reviewed" not in change
 
@@ -440,7 +463,7 @@ def test_assignment_identity_rebinding_rejects_authority_mutation(
     normal = [
         row
         for row in raw["rows"]
-        if row.get("product", NORMAL_DEBUG_PRODUCT) == NORMAL_DEBUG_PRODUCT
+        if row["product"] == BASELINE_PRODUCT
     ]
     if mutation == "product":
         normal[0]["product"] = "pokeyellow_phase2_audit"
@@ -470,20 +493,59 @@ def test_assignment_identity_rebinding_requires_all_debug_artifacts(tmp_path) ->
         audit_evidence_identities.AuditEvidenceIdentityError,
         match="required build artifact is missing",
     ):
-        audit_evidence_identities._normal_debug_hashes(tmp_path, "f" * 64)
+        audit_evidence_identities._baseline_hashes(tmp_path, "f" * 64)
+
+
+def test_assignment_identity_rebinding_rejects_parsed_ninth_baseline_row() -> None:
+    raw = json.loads(
+        (REPOSITORY_ROOT / source_transition.ASSIGNMENTS_PATH).read_text(
+            encoding="utf-8"
+        )
+    )
+    baseline = [row for row in raw["rows"] if row["product"] == BASELINE_PRODUCT]
+    baseline_subjects = {row["subject"]["sha256"] for row in baseline}
+    extra = deepcopy(next(
+        row
+        for row in raw["rows"]
+        if row["product"] != BASELINE_PRODUCT
+        and row["subject"]["sha256"] not in baseline_subjects
+    ))
+    extra["id"] = "AS-BASELINE-EXTRA"
+    extra["product"] = BASELINE_PRODUCT
+    extra["evidence"] = deepcopy(baseline[0]["evidence"])
+    raw["rows"].append(extra)
+    raw["rows"].sort(key=lambda row: row["id"])
+    authority = DiscoveryAssignmentAuthority.from_dict(raw)
+    assert len(authority.for_product(BASELINE_PRODUCT).rows) == 9
+
+    with pytest.raises(
+        audit_evidence_identities.AuditEvidenceIdentityError,
+        match="baseline assignment scope changed",
+    ):
+        audit_evidence_identities._updated_assignments(
+            authority,
+            "f" * 64,
+            {
+                "source_sha256": "f" * 64,
+                "rom_sha256": "1" * 64,
+                "map_sha256": "2" * 64,
+                "sym_sha256": "3" * 64,
+            },
+            audit_evidence_identities.REVIEWED_AUDIT_HASHES,
+        )
 
 
 def test_assignment_identity_rebinding_rejects_scope_and_semantic_drift() -> None:
     authority = DiscoveryAssignmentAuthority.load(
         REPOSITORY_ROOT / source_transition.ASSIGNMENTS_PATH
     )
-    normal = authority.for_product(NORMAL_DEBUG_PRODUCT)
+    normal = authority.for_product(BASELINE_PRODUCT)
     narrowed = DiscoveryAssignmentAuthority(
         tuple(row for row in authority.rows if row.id != normal.rows[0].id)
     )
     with pytest.raises(
         audit_evidence_identities.AuditEvidenceIdentityError,
-        match="normal-debug assignment scope changed",
+        match="baseline assignment scope changed",
     ):
         audit_evidence_identities._updated_assignments(
             narrowed,

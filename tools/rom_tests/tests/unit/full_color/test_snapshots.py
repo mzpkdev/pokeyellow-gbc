@@ -139,7 +139,11 @@ def test_one_byte_corruption_reports_resource_and_exact_offset() -> None:
         ),
         (
             lambda raw: raw.update({"evidence_kind": "RENDERER_RUNTIME"}),
-            "Gate 0 cannot claim renderer runtime evidence",
+            "baseline evidence cannot claim renderer runtime activation",
+        ),
+        (
+            lambda raw: raw.update({"activation_phase": 1}),
+            "verification contract fixtures require phase 0",
         ),
     ],
 )
@@ -398,6 +402,16 @@ def test_timing_key_requires_complete_numeric_row() -> None:
     wrong = deepcopy(raw)
     wrong["timing_row"]["threshold_plus_one_entered_committing"] = True
     with pytest.raises(SnapshotValidationError, match=r"threshold \+ 1"):
+        SemanticSnapshot.from_dict(wrong)
+
+    wrong = deepcopy(raw)
+    wrong["timing_row"].update(
+        {"evidence_kind": "RENDERER_RUNTIME", "activation_phase": 0}
+    )
+    with pytest.raises(
+        SnapshotValidationError,
+        match="baseline evidence cannot claim renderer runtime activation",
+    ):
         SemanticSnapshot.from_dict(wrong)
 
 

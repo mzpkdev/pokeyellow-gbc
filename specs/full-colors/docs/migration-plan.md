@@ -20,7 +20,7 @@ machinery by itself.
 ## Execution evidence rule
 
 This plan defines the execution record required at every migration gate.
-Gate 0 and Phase 1 now have retained evidence where explicitly described
+Phase 0 and Phase 1 now have retained evidence where explicitly described
 below; later phases remain plans and gain no acceptance credit from the Phase 1
 diagnostic. Every phase retains the evidence block below in its execution
 record:
@@ -62,12 +62,15 @@ phase descriptions are interpreted as quarantined diagnostic/future work and
 MUST NOT be activated without the separately approved architecture change
 described above.
 
-## Phase 0: mandatory iteration foundation
+## Historical Phase 0: mandatory iteration foundation
 
-Implement [Gate 0](prerequisite-gates.md) using the existing
-[PyBoy/Python harness](ai-iteration-harness.md).
+The completed foundation established the
+[baseline verification contracts](verification-contracts.md) using the
+[PyBoy/Python harness](ai-iteration-harness.md). This section is retained as an
+architectural execution record, not a description of the current production
+state.
 
-Allowed work:
+Its historical scope was:
 
 - tests and fixtures;
 - debug-only observability;
@@ -80,11 +83,13 @@ Allowed work:
 - lossless screenshot, bounded frame-strip, annotated contact-sheet, localized
   image-diff, and contract-versioned manifest artifacts linked to semantic
   snapshots and writer traces;
-- mutation tests for currently implemented harness gates.
+- mutation tests for currently implemented harness contracts.
 
-Production renderer code is not allowed in this phase.
+This foundation did not modify production renderer code. The current tree has
+since activated production renderer paths under their own contracts.
 
-Phase 0 proves source and built-ROM discovery on the initial map-entry slice.
+The retained Phase 0 record proves source and built-ROM discovery on the
+initial map-entry slice.
 It produces harness, schema, self-mutation, initial-inventory, semantic,
 bank-torture, visual-pipeline, and CI artifacts twice with identical semantic
 and contract-versioned artifact-manifest outputs. Writer traces remain linked
@@ -100,7 +105,7 @@ concrete `WR-…`, `SC-…`, and `MU-…` ID in the initial map-entry slice; eve
 required field is populated and every row is reviewed against source and
 built-ROM evidence.
 
-**Acceptance:** The execution record closes `AC-G0-01`, `AC-INV-01`,
+**Acceptance:** The execution record closes `AC-EVIDENCE-01`, `AC-INV-01`,
 `AC-TRACE-01`, `AC-TECH-03`, and `AC-TECH-09`.
 
 **Evidence:** Named initial-inventory-closure, contract-schema, bank-torture,
@@ -108,15 +113,16 @@ self-mutation, semantic-snapshot, visual-manifest, stable-command, and CI
 checks; renderer oracles remain model/schema self-tests, and the executed
 record supplies their concrete `CHK-…` IDs.
 
-**Exit gate:** The initial map-entry inventory slice is populated, reviewed,
+**Exit gate:** The initial map-entry inventory slice was populated, reviewed,
 and closed by source and built-ROM evidence; the harness, schema, bank-torture,
-visual pipeline, implemented-gate mutations, stable commands, and CI artifacts
-pass twice with identical semantic and contract-versioned artifact-manifest
-outputs, without production renderer code or renderer acceptance claims.
+visual pipeline, implemented-contract mutations, stable commands, and CI
+artifacts passed twice with identical semantic and contract-versioned
+artifact-manifest outputs. This historical result made no renderer acceptance
+claim.
 
 ## Phase 1: ownership foundation
 
-Lean Gate 0 is green. This phase declares and closes every inventory row it
+Baseline verification contracts are green. This phase declares and closes every inventory row it
 touches before the changed path becomes reachable.
 
 - Make the ROM CGB-only.
@@ -197,7 +203,7 @@ Phase 2.
 
 ## Phase 2: diagnostic vertical slice
 
-Lean Gate 0 is green. This phase declares and closes every inventory row it
+Baseline verification contracts are green. This phase declares and closes every inventory row it
 touches before the changed path becomes reachable.
 
 - Add the unmistakable eight-palette canary mode.
@@ -257,7 +263,7 @@ Do not expand the architecture until this gate is green.
 
 ## Phase 3: complete palette and transfer architecture
 
-Lean Gate 0 is green. This phase declares and closes every inventory row it
+Baseline verification contracts are green. This phase declares and closes every inventory row it
 touches before the changed path becomes reachable.
 
 - Generalize the tile attribute lookup.
@@ -302,7 +308,7 @@ pass.
 
 ## Phase 4: overworld OAM
 
-Lean Gate 0 is green. This phase declares and closes every inventory row it
+Baseline verification contracts are green. This phase declares and closes every inventory row it
 touches before the changed path becomes reachable.
 
 - Add picture-ID palette assignments.
@@ -332,7 +338,7 @@ and numeric timing evidence passes.
 
 ## Phase 5: architecture stress gate
 
-Lean Gate 0 is green. This phase declares and closes every inventory row it
+Baseline verification contracts are green. This phase declares and closes every inventory row it
 touches before the changed path becomes reachable.
 
 Prove these cases before scaling real color content:
@@ -384,7 +390,7 @@ green. This gate does not retract the already shipped passive slice.
 
 ## Phase 6: bounded Pallet Town and Route 1 content
 
-Lean Gate 0 is green. This phase declares and closes every inventory row it
+Baseline verification contracts are green. This phase declares and closes every inventory row it
 touches before the changed path becomes reachable.
 
 - Independently author and validate only palette/attribute data reached by
@@ -419,7 +425,7 @@ gate.
 
 ## Phase 7: complete handoff coverage
 
-Lean Gate 0 is green. This phase declares and closes every inventory row it
+Baseline verification contracts are green. This phase declares and closes every inventory row it
 touches before the changed path becomes reachable.
 
 - Handoff before destination initialization on every concrete map-to-Yellow
@@ -465,7 +471,7 @@ return-reconstruction, and 100-cycle soak evidence passes.
 
 ## Phase 8: remove only obsolete competing ownership
 
-Lean Gate 0 is green. This phase declares and closes every inventory row it
+Baseline verification contracts are green. This phase declares and closes every inventory row it
 touches before the changed path becomes reachable.
 
 - Remove only obsolete competing or repair paths; retain every Yellow path
@@ -496,7 +502,7 @@ and removed, while every retained excluded-scene row remains green.
 
 ## Phase 9: timing and release hardening
 
-Lean Gate 0 is green. This phase declares and closes every inventory row it
+Baseline verification contracts are green. This phase declares and closes every inventory row it
 touches before the changed path becomes reachable.
 
 - Reconfirm LCD, VBlank, map streaming, palette upload, and OAM budgets.
@@ -542,8 +548,9 @@ exact Pallet Town/Route 1 production matrix.
 
 ## Iteration rule
 
-Run the fastest relevant gate after each change. A red prerequisite,
-ownership, bank, or semantic-state gate stops renderer expansion until fixed.
+Run the fastest relevant contract after each change. A red verification,
+ownership, bank, or semantic-state contract stops renderer expansion until
+fixed.
 
 Each implementation PR must:
 

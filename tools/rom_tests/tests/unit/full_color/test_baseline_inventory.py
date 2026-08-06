@@ -25,10 +25,10 @@ from tools.rom_tests.full_color.baseline_inventory import (
     _validate_assignment_targets,
 )
 from tools.rom_tests.full_color.discovery_assignment import (
+    BASELINE_ASSIGNMENT_IDS,
+    BASELINE_PRODUCT,
     DEBUG_PRODUCT,
     DiscoveryAssignmentAuthority,
-    GATE0_BASELINE_ASSIGNMENT_IDS,
-    NORMAL_DEBUG_PRODUCT,
     NORMAL_PRODUCT,
     PHASE2_AUDIT_PRODUCT,
     StaleDiscoveryAssignmentError,
@@ -66,7 +66,7 @@ def authorities():
 
 def reviewed_authorities():
     writers, scenes, mutations, assignments = authorities()
-    normal = assignments.for_product()
+    normal = assignments.for_product(BASELINE_PRODUCT)
     normal_ids = {row.row_id for row in normal.rows}
     return (
         _select_inventory_rows(writers, normal_ids),
@@ -80,7 +80,7 @@ def assignments_for_reports(assignments, source, rom_report):
     """Keep assignment evidence current while retaining reviewed subjects."""
     raw = assignments.to_dict()
     for row in raw["rows"]:
-        if row.get("product", NORMAL_DEBUG_PRODUCT) != NORMAL_DEBUG_PRODUCT:
+        if row["product"] != BASELINE_PRODUCT:
             continue
         row["evidence"].update(
             source_sha256=source.source_sha256,
@@ -109,7 +109,7 @@ def test_canonical_authorities_load_and_round_trip() -> None:
     assert SceneInventory.from_json(scenes.to_json()) == scenes
     assert MutationInventory.from_json(mutations.to_json()) == mutations
     assert DiscoveryAssignmentAuthority.from_json(assignments.to_json()) == assignments
-    assert len(assignments.for_product().rows) == 8
+    assert len(assignments.for_product(BASELINE_PRODUCT).rows) == 8
     assert {
         product: len(assignments.for_product(product).rows)
         for product in (NORMAL_PRODUCT, DEBUG_PRODUCT, VC_PRODUCT, PHASE2_AUDIT_PRODUCT)
@@ -119,21 +119,27 @@ def test_canonical_authorities_load_and_round_trip() -> None:
         VC_PRODUCT: 1471,
         PHASE2_AUDIT_PRODUCT: 1478,
     }
-    gate0 = tuple(
-        row for row in assignments.rows if row.id in GATE0_BASELINE_ASSIGNMENT_IDS
+    baseline = tuple(
+        row for row in assignments.rows if row.id in BASELINE_ASSIGNMENT_IDS
     )
     phase2 = tuple(
-        row for row in assignments.rows if row.id not in GATE0_BASELINE_ASSIGNMENT_IDS
+        row for row in assignments.rows if row.id not in BASELINE_ASSIGNMENT_IDS
     )
-    assert len(gate0) == 8
-    assert {row.evidence.reviewer for row in gate0} == {"gate-0-inventory-review"}
+    assert len(baseline) == 8
+    assert {row.product for row in baseline} == {BASELINE_PRODUCT}
+    assert {row.evidence.reviewer for row in baseline} == {
+        "baseline-inventory-review"
+    }
     assert {row.evidence.reviewer for row in phase2} == {"pr-15-inventory-review"}
     assert {row.row_id for row in phase2} <= PHASE2_PLANNED_ROW_IDS
 
 
 def test_exact_reviewed_map_entry_tranche() -> None:
     writers, scenes, mutations, _ = authorities()
-    normal_ids = {row.row_id for row in authorities()[3].for_product().rows}
+    normal_ids = {
+        row.row_id
+        for row in authorities()[3].for_product(BASELINE_PRODUCT).rows
+    }
     reviewed_writers = tuple(row for row in writers.rows if row["id"] in normal_ids)
     reviewed_scenes = tuple(row for row in scenes.rows if row["id"] in normal_ids)
     reviewed_mutations = tuple(row for row in mutations.rows if row["id"] in normal_ids)
@@ -175,7 +181,7 @@ def test_exact_reviewed_map_entry_tranche() -> None:
 def test_normal_product_partition_never_selects_audit_inventory_rows() -> None:
     writers, scenes, mutations, assignments = authorities()
     normal_ids = {
-        row.row_id for row in assignments.for_product().rows
+        row.row_id for row in assignments.for_product(BASELINE_PRODUCT).rows
     }
     for document in (writers, scenes, mutations):
         selected = _select_inventory_rows(document, normal_ids)
@@ -293,10 +299,17 @@ def test_real_progress_applies_transition_after_evidence_identity_refresh(
     real_bundle,
 ) -> None:
     writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
-    normal = assignments.for_product()
+    normal = assignments.for_product(BASELINE_PRODUCT)
+    transition = json.loads(
+        (ROOT / baseline_inventory.SOURCE_TRANSITION_PATH).read_text(
+            encoding="utf-8"
+        )
+    )
     assert {row.evidence.source_sha256 for row in normal.rows} == {
-        source.source_sha256
+        transition["current_source_sha256"]
     }
+    assert source.source_sha256 == transition["current_source_sha256"]
+    assert transition["reviewed_source_sha256"] != source.source_sha256
     raw_subjects = {
         source_finding_subject(finding).sha256 for finding in source.findings
     }
@@ -354,7 +367,7 @@ def test_audit_transition_manifest_has_exact_safe_delta_paths(
     real_bundle, tmp_path, monkeypatch, mode
 ) -> None:
     _, _, _, assignments, source, _, _ = real_bundle
-    assignments = assignments.for_product()
+    assignments = assignments.for_product(BASELINE_PRODUCT)
     transition_path = ROOT / baseline_inventory.SOURCE_TRANSITION_PATH
     text = transition_path.read_text(encoding="utf-8")
     if mode == "duplicate":
@@ -433,7 +446,7 @@ def test_closed_row_cannot_return_to_planned_state(real_bundle) -> None:
 @pytest.mark.parametrize(
     "mutation", ["machine-site", "bytes", "root", "resources", "commit"]
 )
-def test_closed_palette_inventory_mutation_does_not_affect_gate0_partition(
+def test_closed_palette_inventory_mutation_does_not_affect_baseline_partition(
     real_bundle, mutation
 ) -> None:
     writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
@@ -472,7 +485,9 @@ def test_closed_writer_schema_requires_declared_source_evidence() -> None:
         WriterInventory.from_dict(raw)
 
 
-def test_closed_row_without_machine_evidence_is_not_a_gate0_subject(real_bundle) -> None:
+def test_closed_row_without_machine_evidence_is_not_a_baseline_subject(
+    real_bundle,
+) -> None:
     writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
     raw = json.loads(writers.to_json())
     row = next(
@@ -628,7 +643,7 @@ def test_stale_assignment_source_and_rom_bytes_fail_closed(real_bundle) -> None:
     writers, scenes, mutations, assignments, source, rom_report, rom = real_bundle
     stale_raw = assignments.to_dict()
     for row in stale_raw["rows"]:
-        if row.get("product", NORMAL_DEBUG_PRODUCT) == NORMAL_DEBUG_PRODUCT:
+        if row["product"] == BASELINE_PRODUCT:
             row["evidence"]["source_sha256"] = "0" * 64
     stale_assignments = DiscoveryAssignmentAuthority.from_dict(stale_raw)
     with pytest.raises(

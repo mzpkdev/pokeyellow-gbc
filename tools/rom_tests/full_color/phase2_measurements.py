@@ -43,9 +43,9 @@ from .discovery_review import (
     source_finding_subject,
 )
 from .discovery_assignment import (
+    BASELINE_PRODUCT,
     DEBUG_PRODUCT,
     DiscoveryAssignmentAuthority,
-    NORMAL_DEBUG_PRODUCT,
     NORMAL_PRODUCT,
     PHASE2_AUDIT_PRODUCT,
     PRODUCTION_PRODUCTS,
@@ -1059,12 +1059,6 @@ def discover_phase2_rom_product(root: Path, product: str):
     )
 
 
-def discover_phase2_rom(root: Path, *, guarded: bool = True):
-    """Compatibility wrapper for the diagnostic or debug product."""
-    product = PHASE2_AUDIT_PRODUCT if guarded else DEBUG_PRODUCT
-    return discover_phase2_rom_product(root, product)
-
-
 def _load_planned_subjects(
     root: Path,
     *,
@@ -1801,7 +1795,8 @@ def _validate_product_assignment_coverage(
     assignments: DiscoveryAssignmentAuthority,
     expected_subject_rows: Mapping[str, str],
     hashes: Mapping[str, str],
-    product: str = PHASE2_AUDIT_PRODUCT,
+    *,
+    product: str,
 ) -> DiscoveryAssignmentAuthority:
     """Require one current assignment for every exact product subject."""
     selected = assignments.for_product(product)
@@ -1831,10 +1826,6 @@ def _validate_product_assignment_coverage(
     if errors:
         raise ValueError("\n".join(errors))
     return selected
-
-
-# Public compatibility name used by focused guard tests.
-_validate_audit_assignment_coverage = _validate_product_assignment_coverage
 
 
 def _product_hashes(
@@ -1999,7 +1990,7 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
             f"standalone hostile authority validation failed: {exc}"
         ) from exc
     planned = [row for row in authority_rows if row["planned"]]
-    normal_assignments = assignments.for_product(NORMAL_DEBUG_PRODUCT)
+    normal_assignments = assignments.for_product(BASELINE_PRODUCT)
     audit_assignments = assignments.for_product(PHASE2_AUDIT_PRODUCT)
 
     configured_roots = set(_phase2_roots())
@@ -2041,9 +2032,10 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
 
     roots = set(_phase2_roots())
 
-    # Reuse Gate 0's strict v2 transition parser and hash/delta validation on
-    # its native reviewed discovery surface.  The hostile report is a distinct
-    # scoped projection and must not weaken that contract.
+    # Reuse the strict v2 verification-contract transition parser and
+    # hash/delta validation on its native reviewed discovery surface. The
+    # hostile report is a distinct scoped projection and must not weaken that
+    # contract.
     try:
         baseline_source = discover_baseline_sources(root)
         _, transition = _reviewed_source_view(normal_assignments, baseline_source, root)
@@ -2063,7 +2055,7 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
         del baseline_source, baseline_rom
         gc.collect()
         source_report = discover_phase2_sources(root)
-        rom_report = discover_phase2_rom(root, guarded=True)
+        rom_report = discover_phase2_rom_product(root, PHASE2_AUDIT_PRODUCT)
     except (OSError, ValueError) as exc:
         raise Phase2MeasurementError(
             f"standalone hostile authority validation failed: {exc}"
@@ -2284,7 +2276,10 @@ def audit_phase2_inventory(root: Path) -> dict[str, object]:
             hashes = _product_hashes(source_report, product_report)
             try:
                 product_assignments = _validate_product_assignment_coverage(
-                    assignments, expected_subject_rows, hashes, product
+                    assignments,
+                    expected_subject_rows,
+                    hashes,
+                    product=product,
                 )
                 _validate_audit_assignment_enrichments(
                     product_assignments, writers, scenes, mutations

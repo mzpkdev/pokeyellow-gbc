@@ -228,10 +228,10 @@ state at their boundaries under
 | preparation buffers | largest overlay, paired transfer, palette, OAM, and reconstruction preparation unit plus worst-case visible-commit reservation |
 
 Each phase records numeric evidence before selecting the value it introduces.
-The record distinguishes logical limits from encoded field widths. Gate 0 does
-not preselect a ring, list, slot count, descriptor size, index width, scratch
-layout, or WRAM bank. This is the required realization of
-[R1.26](requirements.md#r1-renderer-ownership) and
+The record distinguishes logical limits from encoded field widths. Baseline
+verification contracts do not preselect a ring, list, slot count, descriptor
+size, index width, scratch layout, or WRAM bank. This is the required
+realization of [R1.26](requirements.md#r1-renderer-ownership) and
 [R3.3](requirements.md#r3-cgb-and-bank-foundation).
 
 ## ROM placement and bank composition

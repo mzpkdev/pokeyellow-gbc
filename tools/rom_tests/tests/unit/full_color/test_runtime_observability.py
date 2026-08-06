@@ -386,7 +386,7 @@ def test_smoke_writes_deterministic_debug_ready_snapshot(
     payload = output.read_text(encoding="utf-8")
     snapshot = SemanticSnapshot.from_json(payload)
     encoded = payload.encode("utf-8")
-    assert snapshot.scenario == "gate-0-baseline"
+    assert snapshot.scenario == "full-color-evidence"
     assert snapshot.checkpoint == "debug-ready"
     assert summary["snapshot_bytes"] == len(encoded)
     assert summary["snapshot_sha256"] == hashlib.sha256(encoded).hexdigest()
@@ -561,7 +561,7 @@ def test_cli_retained_failure_is_bounded_and_keeps_diagnostics(
     )
 
 
-def test_cli_preserves_explicit_gate0_outputs_and_rejects_mixed_modes(
+def test_cli_preserves_explicit_evidence_outputs_and_rejects_mixed_modes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

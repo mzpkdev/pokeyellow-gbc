@@ -774,7 +774,7 @@ class TimingRow:
             raise SnapshotValidationError("timing_row.evidence_kind: unknown evidence kind")
         if evidence_kind == "RENDERER_RUNTIME" and numeric["activation_phase"] == 0:
             raise SnapshotValidationError(
-                "timing_row: Gate 0 cannot claim renderer runtime evidence"
+                "timing_row: baseline evidence cannot claim renderer runtime activation"
             )
         return cls(
             key=require_str(obj["key"], path="timing_row.key", error=SnapshotValidationError),
@@ -1059,7 +1059,7 @@ class SemanticSnapshot:
             )
         if snapshot.evidence_kind == "SCHEMA_FIXTURE" and snapshot.activation_phase != 0:
             raise SnapshotValidationError(
-                "snapshot.activation_phase: schema fixtures belong to Gate 0"
+                "snapshot.activation_phase: verification contract fixtures require phase 0"
             )
         if snapshot.evidence_kind == "YELLOW_BASELINE":
             if snapshot.activation_phase != 0 or snapshot.owner is not Owner.RENDERER_YELLOW:
@@ -1071,7 +1071,7 @@ class SemanticSnapshot:
             and snapshot.activation_phase == 0
         ):
             raise SnapshotValidationError(
-                "snapshot.evidence_kind: Gate 0 cannot claim renderer runtime evidence"
+                "snapshot.evidence_kind: baseline evidence cannot claim renderer runtime activation"
             )
         if snapshot.phase is Phase.OVERWORLD_OVERLAY and snapshot.overlay_request is None:
             raise SnapshotValidationError(

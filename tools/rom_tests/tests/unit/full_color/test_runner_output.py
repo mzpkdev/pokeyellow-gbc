@@ -15,7 +15,7 @@ from tools.rom_tests.full_color.runner_output import OutputMode, RunnerReporter
 
 ROOT = Path(__file__).resolve().parents[5]
 CLI_MODULES = (
-    "tools.rom_tests.full_color.gate0_runner",
+    "tools.rom_tests.full_color.evidence_runner",
     "tools.rom_tests.full_color.renderer_conformance_runner",
     "tools.rom_tests.full_color.renderer_runtime_runner",
     "tools.rom_tests.full_color.runtime_observability",

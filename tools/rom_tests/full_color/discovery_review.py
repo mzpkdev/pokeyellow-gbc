@@ -1,4 +1,4 @@
-"""Strict reviewed rejections for conservative Gate 0b discovery subjects.
+"""Strict reviewed rejections for conservative baseline discovery subjects.
 
 Nothing in this module infers that a discovery result is safe to ignore.  A
 caller must load an explicit reviewed authority, bind it to the exact baseline

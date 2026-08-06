@@ -55,7 +55,7 @@ sBank3IndividualBoxChecksums:: ds 6
 ENDSECTION
 
 
-SECTION "Full Color Gate 0 Debug State", SRAM, BANK[3]
+SECTION "Full Color Harness Debug State", SRAM, BANK[3]
 
 IF DEF(_DEBUG)
 DEF FULL_COLOR_DEBUG_LAYOUT_VERSION EQU 2
@@ -122,7 +122,7 @@ wFullColorDebugTraceRecords::
 wFullColorDebugTraceEnd::
 wFullColorDebugStateEnd::
 ASSERT wFullColorDebugStateEnd <= $c000, \
-	"Gate 0 debug state must fit after saved boxes in SRAM bank 3"
+	"Full-color harness debug state must fit after saved boxes in SRAM bank 3"
 ENDC
 
 IF DEF(PHASE2_AUDIT)

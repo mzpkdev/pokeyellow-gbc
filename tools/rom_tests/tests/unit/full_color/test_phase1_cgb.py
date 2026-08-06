@@ -17,7 +17,7 @@ CGB_HEADER_OFFSET = 0x143
 CGB_ONLY = 0xC0
 KEY1 = 0xFF4D
 KEY1_DOUBLE_SPEED = 0x80
-GATE0_BASELINE_PNG_SHA256 = (
+EVIDENCE_BASELINE_PNG_SHA256 = (
     "526e3b7f513ec3428aa59874b9e5ef4c03a3187f0e2c2799626501f6a49af3b1"
 )
 
@@ -121,7 +121,7 @@ def test_non_cgb_boot_identities_remain_in_rejection_path(
         emulator.close()
 
 
-def test_cgb_debug_ready_visual_matches_gate0_baseline(tmp_path: Path) -> None:
+def test_cgb_debug_ready_visual_matches_evidence_baseline(tmp_path: Path) -> None:
     emulator = Emulator(
         _built_rom("pokeyellow_debug.gbc"),
         _built_rom("pokeyellow_debug.sym"),
@@ -130,6 +130,6 @@ def test_cgb_debug_ready_visual_matches_gate0_baseline(tmp_path: Path) -> None:
     )
     try:
         wait_until_debug_ready(emulator)
-        assert _png_sha256(emulator) == GATE0_BASELINE_PNG_SHA256
+        assert _png_sha256(emulator) == EVIDENCE_BASELINE_PNG_SHA256
     finally:
         emulator.close()

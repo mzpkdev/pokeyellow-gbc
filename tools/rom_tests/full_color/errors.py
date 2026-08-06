@@ -1,4 +1,4 @@
-"""Specific failures emitted by Gate 0 contract validators."""
+"""Specific failures emitted by full-color contract validators."""
 
 
 class ContractError(ValueError):

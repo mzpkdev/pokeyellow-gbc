@@ -1,11 +1,11 @@
 # Overworld verification plan
 
-This file is the sole requirement-to-check index. It defines future checks and
-the evidence that implementation and Gate 0 execution must produce; it does
-not claim that inventories, measurements, ROMs, or test artifacts already
-exist. The [prerequisite suite](prerequisite-gates.md) must be operational
-before renderer work starts, and the
-[AI harness](ai-iteration-harness.md) runs the checks in the tiers below.
+This file is the sole requirement-to-check index. It defines live and planned
+checks plus the evidence each implementation boundary must produce. The
+[verification contracts](verification-contracts.md) define the current local
+and hosted split, and the [AI harness](ai-iteration-harness.md) runs the checks
+in the tiers below. Checks marked future remain non-gating until their runtime
+authority is activated.
 
 ## Check definitions
 
@@ -22,7 +22,7 @@ before renderer work starts, and the
 - **CHK-TIME-01:** Method: named instruction-path cycle equations for every selector-activated operation, each with natural budget/deadline, exact-fit case, and exact threshold-plus-one case; tier: focused/full; evidence: completed timing row, equation result, exact-fit commit, whole-unit defer trace, and timing artifact key.
 - **CHK-INV-01:** Method: reconcile source search with symbol-guided built-ROM disassembly for the initial map-entry slice and every later declared implementation slice; tier: fast/full; evidence: reviewed `WR-…`, `SC-…`, and `MU-…` rows, before-reachability review, slice closure report, visible out-of-slice backlog, and unlisted-writer/scene/mutation fixtures.
 - **CHK-TRACE-01:** Method: validate authority definitions, references, and bidirectional primary mappings; tier: fast; evidence: machine-readable mapping report and zero unknown, uncovered, duplicate, or orphan IDs.
-- **CHK-G0-01:** Method: run the lean Gate 0 environment, observability, snapshot, ownership-model, bank-torture, initial-inventory-slice, visual-pipeline, implemented-gate mutation, stable-command, and CI checks twice against the baseline debug ROM; tier: fast/full; evidence: identical semantic and contract-versioned artifact-manifest outputs, specific mutation failures, diagnostic artifacts, suite logs, and no renderer acceptance claim.
+- **CHK-EVIDENCE-01:** Method: execute independent full-color evidence captures against the same debug ROM and compare every stable artifact byte-for-byte; tier: fast/full; evidence: comparison summary, semantic snapshot, traceability report, visual manifest, images, and retained diagnostics.
 - **CHK-BUILD-01:** Method: reproducibly build release, debug, and VC variants with warnings fatal; tier: fast/full; evidence: commands, tool versions, ROM content IDs, headers, symbols, link maps, and warning logs.
 - **CHK-CGB-01:** Method: exercise CGB hard boot, DMG/SGB rejection, soft reset, and double-speed initialization; tier: fast/full; evidence: header bytes, startup traces, reset snapshots, and rejection-path checkpoints.
 - **CHK-BANK-01:** Method: invoke renderer paths from non-default ROM/VRAM banks, every selected renderer WRAM bank, every other valid WRAM entry bank, and interrupt boundaries; tier: fast/focused/full; evidence: before/after bank, stack, interrupt, owner, generation, and dirty-state snapshots.
@@ -68,7 +68,7 @@ defined concrete IDs.
 | R-MAP | R1.4 | AC-OWN-01, AC-TECH-04 | CHK-OWN-01 | fast/full | full-color write during Yellow ownership | assertion and writer trace |
 | R-MAP | R1.5 | AC-OWN-01, AC-TECH-06 | CHK-OWN-01 | fast/full | absent owner or generation | job snapshot and trace |
 | R-MAP | R1.6 | AC-HO-04, AC-JOB-01 | CHK-JOB-01 | fast/full | departing-generation execution | cancellation and no-later-write trace |
-| R-MAP | R1.7 | AC-G0-01, AC-INV-01, AC-TECH-03 | CHK-G0-01, CHK-INV-01 | fast/full | reachable unlisted in-slice writer | source/ROM slice closure report |
+| R-MAP | R1.7 | AC-EVIDENCE-01, AC-INV-01, AC-TECH-03 | CHK-EVIDENCE-01, CHK-INV-01 | fast/full | reachable unlisted in-slice writer | source/ROM slice closure report |
 | R-MAP | R1.8 | AC-REQUEST-01 | CHK-REQUEST-01 | fast/full | missing admission declaration | request record and assertion |
 | R-MAP | R1.9 | AC-REQUEST-01 | CHK-REQUEST-01 | fast/full | wrong owner | result and no-work trace |
 | R-MAP | R1.10 | AC-REQUEST-01 | CHK-REQUEST-01 | fast/full | stale generation | result and no-work trace |
@@ -111,9 +111,9 @@ defined concrete IDs.
 | R-MAP | R3.1 | AC-TECH-02 | CHK-CGB-01 | fast/full | DMG/SGB startup | header and rejection checkpoints |
 | R-MAP | R3.2 | AC-TECH-02 | CHK-CGB-01 | fast/full | repeated/missing speed switch | hard-boot trace |
 | R-MAP | R3.3 | AC-TECH-07 | CHK-BANK-01 | focused/full | unmeasured WRAM placement | Phase 1 decision record and link map |
-| R-MAP | R3.4 | AC-G0-01, AC-TECH-02 | CHK-G0-01, CHK-CGB-01, CHK-JOB-01 | fast/full | observable uncleared state | boot/reset snapshots |
-| R-MAP | R3.5 | AC-G0-01, AC-TECH-07 | CHK-G0-01, CHK-BANK-01 | fast/full | leaked bank/stack/interrupt | boundary snapshots |
-| R-MAP | R3.6 | AC-G0-01, AC-TECH-07 | CHK-G0-01, CHK-BANK-01 | fast/full | accidental return bank | Yellow-return snapshots |
+| R-MAP | R3.4 | AC-EVIDENCE-01, AC-TECH-02 | CHK-CGB-01, CHK-EVIDENCE-01, CHK-JOB-01 | fast/full | observable uncleared state | boot/reset snapshots |
+| R-MAP | R3.5 | AC-EVIDENCE-01, AC-TECH-07 | CHK-BANK-01, CHK-EVIDENCE-01 | fast/full | leaked bank/stack/interrupt | boundary snapshots |
+| R-MAP | R3.6 | AC-EVIDENCE-01, AC-TECH-07 | CHK-BANK-01, CHK-EVIDENCE-01 | fast/full | accidental return bank | Yellow-return snapshots |
 | R-MAP | R4.1 | AC-TECH-01 | CHK-ROM-01, CHK-BUILD-01 | fast/full | use donor bank 2c | link-map and source audit |
 | R-MAP | R4.2 | AC-TECH-01 | CHK-ROM-01, CHK-BUILD-01 | fast/full | import donor bank 31 | link-map and source audit |
 | R-MAP | R4.3 | AC-TECH-01 | CHK-ROM-01, CHK-BUILD-01 | fast/full | assume extension bank 1c | link-map and source audit |
@@ -172,18 +172,18 @@ defined concrete IDs.
 | R-MAP | R10.11 | AC-DONE-01, AC-TECH-08, AC-TIME-01 | CHK-TIME-01 | focused/full | activated operation lacks numeric closure | equation, exact-fit, threshold-plus-one evidence |
 | R-MAP | R11.1 | AC-TECH-10 | CHK-CANARY-01 | fast/focused | indistinct canary assignments | semantic and visual artifacts |
 | R-MAP | R11.2 | AC-TECH-01 | CHK-CANARY-01, CHK-BUILD-01 | fast/full | canary in release | source/symbol audit |
-| R-MAP | R11.3 | AC-G0-01, AC-TECH-10 | CHK-G0-01, CHK-VISUAL-01 | fast/focused/full | missing named visual | manifest and image artifacts |
-| R-MAP | R11.4 | AC-G0-01, AC-TECH-10, AC-TRACE-01 | CHK-G0-01, CHK-VISUAL-01 | fast/focused/full | unpaired visual | linked snapshot and trace |
-| R-MAP | R11.5 | AC-G0-01, AC-TECH-10 | CHK-G0-01, CHK-VISUAL-01 | fast/focused/full | visual-only verdict | machine assertion and review |
-| R-MAP | R11.6 | AC-DONE-01, AC-G0-01, AC-TECH-09 | CHK-G0-01 | fast/full | non-identical repeat outputs or renderer starts before Gate 0 | semantic/manifest comparison and phase/build audit |
+| R-MAP | R11.3 | AC-EVIDENCE-01, AC-TECH-10 | CHK-EVIDENCE-01, CHK-VISUAL-01 | fast/focused/full | missing named visual | manifest and image artifacts |
+| R-MAP | R11.4 | AC-EVIDENCE-01, AC-TECH-10, AC-TRACE-01 | CHK-EVIDENCE-01, CHK-VISUAL-01 | fast/focused/full | unpaired visual | linked snapshot and trace |
+| R-MAP | R11.5 | AC-EVIDENCE-01, AC-TECH-10 | CHK-EVIDENCE-01, CHK-VISUAL-01 | fast/focused/full | visual-only verdict | machine assertion and review |
+| R-MAP | R11.6 | AC-DONE-01, AC-EVIDENCE-01, AC-TECH-09 | CHK-EVIDENCE-01 | fast/full | non-identical evidence captures or renderer expands while a contract is red | evidence comparison and phase/build audit |
 | R-MAP | R12.1 | AC-DONE-01, AC-HO-02, AC-OW-03, AC-PROD-01, AC-REMOVE-04, AC-SELECT-01 | CHK-REGRESS-01 | focused/full | changed Yellow lifecycle | baseline comparisons |
 | R-MAP | R12.2 | AC-HO-01 | CHK-HANDOFF-01 | focused/full | standalone display before Yellow | first-writer trace |
 | R-MAP | R12.3 | AC-REMOVE-02, AC-REMOVE-04 | CHK-REMOVE-01, CHK-REGRESS-01 | fast/full | imported excluded runtime | source/ROM audit |
 | R-MAP | R12.4 | AC-DONE-01, AC-REMOVE-01, AC-REMOVE-03 | CHK-REMOVE-01 | full | reachable old overworld owner | reachability report |
 | R-MAP | R12.5 | AC-HO-02, AC-PROD-01, AC-REMOVE-01, AC-REMOVE-03, AC-REMOVE-04 | CHK-REGRESS-01 | focused/full | removed required Yellow code | excluded-scene regressions |
-| R-MAP | R12.6 | AC-DONE-01, AC-G0-01, AC-INV-01, AC-TECH-03, AC-TECH-04, AC-TECH-09, AC-TRACE-01 | CHK-G0-01, CHK-INV-01 | fast/full | unreviewed in-slice writer in CI | audit log and mutation |
+| R-MAP | R12.6 | AC-DONE-01, AC-EVIDENCE-01, AC-INV-01, AC-TECH-03, AC-TECH-04, AC-TECH-09, AC-TRACE-01 | CHK-EVIDENCE-01, CHK-INV-01 | fast/full | unreviewed in-slice writer in CI | audit log and mutation |
 | R-MAP | R12.7 | AC-REMOVE-01, AC-SELECT-01 | CHK-REMOVE-01 | full | dual selectable overworld modes | source/ROM negative evidence |
-| R-MAP | R12.8 | AC-G0-01, AC-INV-01 | CHK-G0-01, CHK-INV-01, CHK-HANDOFF-01 | fast/full | scene touched without row | closed scene slice |
+| R-MAP | R12.8 | AC-EVIDENCE-01, AC-INV-01 | CHK-EVIDENCE-01, CHK-INV-01, CHK-HANDOFF-01 | fast/full | scene touched without row | closed scene slice |
 
 ## Acceptance-to-evidence traceability
 
@@ -205,7 +205,7 @@ never satisfy a full-tier completion row.
 | AC-MAP | AC-TIME-01 | R9.7, R10.3, R10.4, R10.7, R10.8, R10.9, R10.10, R10.11 | CHK-TIME-01 | focused/full | numeric margin and threshold plus one | completed rows, exact fit, and defer trace |
 | AC-MAP | AC-INV-01 | R1.7, R12.6, R12.8 | CHK-INV-01 | fast/full | unlisted reachable item | source/ROM reconciliation |
 | AC-MAP | AC-TRACE-01 | R11.4, R12.6 | CHK-TRACE-01 | fast | unknown/uncovered/duplicate ID | validator and mapping report |
-| AC-MAP | AC-G0-01 | R1.7, R3.4, R3.5, R3.6, R11.3, R11.4, R11.5, R11.6, R12.6, R12.8 | CHK-G0-01, CHK-INV-01, CHK-BANK-01, CHK-VISUAL-01 | fast/full | named lean-gate mutations | repeat logs, semantic outputs, and manifests |
+| AC-MAP | AC-EVIDENCE-01 | R1.7, R3.4, R3.5, R3.6, R11.3, R11.4, R11.5, R11.6, R12.6, R12.8 | CHK-EVIDENCE-01, CHK-INV-01, CHK-BANK-01, CHK-VISUAL-01 | fast/full | named evidence-contract mutations | comparison summary, semantic snapshots, traceability, and manifests |
 | AC-MAP | AC-OW-01 | R5.1, R6.1, R6.2, R6.3, R8.1, R8.2, R8.3, R8.4 | CHK-TILESET-01, CHK-PALETTE-01 | full | all tileset content | semantic/visual atlas and audits |
 | AC-MAP | AC-OW-02 | R2.5, R7.1, R7.3, R10.5 | CHK-TRANSFER-01, CHK-COMMIT-01 | focused/full | load/scroll/connection paths | paired bytes, traces, frame strips |
 | AC-MAP | AC-OW-03 | R2.6, R6.13, R7.1, R12.1 | CHK-PROD-01, CHK-HANDOFF-01, CHK-REGRESS-01 | focused/full | dialogue and transient overlays | Yellow baseline and complete return evidence |
@@ -224,7 +224,7 @@ never satisfy a full-tier completion row.
 | AC-MAP | AC-TECH-06 | R1.2, R1.5, R1.19, R1.20, R2.9, R5.7, R10.2 | CHK-OWN-01, CHK-JOB-01, CHK-REQUEST-01 | fast/full | seeded ownership actions | model/ROM state comparison |
 | AC-MAP | AC-TECH-07 | R3.3, R3.5, R3.6, R4.5, R10.1, R10.6 | CHK-BANK-01, CHK-ROM-01 | fast/focused/full | bank and interrupt torture | boundary snapshots |
 | AC-MAP | AC-TECH-08 | R5.8, R9.7, R10.4, R10.5, R10.8, R10.9, R10.10, R10.11 | CHK-TIME-01 | focused/full | all timed operations | numeric equations, exact-fit, and defer evidence |
-| AC-MAP | AC-TECH-09 | R11.6, R12.6 | CHK-G0-01 | fast/full | each implemented or phase-activated critical gate mutation | targeted failure artifacts |
+| AC-MAP | AC-TECH-09 | R11.6, R12.6 | CHK-EVIDENCE-01 | fast/full | each implemented or phase-activated critical contract mutation | targeted failure artifacts |
 | AC-MAP | AC-TECH-10 | R9.4, R11.1, R11.3, R11.4, R11.5 | CHK-VISUAL-01, CHK-CANARY-01, CHK-OAM-01 | focused/full | checkpoint artifact omissions | complete versioned manifests |
 | AC-MAP | AC-STRESS-01 | R1.15, R1.16, R1.21, R1.22, R1.26, R7.3, R9.7, R10.8, R10.9, R10.10 | CHK-STRESS-01 | focused/full | combined renderer pressure | accounting, traces, timing, visuals |
 | AC-MAP | AC-STRESS-02 | R2.6, R2.7, R2.8, R2.10, R2.11, R2.12, R2.13 | CHK-STRESS-02 | focused/full | bidirectional/reset handoff | poison/rebuild/barrier/five-frame evidence |

@@ -149,21 +149,24 @@ Run checks from fast to slow:
 
 ```console
 .venv/bin/python -m pytest tools/rom_tests/tests/unit/full_color -q
-make yellow_phase2_audit
-make verify-full-color-phase2-audit
+make test-full-color-fast
+make test-unit
+make test-full-color-harness-contracts
+make test-full-color-evidence
+make test-full-color-audit
 make test-full-color-smoke
-make test-full-color-renderer-conformance
+make test-full-color-renderer-contracts
 make test-full-color-renderer-runtime
-make yellow yellow_debug
-.venv/bin/python -m pytest tools/rom_tests/tests/e2e/test_full_color_cold_boot_journey.py -q
-make test-full-color-gate0
-make test-full-color-all
+make test-full-color-e2e-core
+make test-full-color-e2e-renderer
+make test-full-color-e2e-journey
+make test-full-color-certify
 ```
 
-`test-full-color-all` does **not** include
-`verify-full-color-phase2-audit` or the cold-boot E2E file. Run them explicitly.
-The conformance checker is synthetic. Gate 0 protects the retained baseline and
-evidence system. Neither replaces natural gameplay or human visual review.
+Use the narrow commands while iterating. Certification runs the complete unit,
+harness, evidence, audit, renderer, and gameplay graph once; only stable
+evidence capture runs twice. The renderer fixture checker remains synthetic,
+and neither certification nor hosted gameplay replaces human visual review.
 
 At minimum, play through the Game Freak logo, Oak's introduction, bedroom,
 Pallet Town, Oak's interception and capture, Route 1, Viridian entry, and the
@@ -192,14 +195,15 @@ return, and no seams or one-frame palette swaps.
 
 Full-color artifacts currently land in:
 
-- Gate 0: `test-results/full-color-gate0/attempt-NNNN/{run-1,run-2}`
-- Smoke: `test-results/full-color-gate0/smoke/attempt-NNNN`
-- Renderer conformance:
-  `test-results/full-color-renderer-conformance/attempt-NNNN`
-- Renderer runtime: `test-results/full-color-renderer-runtime/attempt-NNNN`
-- Natural journey evidence: `test-results/full-color-cold-boot/`
-- Per-test failures: `test-results/<test-derived-name>/`
-- Reviewed evidence: `specs/full-colors/evidence/`
+- deterministic evidence: `test-results/full-color-evidence/`;
+- hosted harness-contract log artifact: `test-results/full-color-contracts/`
+  (the local command writes to stdout only);
+- smoke: `test-results/full-color-smoke/`;
+- renderer fixtures: `test-results/full-color-renderer-contracts/`;
+- renderer runtime: `test-results/full-color-renderer-runtime/`;
+- local certification: `test-results/full-color-harness/attempt-NNNN/`;
+- E2E diagnostics: the configured `ROM_TEST_RESULTS` root;
+- reviewed evidence: `specs/full-colors/evidence/`.
 
 The future renderer direction is governed by the
 [full-color migration plan](../specs/full-colors/docs/migration-plan.md). Do not
@@ -213,31 +217,32 @@ commit synchronizes the pull request, and for pushes to `main`. A newer commit
 on the same pull request cancels obsolete in-flight certification, so the
 latest revision is the one consuming hosted capacity.
 
-Title/body edits, reopening, and draft-state changes run `PR Metadata` only;
-metadata edits cannot cancel or repeat full certification. `PR Metadata`
-validates the Conventional Commit title without checking out or building the
-repository. Ordinary metadata events report the `PR Title` context. A reopen
-reports the distinct `PR Reopen Certification` context after running the same
-title validation and querying check runs for the exact current head SHA; it
-fails closed unless that revision already has a successful `Test` check.
+Title/body edits, reopening, and draft-state changes run `Metadata` only;
+metadata edits cannot repeat full certification. `Metadata` validates workflow
+syntax and the Conventional Commit title without rebuilding ROM products.
+Ordinary metadata events report the `PR Title` context. A reopen reports the
+distinct `PR Reopen Certification` context after running the same title
+validation and querying check runs for the exact current head SHA; it fails
+closed unless that revision already has a successful `Certification` check.
 Concurrency is scoped by pull request and event action, so a later edit or
 draft-state change cannot cancel the reopen check or replace its result with a
 same-named job. Repeated runs of the same action may cancel their obsolete
 predecessors. The existing certification is reused until a new commit is
 pushed; that commit starts a fresh full `CI` run.
 
-`Test` is the stable final status and aggregates Donor Provenance, Lint, Build,
-Gate 0 Baseline, Renderer Conformance Checker, and Phase 1 Runtime Ownership.
-It fails when any dependency fails, is skipped, or is cancelled. Each Gate 0
-matrix leg still performs the complete seven-component run independently:
-complete units, baseline discovery, inventory reconciliation, bank torture,
-runtime observability, traceability, and the visual pipeline. `Gate 0 Baseline`
-then applies the blocking Exact comparator to both evidence sets.
+`Certification` is the stable final status. `Build ROMs` creates all products
+once. The full-color workflow runs Donor Contract, Unit Tests, Harness
+Contracts, two independent Full-color Evidence Capture jobs plus Full-color
+Evidence Determinism, Renderer Contract Fixtures, Renderer Runtime Ownership,
+and Full-color Audit Evidence. The gameplay workflow runs E2E (Core), E2E
+(Renderer), and E2E (Journey) independently against the same-revision products.
+Certification fails when any build, full-color, or gameplay dependency fails,
+is skipped, or is cancelled.
 
 `main` currently has no branch protection rule or ruleset. Until one is added,
-reviewers must explicitly verify `Test`, the latest `PR Title`, and—after a
-reopen—the durable `PR Reopen Certification` result before merge. `Test`
-represents all named certification dependencies, while `PR Title` remains
+reviewers must explicitly verify `Certification`, the latest `PR Title`, and—after a
+reopen—the durable `PR Reopen Certification` result before merge.
+`Certification` represents all named verification dependencies, while `PR Title` remains
 independently responsive to metadata-only changes. An event-specific context
 such as `PR Reopen Certification` is absent on ordinary pull-request events, so
 it must not be configured as a universally required branch-protection context.

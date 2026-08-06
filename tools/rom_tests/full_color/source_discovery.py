@@ -1,4 +1,4 @@
-"""Deterministic RGBDS source/include discovery for Gate 0b.
+"""Deterministic RGBDS source/include discovery for baseline evidence.
 
 This is deliberately a candidate finder rather than an assembler.  It follows
 the real include graph, retains source evidence, understands labels, aliases

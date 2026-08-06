@@ -26,7 +26,7 @@ def test_canonical_report_is_deterministic_and_explicitly_synthetic() -> None:
     assert first == second
     report = bank_torture_report(SYNTHETIC_ROM)
     assert report["schema"] == BANK_TORTURE_SCHEMA
-    assert report["fixture_kind"] == "SYNTHETIC_GATE0"
+    assert report["fixture_kind"] == "SYNTHETIC_BANK_CONTRACT"
     assert report["coverage"]["wram_entry_banks"] == list(VALID_WRAM_ENTRY_BANKS)
     assert report["coverage"]["vram_entry_banks"] == [1]
     assert len(report["coverage"]["non_default_rom_banks"]) >= 8

@@ -54,13 +54,19 @@ def test_certify_has_no_redundant_authority_component(tmp_path: Path) -> None:
     names = tuple(item.name for item in components("certify", ROOT, tmp_path))
     assert names == CERTIFY_COMPONENTS
     assert names[0] == "build-products"
-    assert "unit-tests" not in names
-    assert names.count("gate0") == 1
-    assert names.count("donor-provenance") == 1
-    assert names.count("cold-boot-journeys") == 1
+    assert len(names) == len(set(names))
+    assert names.count("unit-tests") == 1
+    assert names.count("harness-contracts") == 1
+    assert names.count("evidence-determinism") == 1
+    assert names.count("donor-contract") == 1
+    assert names.count("e2e-core") == 1
+    assert names.count("e2e-renderer") == 1
+    assert names.count("e2e-journey") == 1
 
 
-def test_build_is_visible_first_and_builds_exactly_four_products(tmp_path: Path) -> None:
+def test_build_is_visible_first_and_builds_exactly_four_products(
+    tmp_path: Path,
+) -> None:
     build = components("fast", ROOT, tmp_path)[0]
     assert build.name == "build-products"
     assert build.command[0] == "make"
@@ -210,59 +216,119 @@ def test_invalid_donor_is_setup_error_after_attempt_is_retained(
 
 def test_runner_components_delegate_to_dedicated_evidence_roots(tmp_path: Path) -> None:
     graph = {item.name: item for item in components("certify", ROOT, tmp_path)}
-    for name in ("gate0", "renderer-conformance", "renderer-runtime"):
+    for name in ("evidence-determinism", "renderer-contracts", "renderer-runtime"):
         component = graph[name]
         assert "--results" in component.command
         result = Path(component.command[component.command.index("--results") + 1])
         assert result == tmp_path.resolve() / "components" / name
         assert "--output" in component.command
         assert component.command[-1] == "json"
-    donor = graph["donor-provenance"]
-    assert donor.command.count(
-        "tools/rom_tests/tests/unit/full_color/test_overworld_color_data_donor.py::test_exact_pokered_gbc_donor_contract"
-    ) == 1
+    donor = graph["donor-contract"]
+    assert (
+        donor.command.count(
+            "tools/rom_tests/tests/unit/full_color/test_overworld_color_data_donor.py"
+        )
+        == 1
+    )
+    assert "-q" in donor.command
 
 
-def test_certify_cold_boot_uses_only_attempt_local_evidence_and_environment(
+def test_certify_e2e_suites_use_attempt_local_evidence_and_environment(
     tmp_path: Path,
 ) -> None:
     attempt = tmp_path / "results with spaces" / "attempt-0042"
     graph = {item.name: item for item in components("certify", ROOT, attempt)}
-    cold_boot = graph["cold-boot-journeys"]
-    expected = attempt.resolve() / "components" / "cold-boot-journeys"
-    assert cold_boot.evidence == expected
-    assert cold_boot.environment == (("FULL_COLOR_COLD_BOOT_RESULTS", str(expected)),)
-    assert cold_boot.command == (
+    expected_root = attempt.resolve() / "components"
+    for suite in ("core", "renderer", "journey"):
+        component = graph[f"e2e-{suite}"]
+        expected = expected_root / f"e2e-{suite}"
+        assert component.evidence == expected
+        assert component.environment == (("ROM_TEST_RESULTS", str(expected)),)
+    journey = graph["e2e-journey"]
+    assert journey.command == (
         sys.executable,
         "-m",
         "pytest",
-        "tools/rom_tests/tests/e2e/test_full_color_cold_boot_journey.py",
+        "tools/rom_tests/tests/e2e/journey",
+        "-q",
         "--junitxml",
-        str(attempt.resolve() / "diagnostics/cold-boot-journeys.junit.xml"),
+        str(attempt.resolve() / "diagnostics/e2e-journey.junit.xml"),
     )
     assert all(
         component.environment == ()
         for name, component in graph.items()
-        if name != "cold-boot-journeys"
+        if not name.startswith("e2e-")
     )
+
+
+def test_shared_results_seam_preserves_default_and_accepts_spaces(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools.rom_tests.tests.conftest import (
+        DEFAULT_RESULTS_ROOT,
+        configured_results_root,
+        result_directory,
+    )
+
+    configured = tmp_path / "isolated test evidence"
+    assert configured_results_root({}) == DEFAULT_RESULTS_ROOT.resolve()
+    monkeypatch.setenv("ROM_TEST_RESULTS", str(configured))
+    assert result_directory("suite::test case").parent == configured.resolve()
 
 
 def test_cold_boot_results_seam_preserves_default_and_accepts_spaces(
     tmp_path: Path,
 ) -> None:
-    from tools.rom_tests.tests.e2e.test_full_color_cold_boot_journey import (
-        DEFAULT_RESULTS_ROOT,
-        _configured_results_root,
-    )
+    from tools.rom_tests.tests.conftest import configured_results_root
+    from tools.rom_tests.tests.e2e.journey import test_full_color_cold_boot_journey
 
     configured = tmp_path / "isolated cold boot evidence"
-    assert _configured_results_root({}) == DEFAULT_RESULTS_ROOT.resolve()
-    assert _configured_results_root(
-        {"FULL_COLOR_COLD_BOOT_RESULTS": str(configured)}
-    ) == configured.resolve()
+    assert (
+        configured_results_root({}) / "full-color-cold-boot"
+        == test_full_color_cold_boot_journey.DEFAULT_RESULTS_ROOT.resolve()
+    )
+    assert (
+        configured_results_root({"ROM_TEST_RESULTS": str(configured)})
+        / "full-color-cold-boot"
+        == (configured / "full-color-cold-boot").resolve()
+    )
 
 
-def test_cold_boot_environment_is_passed_only_to_its_component(tmp_path: Path) -> None:
+def test_house_visual_cleanup_accepts_only_a_direct_configured_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools.rom_tests.tests.e2e.renderer.test_full_color_house_palette_visual import (
+        _prepare_results,
+    )
+
+    configured = tmp_path / "attempt evidence"
+    results = configured / "house-round-trip"
+    results.mkdir(parents=True)
+    stale = results / "stale.png"
+    stale.write_bytes(b"stale")
+    retained_directory = results / "nested"
+    retained_directory.mkdir()
+    monkeypatch.setenv("ROM_TEST_RESULTS", str(configured))
+
+    _prepare_results(results)
+    assert not stale.exists()
+    assert retained_directory.is_dir()
+
+    sibling = tmp_path / "sibling"
+    with pytest.raises(AssertionError, match="refusing to clean unexpected result path"):
+        _prepare_results(sibling)
+    nested_child = configured / "nested" / "scenario"
+    with pytest.raises(AssertionError, match="refusing to clean unexpected result path"):
+        _prepare_results(nested_child)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_outside = configured / "linked-outside"
+    linked_outside.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(AssertionError, match="refusing to clean unexpected result path"):
+        _prepare_results(linked_outside)
+
+
+def test_results_environment_is_passed_only_to_e2e_components(tmp_path: Path) -> None:
     seen: dict[str, str | None] = {}
 
     def run(
@@ -274,7 +340,7 @@ def test_cold_boot_environment_is_passed_only_to_its_component(tmp_path: Path) -
     ) -> int:
         argv = tuple(command)  # type: ignore[arg-type]
         name = stdout.stem.removesuffix(".stdout")
-        seen[name] = dict(environment).get("FULL_COLOR_COLD_BOOT_RESULTS")  # type: ignore[arg-type]
+        seen[name] = dict(environment).get("ROM_TEST_RESULTS")  # type: ignore[arg-type]
         return 0
 
     monkey_root = tmp_path / "workspace" / "tasks" / "task" / "repo"
@@ -295,14 +361,16 @@ def test_cold_boot_environment_is_passed_only_to_its_component(tmp_path: Path) -
             reporter=reporter,
         )
 
-    expected = (
-        tmp_path
-        / "results with spaces/attempt-0001/components/cold-boot-journeys"
-    ).resolve()
-    assert seen["cold-boot-journeys"] == str(expected)
-    assert all(value is None for name, value in seen.items() if name != "cold-boot-journeys")
-    cold_boot = next(row for row in summary["components"] if row["name"] == "cold-boot-journeys")  # type: ignore[union-attr]
-    assert Path(monkey_root / str(cold_boot["evidence"])).resolve() == expected
+    expected_root = (tmp_path / "results with spaces/attempt-0001/components").resolve()
+    for suite in ("core", "renderer", "journey"):
+        assert seen[f"e2e-{suite}"] == str(expected_root / f"e2e-{suite}")
+    assert all(
+        value is None for name, value in seen.items() if not name.startswith("e2e-")
+    )
+    journey = next(row for row in summary["components"] if row["name"] == "e2e-journey")  # type: ignore[union-attr]
+    assert Path(monkey_root / str(journey["evidence"])).resolve() == (
+        expected_root / "e2e-journey"
+    )
     persisted = json.loads(
         (tmp_path / "results with spaces/attempt-0001/summary.json").read_text(
             encoding="utf-8"
@@ -340,18 +408,18 @@ def test_later_certify_attempt_cannot_relink_or_rewrite_cold_boot_summary(
     )
 
     first_cold_boot = next(
-        row for row in first["components"] if row["name"] == "cold-boot-journeys"  # type: ignore[union-attr]
+        row
+        for row in first["components"]
+        if row["name"] == "e2e-journey"  # type: ignore[union-attr]
     )
     second_cold_boot = next(
-        row for row in second["components"] if row["name"] == "cold-boot-journeys"  # type: ignore[union-attr]
+        row
+        for row in second["components"]
+        if row["name"] == "e2e-journey"  # type: ignore[union-attr]
     )
     assert first_path.read_bytes() == first_bytes
-    assert "attempt-0001/components/cold-boot-journeys" in str(
-        first_cold_boot["evidence"]
-    )
-    assert "attempt-0002/components/cold-boot-journeys" in str(
-        second_cold_boot["evidence"]
-    )
+    assert "attempt-0001/components/e2e-journey" in str(first_cold_boot["evidence"])
+    assert "attempt-0002/components/e2e-journey" in str(second_cold_boot["evidence"])
 
 
 def test_results_file_is_a_bounded_json_setup_failure(
@@ -359,9 +427,9 @@ def test_results_file_is_a_bounded_json_setup_failure(
 ) -> None:
     results = tmp_path / "not-a-directory"
     results.write_text("occupied\n", encoding="utf-8")
-    assert main(
-        ["--profile", "fast", "--results", str(results), "--output", "json"]
-    ) == 2
+    assert (
+        main(["--profile", "fast", "--results", str(results), "--output", "json"]) == 2
+    )
     captured = capsys.readouterr()
     document = json.loads(captured.out)
     assert document["status"] == "setup-error"
